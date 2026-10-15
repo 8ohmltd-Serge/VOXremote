@@ -16,6 +16,14 @@ export const TUNNEL_HELLO_SCHEMA = "voxordia.remote-tunnel.hello.v1";
 export const PROOF_PURPOSE = "voxordia-remote-connector-proof";
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
+const CYRILLIC_LOOKALIKES = Object.freeze({ А: "A", В: "B", С: "C", Е: "E", Н: "H",
+  К: "K", М: "M", О: "O", Р: "P", Т: "T", Х: "X", У: "Y" });
+
+export function normalizeRemoteCode(value) {
+  return String(value ?? "").normalize("NFKC").toUpperCase()
+    .replace(/[АВСЕНКМОРТХУ]/g, (letter) => CYRILLIC_LOOKALIKES[letter])
+    .replace(/[^0-9A-Z]/g, "");
+}
 
 export function isPublicIpv4(address) {
   if (isIP(address) !== 4) return false;
@@ -134,3 +142,4 @@ export function validateTunnelHello(document, vendorPublicKeys, now = Date.now()
     licenseRevision: Number(license.revision ?? 1), licenseExpiresAt: license.expiresAt ?? null,
     media: { publicIp, portMin, portMax }, issuedAt, nonce: document.nonce };
 }
+
