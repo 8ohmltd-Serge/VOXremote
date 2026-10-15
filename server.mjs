@@ -133,7 +133,7 @@ function handleConnectorFrame(socket, installationId, message) {
 
 const handleHttp = async (request, response) => {
   securityHeaders(response);
-  const url = new URL(request.url, "https://remote.voxordia.com");
+  const url = new URL(request.url, "https://connect.voxordia.com");
   if (request.method === "GET" && url.pathname === "/health") {
     return json(response, 200, { service: "voxordia-remote-gateway", ready: true });
   }
@@ -219,7 +219,7 @@ const server = createServer((request, response) => {
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 3 * 1024 * 1024 });
 server.on("upgrade", (request, socket, head) => {
-  if (new URL(request.url, "https://remote.voxordia.com").pathname !== "/gateway/connect") return socket.destroy();
+  if (new URL(request.url, "https://connect.voxordia.com").pathname !== "/gateway/connect") return socket.destroy();
   wss.handleUpgrade(request, socket, head, (ws) => wss.emit("connection", ws));
 });
 wss.on("connection", (socket) => {
