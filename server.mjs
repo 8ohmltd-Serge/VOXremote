@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { WebSocketServer } from "ws";
-import { validateTunnelHello } from "./protocol.mjs";
+import { normalizeRemoteCode, validateTunnelHello } from "./protocol.mjs";
 
 const base = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT ?? 8080);
@@ -28,7 +28,6 @@ const live = new Map();
 const pending = new Map();
 const attempts = new Map();
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
-const normalizeCode = (value) => String(value ?? "").toUpperCase().replace(/[\s-]/g, "");
 const json = (response, status, body, headers = {}) => {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...headers });
   response.end(JSON.stringify(body));
@@ -146,10 +145,12 @@ const handleHttp = async (request, response) => {
     if (!rateAllowed(ip)) return json(response, 429, { error: "Слишком много попыток. Повторите позже." });
     try {
       const body = JSON.parse((await readBody(request, 4096)).toString("utf8"));
-      const code = normalizeCode(body.code);
-      if (!/^[2-9A-HJ-NP-Z]{10}$/.test(code)) return json(response, 401, { error: "Код недействителен" });
+      const code = normalizeRemoteCode(body.code);
+      if (!/^[2-9A-HJ-NP-Z]{10}$/.test(code)) {
+        return json(response, 401, { error: "Код должен содержать 10 латинских букв или цифр" });
+      }
       const found = await pool.query("SELECT installation_id FROM remote_codes WHERE code_digest=$1 AND expires_at>now()", [sha256(code)]);
-      if (found.rowCount !== 1) return json(response, 401, { error: "Код недействителен" });
+      if (found.rowCount !== 1) return json(response, 401, { error: "Код не найден или отозван" });
       if (!live.has(found.rows[0].installation_id)) {
         return json(response, 503, { error: "Сервер конференции временно недоступен. Повторите через несколько секунд." });
       }
