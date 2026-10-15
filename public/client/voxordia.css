@@ -1,0 +1,279 @@
+/* Shared VOXORDIA interface system for every browser surface. */
+@font-face{font-family:Geologica;src:url("/client/assets/fonts/geologica-cyrillic-ext.woff2") format("woff2");font-style:normal;font-weight:300 800;font-display:swap}
+@font-face{font-family:Geologica;src:url("/client/assets/fonts/geologica-cyrillic.woff2") format("woff2");font-style:normal;font-weight:300 800;font-display:swap}
+@font-face{font-family:Geologica;src:url("/client/assets/fonts/geologica-latin-ext.woff2") format("woff2");font-style:normal;font-weight:300 800;font-display:swap}
+@font-face{font-family:Geologica;src:url("/client/assets/fonts/geologica-latin.woff2") format("woff2");font-style:normal;font-weight:300 800;font-display:swap}
+
+:root{
+  --vx-ink:#111111;--vx-ink-2:#292725;--vx-muted:#746f69;--vx-paper:#f4f2ef;
+  --vx-surface:#ffffff;--vx-soft:#eeebe7;--vx-line:#ded9d3;--vx-red:#e5322d;
+  --vx-red-dark:#bd2521;--vx-green:#2e7d4f;--vx-amber:#b97812;--vx-blue:#315f86;
+  --vx-action:#111111;--vx-action-hover:#f4c9c7;--vx-action-hover-ink:#6f1d1a;
+  --vx-action-active:#efaeab;--vx-secondary:#efede9;--vx-secondary-hover:#e3ddd7;
+  --vx-shadow:0 10px 30px rgb(17 17 17 / 8%);--vx-radius:9px;
+}
+
+html,body,button,input,select,textarea{font-family:Geologica,Calibri,"Segoe UI",sans-serif}
+body.voxordia-surface{margin:0;color:var(--vx-ink);background:var(--vx-paper);font-size:14px;line-height:1.42}
+body.voxordia-surface *{box-sizing:border-box}
+body.voxordia-surface [hidden]{display:none!important}
+body.voxordia-surface a{color:var(--vx-ink);text-decoration-color:rgb(229 50 45 / 45%);text-underline-offset:3px}
+body.voxordia-surface a:hover{color:var(--vx-red)}
+
+.vx-brand{display:flex;align-items:center;gap:14px;min-width:0;text-decoration:none!important}
+.vx-brand img{display:block;width:154px;height:auto;flex:0 0 auto}
+.vx-brand span{padding-left:14px;border-left:1px solid var(--vx-line);color:var(--vx-muted)!important;font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+
+body.voxordia-surface>header,
+body.voxordia-surface .topbar{
+  border:0;border-bottom:1px solid var(--vx-line);background:rgb(255 255 255 / 96%);
+  color:var(--vx-ink);box-shadow:none;backdrop-filter:blur(18px)
+}
+body.voxordia-surface h1{margin:.15em 0 .55em;font-size:clamp(24px,2.2vw,34px);font-weight:680;letter-spacing:-.035em;line-height:1.08}
+body.voxordia-surface h2{color:var(--vx-ink);font-size:13px;font-weight:720;letter-spacing:-.01em;text-transform:none}
+body.voxordia-surface p{color:var(--vx-muted)}
+
+body.voxordia-surface button,
+body.voxordia-surface .button-link,
+body.voxordia-surface .button-file{
+  min-height:39px;padding:8px 13px;border:1px solid transparent;border-radius:7px;
+  background:var(--vx-action);color:#fff;font-weight:680;box-shadow:none;cursor:pointer;
+  transition:background-color .15s ease,color .15s ease,border-color .15s ease,transform .15s ease
+}
+body.voxordia-surface button:hover:not(:disabled){background:var(--vx-action-hover);color:var(--vx-action-hover-ink)}
+body.voxordia-surface button:active:not(:disabled){background:var(--vx-action-active);color:var(--vx-action-hover-ink);transform:translateY(1px)}
+body.voxordia-surface button:focus-visible{outline:3px solid rgb(229 50 45 / 24%);outline-offset:2px}
+body.voxordia-surface button.secondary,
+body.voxordia-surface button.button-quiet,
+body.voxordia-surface .secondary{background:var(--vx-secondary);color:var(--vx-ink);border-color:var(--vx-line)}
+body.voxordia-surface button.secondary:hover:not(:disabled),
+body.voxordia-surface button.button-quiet:hover:not(:disabled),
+body.voxordia-surface .secondary:hover:not(:disabled){background:var(--vx-secondary-hover);color:var(--vx-ink)}
+body.voxordia-surface button.danger,
+body.voxordia-surface .danger{background:#f7dfdc;color:#a62d29;border-color:#efcbc7}
+body.voxordia-surface button.danger:hover:not(:disabled),
+body.voxordia-surface .danger:hover:not(:disabled){background:#efcbc7;color:#8d211e}
+body.voxordia-surface button:disabled{opacity:.42;cursor:not-allowed}
+
+body.voxordia-surface input,
+body.voxordia-surface select,
+body.voxordia-surface textarea{
+  min-height:39px;padding:8px 10px;border:1px solid #cbc5be;border-radius:7px;
+  background:#fff;color:var(--vx-ink);box-shadow:none
+}
+body.voxordia-surface input:focus,
+body.voxordia-surface select:focus,
+body.voxordia-surface textarea:focus{outline:0;border-color:var(--vx-red);box-shadow:0 0 0 3px rgb(229 50 45 / 12%)}
+body.voxordia-surface label{color:#56514c;font-size:11px;font-weight:620}
+body.voxordia-surface input[type=checkbox],body.voxordia-surface input[type=radio]{accent-color:var(--vx-red)}
+
+body.voxordia-surface section,
+body.voxordia-surface .panel,
+body.voxordia-surface .card,
+body.voxordia-surface .lane,
+body.voxordia-surface .status>div{
+  border-color:var(--vx-line);border-radius:var(--vx-radius);background:var(--vx-surface);
+  color:var(--vx-ink);box-shadow:0 3px 14px rgb(17 17 17 / 4%)
+}
+body.voxordia-surface table{background:#fff;color:var(--vx-ink)}
+body.voxordia-surface th{background:#f1eeea;color:#77716b;font-size:9px;font-weight:760;letter-spacing:.075em;text-transform:uppercase}
+body.voxordia-surface th,body.voxordia-surface td{border-color:var(--vx-line)}
+body.voxordia-surface tbody tr:hover{background:#faf8f6}
+body.voxordia-surface .table-wrap{border-color:var(--vx-line);border-radius:8px;background:#fff}
+body.voxordia-surface .hint,body.voxordia-surface small{color:var(--vx-muted)}
+body.voxordia-surface .warning{border-color:#e6c995;background:#fff8e8;color:#80530d}
+body.voxordia-surface .state.on{background:#e5f3eb;color:var(--vx-green)}
+body.voxordia-surface .meter{background:#e0dcd7}
+body.voxordia-surface .meter i{background:linear-gradient(90deg,#399267 0 68%,#d8a132 82%,var(--vx-red))}
+
+/* Unified service / administrator console. */
+body.surface-service>header{position:sticky;top:0;z-index:30;justify-content:space-between;min-height:68px;padding:10px 22px}
+body.surface-service>header>.header-build{color:var(--vx-muted);font-size:11px}
+body.surface-service>main{max-width:1800px;padding:18px 20px}
+body.surface-service #login{max-width:720px;margin:7vh auto;padding:28px}
+body.surface-service #workspace{display:grid;grid-template-columns:210px minmax(0,1fr);gap:16px;align-items:start}
+body.surface-service #workspace>.row:first-child{grid-column:1/-1;justify-content:flex-end;margin:0}
+body.surface-service #portalTabs{position:sticky;top:86px;grid-column:1;display:flex;flex-direction:column;align-items:stretch;gap:4px;padding:9px;border:1px solid var(--vx-line);border-radius:9px;background:#fff;box-shadow:var(--vx-shadow)}
+body.surface-service #portalTabs button{justify-content:flex-start;width:100%;min-height:40px;background:transparent;color:#5e5954;text-align:left}
+body.surface-service #portalTabs button:hover{background:#f0ede9;color:var(--vx-ink)}
+body.surface-service #portalTabs button.active{background:var(--vx-ink);color:#fff;box-shadow:inset 4px 0 0 var(--vx-red)}
+body.surface-service #workspace>[data-panel]{grid-column:2;min-width:0}
+body.surface-service #workspace>[data-panel]>h1{padding:8px 2px 2px}
+body.surface-service .preparation-step{background:#faf9f7;border-color:var(--vx-line)}
+body.surface-service .preparation-step legend b{background:var(--vx-red)}
+body.surface-service .meeting-groups>section{background:#fff}
+body.surface-service .meeting-card{border-left-color:#aaa;background:#faf9f7}
+body.surface-service .meeting-active{border-left-color:var(--vx-red)}
+body.surface-service .meeting-planned{border-left-color:var(--vx-blue)}
+body.surface-service .system-metrics article{background:#faf9f7}
+body.surface-service .permission-matrix td:first-child,body.surface-service .permission-matrix th:first-child{background:#fff}
+
+/* Legacy service components used dark engineering surfaces. The VOXORDIA
+   service console is light, so each editable container must set its surface
+   and foreground together instead of inheriting only one side of the pair. */
+body.surface-service .editor-row.vote,
+body.surface-service .regular-editor,
+body.surface-service .regular-item,
+body.surface-service .admin-slate-card,
+body.surface-service .meeting-dialog,
+body.surface-service .summary-grid article,
+body.surface-service .archive-summary,
+body.surface-service .archive-notes,
+body.surface-service .directory-profile,
+body.surface-service .default-source{
+  border-color:var(--vx-line);background:#fff;color:var(--vx-ink)
+}
+body.surface-service .editor-row.vote,
+body.surface-service .regular-editor,
+body.surface-service .directory-profile,
+body.surface-service .default-source{box-shadow:none}
+body.surface-service .regular-item.selected,
+body.surface-service .default-source.selected{border-color:var(--vx-red);background:#fff7f6;color:var(--vx-ink)}
+body.surface-service .meeting-dialog .dialog-head small,
+body.surface-service .summary-grid span,
+body.surface-service .summary-grid time,
+body.surface-service .archive-notes time{color:var(--vx-muted)}
+body.surface-service .editor-row.vote summary,
+body.surface-service .editor-row.vote label,
+body.surface-service .regular-editor label,
+body.surface-service .directory-profile label,
+body.surface-service .default-source label{color:#56514c}
+body.surface-service .vote-fine-settings{border-color:var(--vx-line)}
+
+/* AudioCore engineering surface. */
+body.surface-audio header{min-height:68px;padding:10px 20px}
+body.surface-audio main{max-width:1800px;padding:18px 20px}
+body.surface-audio .intro{padding:20px 2px 12px}
+body.surface-audio .intro h1{font-size:34px}
+body.surface-audio .eyebrow{color:var(--vx-red)!important}
+body.surface-audio .output,body.surface-audio .sources article,body.surface-audio .dsp li,body.surface-audio .bus,body.surface-audio .matrix>div{border-color:var(--vx-line);background:#faf9f7;color:var(--vx-ink)}
+body.surface-audio .sources i{background:var(--vx-ink);color:#fff}
+body.surface-audio .output span,body.surface-audio .bus output,body.surface-audio .live-master output,body.surface-audio .live-gain output{color:var(--vx-red)}
+body.surface-audio .route{background:#e8e4df;color:#77716b}
+body.surface-audio .route.on{background:var(--vx-ink);color:#fff;box-shadow:inset 3px 0 0 var(--vx-red)}
+
+/* MediaGraph keeps media-type colours while adopting the common product shell. */
+body.surface-media-graph{--bg:#e9e6e1;--panel:#fff;--panel2:#f5f2ee;--line:#d5d0ca;--muted:#77716b;--audio:#16816d;--video:#7253ad;--control:#b97812;--danger:#c23a35;--accent:var(--vx-red);background:#e9e6e1;color:var(--vx-ink)}
+body.surface-media-graph .topbar{min-height:68px}
+body.surface-media-graph .brand img{display:block;width:142px;height:auto}
+body.surface-media-graph .brand>span{padding-left:12px;border-left:1px solid var(--vx-line);color:var(--vx-muted);font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+body.surface-media-graph .brand .back{border-color:var(--vx-line);color:var(--vx-ink);background:#f4f2ef}
+body.surface-media-graph .sidebar,body.surface-media-graph .inspector{background:#fff;border-color:var(--vx-line);color:var(--vx-ink)}
+body.surface-media-graph .canvas .react-flow{background:#e9e6e1}
+body.surface-media-graph .palette button,body.surface-media-graph .media-filters label{border-color:var(--vx-line);background:#f4f2ef;color:var(--vx-ink)}
+body.surface-media-graph .legend span,body.surface-media-graph .sidebar p,body.surface-media-graph .inspector p{color:var(--vx-muted)}
+body.surface-media-graph .media-node{border-color:#c7c0b9;background:#fff;color:var(--vx-ink);box-shadow:0 8px 24px rgb(17 17 17 / 12%)}
+body.surface-media-graph .node-kicker,body.surface-media-graph .node-subtitle{color:var(--vx-muted)}
+body.surface-media-graph .node-state{background:#aaa39b}
+body.surface-media-graph .field-row,body.surface-media-graph .capacity,body.surface-media-graph .scope{border-color:var(--vx-line)}
+body.surface-media-graph .dsp-group,body.surface-media-graph .signal-inspector,body.surface-media-graph .edge-details,body.surface-media-graph .meter-list,body.surface-media-graph .telemetry-grid,body.surface-media-graph .runtime-gain{border-color:var(--vx-line);background:#faf9f7;color:var(--vx-ink)}
+body.surface-media-graph .meter-list b,body.surface-media-graph .telemetry-grid b,body.surface-media-graph .signal-row span{color:var(--vx-ink)}
+body.surface-media-graph .react-flow__controls,
+body.surface-media-graph .react-flow__minimap{border:1px solid var(--vx-line)!important;background:#fff!important;box-shadow:0 8px 22px rgb(17 17 17 / 10%)!important}
+body.surface-media-graph .react-flow__controls button{border-color:var(--vx-line)!important;background:#fff!important;color:var(--vx-ink)!important;fill:var(--vx-ink)!important}
+body.surface-media-graph .react-flow__controls button:hover,
+body.surface-media-graph .react-flow__controls button:focus-visible{background:#f7e3e1!important;color:var(--vx-red)!important;fill:var(--vx-red)!important}
+body.surface-media-graph .react-flow__minimap-mask{fill:rgb(116 111 105 / 20%)!important}
+body.surface-media-graph .react-flow__minimap-node{stroke:#77716b!important;stroke-width:.7!important}
+body.surface-media-graph .status-dot{border-color:#c9ded2;background:#eaf6ef;color:#245f3e}
+body.surface-media-graph .react-flow__controls button svg,
+body.surface-media-graph .react-flow__controls button svg path{fill:currentColor!important}
+body.surface-media-graph.media-graph-dark{background:#07171d;color:#edf6f6}
+body.surface-media-graph.media-graph-dark .topbar,
+body.surface-media-graph.media-graph-dark .sidebar,
+body.surface-media-graph.media-graph-dark .inspector{border-color:#284049;background:#091b22;color:#edf6f6}
+body.surface-media-graph.media-graph-dark .canvas .react-flow{background:#07171d}
+body.surface-media-graph.media-graph-dark .media-node{border-color:#34525b;background:#0e252d;color:#edf6f6;box-shadow:0 10px 30px #0005}
+body.surface-media-graph.media-graph-dark .dsp-group,
+body.surface-media-graph.media-graph-dark .signal-inspector,
+body.surface-media-graph.media-graph-dark .edge-details,
+body.surface-media-graph.media-graph-dark .meter-list,
+body.surface-media-graph.media-graph-dark .telemetry-grid,
+body.surface-media-graph.media-graph-dark .runtime-gain{border-color:#284049;background:#0d262e;color:#edf6f6}
+body.surface-media-graph.media-graph-dark .react-flow__controls,
+body.surface-media-graph.media-graph-dark .react-flow__minimap{border-color:#34525b!important;background:#102730!important}
+body.surface-media-graph.media-graph-dark .react-flow__controls button{border-color:#34525b!important;background:#102730!important;color:#edf6f6!important}
+body.surface-media-graph.media-graph-dark .status-dot{border-color:#31515b;background:#102a33;color:#d7e5e7}
+body.surface-media-graph .toolbar button,
+body.surface-room-planner .room-toolbar button{
+  min-height:34px;height:34px;padding:6px 10px;font-size:11px;font-weight:680;line-height:1.2;white-space:nowrap
+}
+
+/* Room Planner remains geometry-first and uses the same navigation language. */
+body.surface-room-planner{--ink:var(--vx-ink);--teal:#315f86;--orange:var(--vx-red);--danger:#b4312c;background:#e8e5e0;color:var(--vx-ink)}
+body.surface-room-planner .topbar{min-height:68px;color:var(--vx-ink)}
+body.surface-room-planner .topbar .vx-brand{margin-right:auto}
+body.surface-room-planner .topbar label{color:#5f5a55}
+body.surface-room-planner .topbar .check{color:var(--vx-ink)}
+body.surface-room-planner .palette,body.surface-room-planner .inspector{background:#fff;border-color:var(--vx-line)}
+body.surface-room-planner .plan-shell{background:#dfdcd7}
+body.surface-room-planner .plan-readiness,body.surface-room-planner .solution,body.surface-room-planner .inspector-group>summary{background:#f2efeb;color:#4f4a45}
+body.surface-room-planner .inspector-group,body.surface-room-planner .inspector section,body.surface-room-planner .plan-library{border-color:var(--vx-line)}
+body.surface-room-planner .toast{background:var(--vx-ink)}
+body.surface-room-planner .commission-wizard,body.surface-room-planner .bulk-dialog{font-family:Geologica,Calibri,"Segoe UI",sans-serif}
+
+/* Conference entry. */
+body.surface-entry{min-height:100vh;background:linear-gradient(135deg,#efede9 0,#fff 58%,#f5dfdc 100%)}
+body.surface-entry main{max-width:1080px;margin:0 auto;padding:clamp(24px,6vh,74px) 20px}
+body.surface-entry main>section{min-width:0;padding:clamp(24px,4vw,44px);box-shadow:var(--vx-shadow)}
+body.surface-entry form,body.surface-entry label{min-width:0}
+body.surface-entry input,body.surface-entry select{width:100%}
+body.surface-entry .entry-brand{width:min(260px,72%);margin-bottom:34px}
+body.surface-entry .tabs{padding:4px;border-radius:9px;background:#efede9}
+body.surface-entry .tabs button{flex:1;background:transparent;color:var(--vx-muted)}
+body.surface-entry .tabs button.active{background:var(--vx-ink);color:#fff}
+body.surface-entry .quick-grid form,body.surface-entry .technical-login{border:1px solid var(--vx-line);background:#faf9f7}
+
+/* Contrast is part of the component contract. Legacy dark rules are loaded
+   before this shared theme, so every tab state sets both colours explicitly. */
+body.voxordia-surface .portal-subnav{border-color:var(--vx-line);background:#f1eeea}
+body.voxordia-surface .portal-subnav a{border:1px solid transparent;background:transparent;color:#5b5651!important;text-decoration:none}
+body.voxordia-surface .portal-subnav a:hover,
+body.voxordia-surface .portal-subnav a:focus-visible{border-color:#c9c2bb;background:#fff;color:var(--vx-ink)!important}
+body.voxordia-surface .portal-subnav a.active{border-color:var(--vx-red);background:var(--vx-red);color:#fff!important}
+body.voxordia-surface .secondary,
+body.voxordia-surface button.secondary,
+body.voxordia-surface button.button-quiet{background:var(--vx-secondary);color:var(--vx-ink);border-color:var(--vx-line)}
+body.voxordia-surface .danger,
+body.voxordia-surface button.danger{background:#f7dfdc;color:#8d211e}
+
+/* Quick join and quick creation are mutually exclusive states. */
+body.surface-entry main{max-width:820px}
+body.surface-entry .quick-grid{display:block;max-width:570px;margin:0 auto}
+body.surface-entry .quick-grid form{width:100%;padding:22px}
+body.surface-entry #message{max-width:570px;margin:12px auto 0}
+
+/* Voting and public display surfaces. */
+body.surface-voting{--mint:#f45a52;--amber:#f5b85e;--panel:#171717;--muted:#aaa5a0;background:radial-gradient(circle at 84% 0,#4b1715 0,transparent 35%),#090909;color:#f7f5f2}
+body.surface-voting main{background:transparent}
+body.surface-voting header{border:0;background:transparent;color:#aaa5a0}
+body.surface-voting .brand{color:#fff}
+body.surface-voting .brand::before{content:"";display:inline-block;width:13px;height:13px;margin-right:10px;border:4px solid var(--vx-red);border-radius:50%;vertical-align:-3px}
+body.surface-voting section{border:0;background:transparent;color:#f7f5f2;box-shadow:none}
+body.surface-voting .empty p,body.surface-voting .heading p{color:#aaa5a0}
+body.surface-signage .stage{--accent:var(--vx-red);border-left:0;border-top:clamp(8px,1vw,18px) solid var(--accent);background:radial-gradient(circle at 82% 18%,color-mix(in srgb,var(--accent) 22%,transparent),transparent 34%),linear-gradient(145deg,#151515,#050505)}
+body.surface-signage .content{border:0;background:transparent;box-shadow:none}
+body.surface-signage .brand{font-family:Geologica,sans-serif;letter-spacing:.04em;color:#fff}
+body.surface-signage .brand::before{content:"";display:inline-block;width:13px;height:13px;margin-right:10px;border:4px solid var(--vx-red);border-radius:50%;vertical-align:-3px}
+body.surface-signage .brand::after{content:"VOXORDIA"}
+body.surface-signage .brand{font-size:0}
+body.surface-signage .brand::after{font-size:clamp(18px,2vw,30px)}
+body.surface-signage .clock{color:#f5b85e;font-family:Geologica,Calibri,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+
+@media(max-width:900px){
+  .vx-brand img{width:132px}.vx-brand span{display:none}
+  body.surface-service #workspace{grid-template-columns:1fr}
+  body.surface-service #workspace>.row:first-child,body.surface-service #portalTabs,body.surface-service #workspace>[data-panel]{grid-column:1}
+  body.surface-service #portalTabs{position:static;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  body.surface-service #portalTabs button{text-align:center;justify-content:center}
+}
+
+@media(max-width:600px){
+  body.voxordia-surface>header{padding-inline:12px}
+  body.surface-service>main,body.surface-audio main{padding:10px}
+  body.surface-service>header>.header-build{display:none}
+  body.surface-service #login{width:100%;margin:5vh auto;padding:20px}
+  body.surface-service #portalTabs{grid-template-columns:1fr 1fr}
+  body.surface-entry main{width:100%;padding:20px}
+  body.surface-entry main>section{width:100%;padding:24px}
+}

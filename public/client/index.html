@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f4f2ef" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="VOXORDIA" />
+    <title>VOXORDIA · Конференция</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="./styles.css?v=0.7.0.49-interpreter-layout" />
+<link rel="stylesheet" href="./refresh.css?v=0.7.0.48" />
+  <link rel="stylesheet" href="/client/legibility.css?v=0.7.0.42"><link rel="stylesheet" href="/client/controls.css?v=0.7.0.43"></head>
+  <body>
+    <div id="secureWarning" class="secure-warning" hidden>
+      Камера браузера требует HTTPS. Откройте клиент по защищённому адресу VOX-S.
+    </div>
+    <div id="headphoneWarning" class="headphone-warning" hidden>
+      <span>Подключите наушники — после подключения на них автоматически поступит ваш Mix-minus и звук линейных источников.</span>
+      <button id="headphonesReadyBtn" type="button">Наушники подключены</button>
+    </div>
+
+    <main id="connectView" class="connect-view">
+      <section class="connect-card" aria-labelledby="connectTitle">
+        <img class="brand-logo" src="./assets/voxordia-logo.svg" alt="VOXORDIA" />
+        <p class="eyebrow">CONFERENCE PLATFORM</p>
+        <h1 id="connectTitle">Подключение к конференции</h1>
+        <p class="lead">Вход выполняется на странице конференций.</p>
+        <p id="connectError" class="form-error" role="alert"></p>
+        <a class="button button-primary" href="/conference/">Перейти ко входу</a>
+        <div class="connect-footer"><span id="loginBuildLabel">VOX-S v0.7.0 · build 0.7.0.49</span></div>
+      </section>
+    </main>
+
+    <div id="appView" class="app-shell" hidden>
+      <aside class="side-rail">
+        <div class="side-brand"><img src="./assets/voxordia-logo.svg" alt="VOXORDIA" /></div>
+        <nav id="desktopNav" class="side-nav" aria-label="Разделы">
+          <button class="nav-item active" data-tab="conference" title="Конференция" aria-label="Конференция"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg></span><span>Конференция</span></button>
+          <button class="nav-item" data-tab="streams" title="Камеры и потоки" aria-label="Камеры и потоки"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3z"/></svg></span><span>Камеры и потоки</span></button>
+          <button class="nav-item" data-tab="voting" title="Голосование" aria-label="Голосование"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12.5 2.6 2.6L16 9.5"/></svg></span><span>Голосование</span></button>
+          <button class="nav-item" data-tab="content" title="Материалы" aria-label="Материалы"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4M10 12h5M10 16h5"/></svg></span><span>Материалы</span></button>
+          <button class="nav-item" data-tab="translation" title="Синхроперевод" aria-label="Синхроперевод"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h9M8.5 4v2M6 6c.6 3 2.6 5.4 5 6.6M11 6c-.6 3-2.8 5.6-6 7"/><path d="M13 20l3.5-8 3.5 8M14.3 17h4.4"/></svg></span><span>Синхроперевод</span></button>
+          <button class="nav-item" data-tab="chat" title="Чат" aria-label="Чат"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg></span><span>Чат</span></button>
+          <button class="nav-item" data-tab="operations" title="Сервис" aria-label="Сервис"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></span><span>Сервис</span></button>
+          <button class="nav-item" data-tab="settings" title="Настройки" aria-label="Настройки"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/></svg></span><span>Настройки</span></button>
+        </nav>
+        <button id="secretaryLayoutBtn" class="side-layout-button" type="button" data-action="secretary-layout-edit" title="Настроить рабочее место секретаря" aria-label="Настроить рабочее место секретаря" hidden><span class="side-layout-icon" aria-hidden="true">▦</span><span class="side-layout-label">Настроить</span></button>
+        <div id="secretaryLayoutActions" class="side-layout-actions" aria-label="Настройка рабочего места секретаря" hidden>
+          <strong>Раскладка</strong>
+          <button type="button" data-action="secretary-layout-reset" title="По умолчанию" aria-label="По умолчанию"><span aria-hidden="true">↺</span><span class="side-layout-action-label">По умолчанию</span></button>
+          <button type="button" data-action="secretary-layout-cancel" title="Отмена" aria-label="Отмена"><span aria-hidden="true">×</span><span class="side-layout-action-label">Отмена</span></button>
+          <button type="button" data-action="secretary-layout-save" title="Сохранить" aria-label="Сохранить"><span aria-hidden="true">✓</span><span class="side-layout-action-label">Сохранить</span></button>
+        </div>
+        <div id="appBuildLabel" class="side-foot">VOX-S v0.7.0<br />build 0.7.0.49</div>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div class="meeting-heading">
+            <h2 id="meetingTitle">VOX-S</h2>
+            <p id="currentPageTitle" class="current-page-title">Конференция</p>
+          </div>
+          <div class="top-actions">
+            <div class="connection-pill"><i></i><span class="participant-identity"><small id="participantRole">Участник</small><b id="participantName">Участник</b></span></div>
+            <span id="eventConnectionStatus" class="event-connection-status" role="status" aria-live="polite" hidden>Обновления недоступны — переподключаемся</span>
+            <button id="mediaAccessBtn" class="icon-button media-access" type="button" aria-label="Разрешить камеру и микрофон" title="Разрешить камеру и микрофон" hidden>AV</button>
+            <button id="cameraToggleBtn" class="icon-button camera-toggle camera-off" type="button" data-action="toggle-camera-publish" aria-label="Включить и опубликовать свою камеру" title="Включить свою камеру"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3z"/></svg></button>
+            <button id="chatNoticeBtn" class="icon-button chat-notice" type="button" title="Открыть личный чат" aria-label="Открыть личный чат">✉<b id="chatNoticeBadge" hidden>0</b></button>
+            <button id="refreshBtn" class="icon-button topbar-action icon-label-button" type="button" title="Обновить данные конференции" aria-label="Обновить данные конференции"><svg class="btn-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span class="btn-label">Обновить</span></button>
+            <button id="disconnectBtn" class="icon-button topbar-action topbar-exit icon-label-button" type="button" title="Выйти из конференции" aria-label="Выйти из конференции"><svg class="btn-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4"/><path d="M15 8l4 4-4 4M19 12H9"/></svg><span class="btn-label">Выйти</span></button>
+          </div>
+        </header>
+
+        <div id="notice" class="notice" hidden></div>
+        <section id="pageContent" class="page-content" aria-live="polite"></section>
+      </section>
+
+      <div id="bottomControls" class="bottom-controls">
+        <section id="microphoneDock" class="microphone-dock" aria-label="Управление микрофоном" hidden></section>
+        <div class="fixed-utility-controls">
+          <div id="meetingState" class="fixed-meeting-state">ПОДКЛЮЧЕНИЕ</div>
+        </div>
+        <button id="enableAudioBtn" type="button" hidden>🔊 Включить звук конференции</button>
+        <nav id="mobileNav" class="mobile-nav" aria-label="Разделы">
+        <button class="nav-item active" data-tab="conference"><span>Зал</span></button>
+        <button class="nav-item" data-tab="streams"><span>Камеры</span></button>
+        <button class="nav-item" data-tab="voting"><span>Голос</span></button>
+        <button class="nav-item" data-tab="content"><span>Файлы</span></button>
+        <button class="nav-item" data-tab="translation"><span>Перевод</span></button>
+        <button class="nav-item" data-tab="chat"><span>Чат</span></button>
+        <button class="nav-item" data-tab="operations"><span>Сервис</span></button>
+        <button class="nav-item" data-tab="settings"><span>Ещё</span></button>
+        </nav>
+      </div>
+    </div>
+
+    <script src="./vendor/hls.min.js"></script>
+    <script src="./vendor/mediasoup-client.js"></script>
+    <script src="./notificationLocale.js?v=0.7.0.40-notifications-1"></script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

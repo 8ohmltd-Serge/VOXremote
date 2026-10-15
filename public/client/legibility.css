@@ -1,0 +1,85 @@
+/* Legibility floor (2026-10-14): no interface text below 11 px on any VOXORDIA page.
+   Generated from the page stylesheets; loaded after them. */
+/* audio\styles.css */
+.status small,
+.eyebrow,
+.output span,
+.output.off span, .output small, td small, .bus small,
+.live-master, .live-gain,
+th,
+.state,
+.sources i,
+.sources span, .dsp p,
+.dsp li,
+.matrix .head,
+.tap-meters b { font-size: 11px; }
+.tap-meters small { font-size: 11px; }
+/* client\styles.css */
+.side-nav .nav-item span,
+.side-foot,
+.fixed-meeting-state,
+.chat-notice b,
+.metric .metric-tag,
+.source-wall-table th,
+.source-thumb .preview-empty,
+.source-row-name .source-icon,
+.source-group-row td,
+.runtime-strip span,
+.selected-vote-label,
+.unread-dot { font-size: 11px; }
+.chat-message small,
+.voter-names,
+.mobile-nav .nav-item,
+.vote-elector-weight small,
+.auto-director-state,
+.current-page-title,
+.participant-identity small,
+.conference-agenda-bar small,
+.conference-agenda-bar .button,
+.program-panel-head small,
+.program-source-name,
+.count-badge,.live-badge { font-size: 11px; }
+.floor-person small,
+.person-avatar,
+.queue-index,
+.floor-person .button,
+.conference-side-stack .empty,
+.conference-side-stack .vote-status-label,
+.chair-priority-card small,
+.mic-button small,
+.conference-program-panel .preview-label,
+.mic-button b,
+#appView[data-role="secretary"] .side-layout-actions strong,
+#appView[data-role="secretary"] .side-layout-actions button { font-size: 11px; }
+.presenter-order,
+.secretary-panel-tools,
+.floor-person .queue-index,
+.document-viewer-header small { font-size: 11px; }
+/* media-graph\styles.css */
+.status-dot,
+.sidebar h2,.inspector h2,
+.node-kicker,
+.node-subtitle,
+.shortcut,
+.node-capacity,
+.capacity>div,
+.large-meter b,
+.meter-list,.telemetry-grid,
+.signal-inspector h3,
+.signal-row,
+.toolbar button { font-size: 11px; }
+/* service\styles.css */
+.participant-table-head,
+.permission-scope small,
+.regular-directory-table .permission-row .check,
+.participant-pick-identity small,.participant-pick-weight small,
+body.surface-service #technicalPermissionHead th small,
+body.surface-service .permission-scope-head span,
+.rl-agenda small,
+.rl-kind,
+.rl-eyebrow,
+.rl-program-strip small { font-size: 11px; }
+/* client/voxordia.css */
+.vx-brand span,
+body.voxordia-surface th,
+body.surface-media-graph .brand>span { font-size: 11px; }

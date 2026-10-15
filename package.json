@@ -1,0 +1,15 @@
+{
+  "name": "@voxordia/remote-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test protocol.test.mjs gateway.test.mjs"
+  },
+  "dependencies": {
+    "pg": "^8.23.0",
+    "ws": "^8.18.3"
+  }
+}

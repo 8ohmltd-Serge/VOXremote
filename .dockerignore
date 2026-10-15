@@ -1,0 +1,8 @@
+node_modules
+dist
+.env
+secrets
+*.log
+*.test.mjs
+build-package.ps1
+

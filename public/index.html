@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f4f2ef">
+  <title>VOXORDIA · Удалённый вход</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="entry">
+    <section class="card">
+      <div class="brand"><span>V</span><i></i><span>XORDIA</span></div>
+      <p class="eyebrow">REMOTE ACCESS</p>
+      <h1>Удалённый вход</h1>
+      <p>Введите персональный код участника. Портал сам определит нужную конференцию и сервер — списки организаций и мероприятий не публикуются.</p>
+      <form id="codeForm" autocomplete="off">
+        <label>Персональный код
+          <input id="code" name="code" inputmode="text" maxlength="14" autocomplete="one-time-code" autofocus required>
+        </label>
+        <button type="submit">Войти в конференцию</button>
+        <p id="state" role="alert"></p>
+      </form>
+      <small>Аудио и видео передаются напрямую между вашим устройством и сервером конференции.</small>
+    </section>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+﻿{
+  "name": "VOX-S v0.7.0 Conference Access, Agenda & Multiview",
+  "short_name": "VOX-S",
+  "description": "Локальный терминал VOX-S с операторской Media & Camera",
+  "start_url": "/client/",
+  "scope": "/client/",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "background_color": "#f3f5f4",
+  "theme_color": "#102b35",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/client/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
+

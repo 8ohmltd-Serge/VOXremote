@@ -1,0 +1,105 @@
+/* VOX-S controls (ADR-058): one size scale for buttons and fields on every page.
+   Linked last on all pages, after legibility.css. Sizes: compact 32, regular 40, large 48 px; radius 8 px.
+   Only presentation: no page logic depends on these rules. */
+:root {
+  --vx-control-sm: 32px;
+  --vx-control-md: 40px;
+  --vx-control-lg: 48px;
+  --vx-control-radius: 8px;
+}
+
+/* ---------- Buttons: regular (40 px) is the default everywhere ----------
+   :where() keeps this list at zero specificity, so the compact and large rules below always win. */
+:where(.button, a.button, label.button,
+#appView .side-layout-actions button, .side-layout-button,
+.surface-service button:not([data-portal-tab], .dialog-close, .rl-stepper button, .rl-add button, .rl-remove, .portal-subnav button),
+.surface-media-graph :is(.sidebar-actions, .palette, .inspector) button:not(.react-flow__node button),
+.surface-room-planner button:not(.dialog-close),
+.surface-audio button:not(.dialog-close), .surface-voting button, .surface-signage button,
+.surface-entry button:not(.dialog-close, .link-button, [data-entry-mode])) {
+  min-height: var(--vx-control-md) !important;
+  height: auto;
+  padding-block: 0 !important;
+  border-radius: var(--vx-control-radius) !important;
+  font-size: 14px !important;
+  line-height: 1.2 !important;
+  align-self: center;
+}
+:where(.button, a.button, label.button) { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+
+/* ---------- Compact (32 px): toolbars, list and table row actions, the edit strip inside blocks ---------- */
+.surface-media-graph .toolbar button,
+.surface-room-planner .room-toolbar button,
+.surface-service .action-strip button, .surface-service .technical-account-actions button,
+.surface-service .admin-slate-actions button, .surface-service .vote-rule-template button,
+.workspace-add-bar .button,
+.secretary-panel-tools button {
+  min-height: var(--vx-control-sm) !important;
+  height: var(--vx-control-sm) !important;
+  padding-block: 0 !important;
+  border-radius: var(--vx-control-radius) !important;
+  font-size: 13px !important;
+}
+.secretary-panel-tools button { min-width: var(--vx-control-sm); padding-inline: 8px !important; }
+.secretary-layout-panel.is-editing .secretary-panel-tools { height: 40px !important; }
+
+/* ---------- Large (48 px): the one main touch action ---------- */
+.mic-button, .surface-entry button[type="submit"] {
+  min-height: var(--vx-control-lg) !important;
+  height: var(--vx-control-lg) !important;
+  border-radius: var(--vx-control-radius) !important;
+  font-size: 16px !important;
+}
+
+/* Grids must not stretch buttons when a neighbour's label wraps. */
+.surface-room-planner .actions, .surface-room-planner .two, .surface-room-planner .palette, .surface-room-planner .nudge,
+.surface-media-graph .sidebar-actions, .surface-media-graph .palette { align-items: start !important; }
+.surface-room-planner .actions { display: flex !important; flex-wrap: wrap; gap: 8px; }
+.surface-room-planner .actions button { white-space: nowrap; }
+
+/* ---------- Fields: the same height as a regular button ---------- */
+:is(.surface-service, .surface-room-planner, .surface-audio, .surface-media-graph, #appView, #connectView, .surface-entry)
+  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]), select) {
+  min-height: var(--vx-control-md) !important;
+  height: var(--vx-control-md);
+  padding-block: 0 !important;
+  border-radius: var(--vx-control-radius) !important;
+  font-size: 14px !important;
+}
+/* iPad and phone browsers zoom into fields with text below 16 px: the participant and entry pages keep 16 px. */
+:is(#appView, #connectView, .surface-entry)
+  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]), select) { font-size: 16px !important; }
+
+/* A form row aligns on its fields. In grid forms every label takes three subgrid rows (caption, field, hint),
+   so fields of one row share a line however long their captions or hints are. Flex rows align on the bottom. */
+:is(.row, .action-strip):has(> label > :is(input, select)) { align-items: end !important; }
+:is(.form-grid, form.grid, .grid, .field-grid, .vote-rule-template):has(> label > :is(input, select)) {
+  align-items: start !important;
+}
+:is(.form-grid, form.grid, .grid, .field-grid, .vote-rule-template):has(> label > :is(input, select)) > label {
+  display: grid !important; grid-row: span 3; grid-template-rows: subgrid; row-gap: 6px; align-content: start;
+}
+:is(.form-grid, form.grid, .grid, .field-grid, .vote-rule-template):has(> label > :is(input, select)) > :not(label) {
+  grid-row: span 3; align-self: end;
+}
+:is(.form-grid, form.grid, .grid, .field-grid, .vote-rule-template):has(> label > :is(input, select)) > label:has(> :is(input[type="checkbox"], input[type="radio"])):not(:has(> :is(select, textarea, input:not([type="checkbox"]):not([type="radio"])))) {
+  display: flex !important; grid-template-rows: none; align-items: center; align-self: end; gap: 8px; min-height: var(--vx-control-md); padding-top: 0 !important;
+}
+:is(.form-grid, form.grid, .grid, .row, .field-grid) > label:has(> input[type="checkbox"]):not(:has(> :is(select, input:not([type="checkbox"])))) {
+  display: flex !important; align-items: center; gap: 8px; min-height: var(--vx-control-md); padding-top: 0 !important;
+}
+
+/* ---------- Dark theme of the signal graph: dark controls with a border; only the main action is light ---------- */
+body.surface-media-graph.media-graph-dark button:not(.primary):not(.danger):not(.react-flow__controls-button):not(.media-node *) {
+  background: #242220 !important; color: #f1eee9 !important; border: 1px solid #45413d !important; box-shadow: none !important;
+}
+body.surface-media-graph.media-graph-dark button:not(.primary):not(.danger):not(.react-flow__controls-button):not(.media-node *):hover {
+  background: #2d2a27 !important; border-color: #5a554f !important;
+}
+body.surface-media-graph.media-graph-dark button.primary { background: #ece8e2 !important; color: #111 !important; border: 1px solid #ece8e2 !important; }
+body.surface-media-graph.media-graph-dark button.primary:disabled { background: #2d2a27 !important; color: #8c8781 !important; border-color: #3a3632 !important; }
+body.surface-media-graph.media-graph-dark button.danger { background: transparent !important; color: #ff7a6e !important; border: 1px solid #7a3530 !important; }
+body.surface-media-graph.media-graph-dark :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) {
+  background: #141414 !important; color: #e7e3dd !important; border: 1px solid #45413d !important;
+}
+body.surface-media-graph.media-graph-dark .react-flow__controls-button { background: #242220 !important; color: #f1eee9 !important; border-color: #45413d !important; fill: #f1eee9; }
