@@ -6,6 +6,14 @@ const deviceId = () => {
   return value;
 };
 
+const fragment = new URLSearchParams(location.hash.replace(/^#/, ""));
+const linkedCode = fragment.get("code");
+if (linkedCode) {
+  history.replaceState(null, "", `${location.pathname}${location.search}`);
+  form.code.value = linkedCode;
+  queueMicrotask(() => form.requestSubmit());
+}
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const button = form.querySelector("button");
