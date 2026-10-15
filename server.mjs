@@ -96,6 +96,10 @@ function sendRequest(installationId, input, response) {
 }
 
 function handleConnectorFrame(socket, installationId, message) {
+  if (message.type === "keepalive") {
+    socket.send(JSON.stringify({ type: "keepalive-ack", at: new Date().toISOString() }));
+    return;
+  }
   if (message.type === "code-sync") {
     const validDigest = /^[a-f0-9]{64}$/.test(message.codeDigest ?? "");
     const expires = Date.parse(message.expiresAt);
@@ -145,7 +149,10 @@ const handleHttp = async (request, response) => {
       const code = normalizeCode(body.code);
       if (!/^[2-9A-HJ-NP-Z]{10}$/.test(code)) return json(response, 401, { error: "Код недействителен" });
       const found = await pool.query("SELECT installation_id FROM remote_codes WHERE code_digest=$1 AND expires_at>now()", [sha256(code)]);
-      if (found.rowCount !== 1 || !live.has(found.rows[0].installation_id)) return json(response, 401, { error: "Код недействителен" });
+      if (found.rowCount !== 1) return json(response, 401, { error: "Код недействителен" });
+      if (!live.has(found.rows[0].installation_id)) {
+        return json(response, 503, { error: "Сервер конференции временно недоступен. Повторите через несколько секунд." });
+      }
       const installationId = found.rows[0].installation_id;
       const proxyResponse = {
         headers: {}, statusCode: 200, chunks: [], headersSent: false,
@@ -279,3 +286,4 @@ setInterval(() => {
   }
 }, 60_000).unref();
 server.listen(port, "0.0.0.0", () => console.log(`VOXORDIA Remote gateway listening on :${port}`));
+
