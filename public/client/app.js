@@ -303,7 +303,7 @@ const CAMERA_AUTO_KEY = "edge-s-auto-camera";
 const MICROPHONE_AUTO_KEY = "edge-s-auto-microphone";
 const MEDIA_DEVICE_KEY = "edge-s-media-devices-v0.5";
 const TRANSLATION_VOLUME_KEY = "edge-s-translation-volume";
-const CLIENT_BUILD = "0.7.0.49";
+const CLIENT_BUILD = "0.7.0.56";
 const interfaceLocale = () => participantLanguage(state.profile?.userId);
 const uiText = (key) => participantText(key, interfaceLocale());
 const BUILD_RELOAD_KEY = "edge-s-client-build-reload";
@@ -1121,6 +1121,10 @@ function roomSeatScheme(selection) {
 
 async function offerRoomStation({ force = false } = {}) {
   if (state.roomSeatPromptOpen || !state.meeting) return;
+  if (state.profile?.remote === true) {
+    state.roomSeatDismissed = true;
+    return;
+  }
   const quickCreatorNeedsSeat = state.meeting.quick === true && state.profile.role === "operator";
   if (TECHNICAL_CONFERENCE_ROLES.has(state.profile.role) && !quickCreatorNeedsSeat && !(force && state.profile.role === "operator")) return;
   if (!force && state.roomSeatDismissed) return;
@@ -2440,3 +2444,4 @@ navigator.mediaDevices?.addEventListener?.("devicechange", () => {
     if (state.activeTab === "streams") renderPage();
   }).catch(() => {});
 });
+
