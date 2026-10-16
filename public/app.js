@@ -87,6 +87,13 @@ function show(key, error = true) {
   state.classList.toggle("error", error);
   input.setAttribute("aria-invalid", String(error));
 }
+// Russian is not in the picker: the red O of the logo switches to it, and back to the browser language.
+document.querySelector("#logoO").addEventListener("click", () => {
+  const own = fromBrowser();
+  const next = lang === "ru" ? (own && own !== "ru" ? own : "en") : "ru";
+  try { localStorage.setItem("vx-lang", next); } catch (_) { /* private mode */ }
+  setLang(next);
+});
 setLang(lang);
 
 const deviceId = () => {
