@@ -121,6 +121,7 @@
     ,"Документ отправлен в показ": "Document sent to presentation"
     ,"Доклад завершён": "Presentation finished"
     ,"Камера и микрофон готовы": "Camera and microphone are ready"
+    ,"Ваш голос уже принят": "Your vote has already been accepted"
   };
   const patterns = [
     [/^Лицензия: (.+)$/u, (part) => `Licence: ${part}`],

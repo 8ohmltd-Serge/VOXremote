@@ -96,10 +96,10 @@ async function runMicrophoneAction(action, success = null) {
   }
 }
 
-async function activateChairMicrophone() {
+async function activateChairMicrophone(mode = "normal") {
   await ensureMicrophone();
   await ensurePublishedMedia();
-  return state.api.post(`/meetings/${state.profile.meetingId}/floor/chair-activate`, { participantId: state.participantId, mode: "normal" });
+  return state.api.post(`/meetings/${state.profile.meetingId}/floor/chair-activate`, { participantId: state.participantId, mode });
 }
 
 async function grantFloor(participantId) {
@@ -1801,12 +1801,31 @@ async function createVote() {
 }
 
 async function castVote(voteId, optionId) {
-  await state.api.post(`/votes/${voteId}/cast`, {
-    participantId: state.participantId,
-    optionIds: [optionId]
-  });
-  state.voteSelections.set(voteId, optionId);
-  saveVoteSelections();
+  state.voteCastPending ??= new Map();
+  if (state.voteCastPending.has(voteId)) return false;
+  if (state.voteSelections.has(voteId) || state.votes.find((vote) => vote.id === voteId)?.hasVoted) {
+    notify("Ваш голос уже принят");
+    return false;
+  }
+  state.voteCastPending.set(voteId, optionId);
+  renderPage();
+  try {
+    await state.api.post(`/votes/${voteId}/cast`, {
+      participantId: state.participantId,
+      optionIds: [optionId]
+    });
+    state.voteSelections.set(voteId, optionId);
+    saveVoteSelections();
+  } catch (error) {
+    if (error.status !== 409 || error.serverMessage !== "Participant has already voted") throw error;
+    const vote = state.votes.find((item) => item.id === voteId);
+    if (vote) vote.hasVoted = true;
+    notify("Ваш голос уже принят");
+    return false;
+  } finally {
+    state.voteCastPending.delete(voteId);
+    renderPage();
+  }
 }
 
 async function castAdvancedVote(voteId) {

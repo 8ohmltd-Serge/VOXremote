@@ -483,7 +483,6 @@ const state = {
   pgmSlates: { selectedSlateId: null, items: [] },
   slatePreviewUrls: new Map(),
   lastOpenVoteId: null,
-  chairSelectedMode: null,
   lastRenderKey: null
 };
 
@@ -1444,6 +1443,10 @@ function startTimers() {
   state.heartbeatTimer = setInterval(() => {
     state.api.post(`/meetings/${state.profile.meetingId}/participants/${state.participantId}/presence`, { presenceId: PRESENCE_ID })
       .catch((error) => {
+        if (error.status === 401 || error.status === 403) {
+          void exitClosedConference();
+          return;
+        }
         if (error.status === 409 && error.serverMessage === "Participant presence is no longer active") {
           clearInterval(state.heartbeatTimer);
           state.heartbeatTimer = null;
@@ -1565,6 +1568,7 @@ async function refreshFloorState() {
     if (state.activeTab === "streams") updateSourceWallFloorState();
     syncConferenceAudio().catch(() => {});
   } catch (error) {
+    if (error.status === 401 || error.status === 403) return exitClosedConference();
     if (state.profile?.role === "secretary") notify(`Стенограмма не синхронизирована: ${error.message}`);
     // The normal low-frequency refresh remains the recovery path.
   } finally {
@@ -1608,6 +1612,7 @@ async function startEventStream() {
       headers: state.api.headers({ Accept: "text/event-stream" }),
       cache: "no-store", signal: controller.signal
     });
+    if (response.status === 401 || response.status === 403) return exitClosedConference();
     if (!response.ok || !response.body) throw new Error(`SSE HTTP ${response.status}`);
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -1628,6 +1633,10 @@ async function startEventStream() {
           state.eventReconnectAttempts = 0;
           setEventConnectionStatus(true);
           void pollSignaling();
+        }
+        else if (eventType === "conference.ending" || eventType === "conference.closed") {
+          void exitClosedConference();
+          return;
         }
         else if (eventType === "mediaplane.audio-input-meters") applyAudioMeters(eventPayload);
         else if (eventType === "chat.signal") void pollSignaling();
@@ -1808,6 +1817,7 @@ async function refreshAll(silent = false) {
     } else updateChatNotice();
     void maybeOfferRoomStation().catch((error) => notify(`Рассадка: ${error.message}`, 3500));
   } catch (error) {
+    if (error.status === 401 || error.status === 403) return exitClosedConference();
     if (error.status === 404 && state.profile?.meetingId) {
       clearTimers(); clearActiveSession();
       Object.assign(state, { api:null, meeting:null, participantId:null, leaseId:null });
@@ -1936,26 +1946,16 @@ async function disconnect() {
 }
 
 async function exitClosedConference() {
-  await saveSecretaryTranscript().catch((error) => notify(`Стенограмма не сохранена: ${error.message}`));
+  if (state.exitingConference) return;
+  state.exitingConference = true;
   clearTimers();
-  closeDocumentViewer();
-  try {
-    for (const view of state.mediaViews.values()) view.hls?.destroy();
-    state.mediaViews.clear();
-    state.programStageNode = null;
-    state.studioPreviewStageNode = null;
-    state.studioProgramStageNode = null;
-    state.thumbnailSinks.clear();
-    state.streamsWarmUntil = 0;
-    await closeAllPeers();
-    await closeAllChats();
-    state.localMedia?.getTracks().forEach((track) => track.stop());
-    state.contentMedia?.getTracks().forEach((track) => track.stop());
-  } catch (error) {
-    console.error("Media cleanup after conference close failed", error);
-  }
   clearActiveSession();
   sessionStorage.removeItem(AUTH_TOKEN_KEY);
+  $("#appView").hidden = true;
+  state.localMedia?.getTracks().forEach((track) => track.stop());
+  state.contentMedia?.getTracks().forEach((track) => track.stop());
+  void closeAllPeers().catch(() => {});
+  void closeAllChats().catch(() => {});
   Object.assign(state, { api: null, meeting: null, participantId: null, leaseId: null });
   location.replace("/conference/?ended=1");
 }
@@ -2089,26 +2089,10 @@ async function handleMicrophoneAction(button) {
       const queued = state.meeting.floorQueue.includes(state.participantId);
       await runMicrophoneAction(active || queued ? selfRelease : requestFloor);
     }
-    if (action === "chair-hard" || action === "chair-soft") {
-      await runMicrophoneAction(() => toggleChairPriority(action === "chair-hard" ? "hard" : "soft"));
-    }
-    if (action === "chair-mode" || action === "chair-microphone") {
-      const mode = action === "chair-mode" ? button.dataset.chairMode : state.chairSelectedMode ?? "normal";
-      if (action === "chair-mode" && state.chairSelectedMode !== mode) {
-        state.chairSelectedMode = mode;
-        renderPage();
-        return;
-      }
+    if (action === "chair-priority") await runMicrophoneAction(() => activateChairMicrophone("priority"));
+    if (action === "chair-take-floor") {
       const speaking = state.meeting.activeSpeakerIds.includes(state.participantId);
-      const activePriority = state.meeting.chairPriority?.chairId === state.participantId
-        ? state.meeting.chairPriority.mode : null;
-      if (speaking && (mode === activePriority || mode === "normal" && !activePriority)) {
-        await runMicrophoneAction(activePriority ? () => toggleChairPriority(activePriority) : selfRelease);
-      } else if (mode === "normal") {
-        if (activePriority) await toggleChairPriority(activePriority);
-        await runMicrophoneAction(activateChairMicrophone);
-      } else await runMicrophoneAction(() => toggleChairPriority(mode));
-      renderPage();
+      await runMicrophoneAction(speaking ? selfRelease : () => activateChairMicrophone("normal"));
     }
   } finally { button.disabled = false; }
 }

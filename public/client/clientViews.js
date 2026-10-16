@@ -258,13 +258,14 @@ function voteOutcomeLabel(vote) {
 function conferenceVoteCard(vote, heading) {
   if (!vote) return "";
   const selectedOptionId = state.voteSelections.get(vote.id) ?? vote.namedBallots?.find((ballot) => ballot.participantId === state.participantId)?.optionId;
+  const pendingOptionId = state.voteCastPending?.get(vote.id);
   const remaining = vote.status === "open" && vote.closesAt ? Math.max(0, Math.ceil((Date.parse(vote.closesAt) - Date.now()) / 1000)) : null;
   const options = vote.options.map((option) => {
     const voters = vote.mode === "named" ? (vote.namedBallots ?? []).filter((ballot) => ballot.optionId === option.id).map((ballot) => ballot.displayName).join(", ") : "";
     const canChoose = vote.ballotType === "single" && vote.status === "open" && isEligibleForVote(vote) && !selectedOptionId && !vote.hasVoted;
     const selected = selectedOptionId === option.id;
     const semantic = { "за": "vote-for", "против": "vote-against", "воздержался": "vote-abstain" }[String(option.label).trim().toLocaleLowerCase("ru-RU")] ?? "vote-other";
-    return `<div class="option-row ${semantic} ${selected ? "selected" : ""}"><span>${escapeHtml(option.label)}${selected ? '<small class="selected-vote-label">✓ Ваш выбор принят</small>' : ""}${voters ? `<small class="voter-names">${escapeHtml(voters)}</small>` : ""}</span><strong>${vote.results?.[option.id] ?? 0}</strong>${canChoose ? `<button class="button vote-choice ${semantic}" aria-pressed="${selected}" data-action="cast-vote" data-vote-id="${vote.id}" data-option-id="${option.id}">Выбрать</button>` : ""}</div>`;
+    return `<div class="option-row ${semantic} ${selected ? "selected" : ""}"><span>${escapeHtml(option.label)}${selected ? '<small class="selected-vote-label">✓ Ваш выбор принят</small>' : ""}${voters ? `<small class="voter-names">${escapeHtml(voters)}</small>` : ""}</span><strong>${vote.results?.[option.id] ?? 0}</strong>${canChoose && (!pendingOptionId || pendingOptionId === option.id) ? `<button class="button vote-choice ${semantic}" aria-pressed="${selected}" data-action="cast-vote" data-vote-id="${vote.id}" data-option-id="${option.id}" ${pendingOptionId ? "disabled" : ""}>${pendingOptionId ? "Отправляем…" : "Выбрать"}</button>` : ""}</div>`;
   }).join("");
   const summary = vote.electorateSummary ?? {};
   const ballot = vote.status === "open" && isEligibleForVote(vote) && !vote.hasVoted ? advancedBallot(vote) : "";
@@ -343,12 +344,7 @@ function renderMicrophoneDock() {
     return;
   }
   if (participant.role === "chair") {
-    const active = state.meeting.chairPriority?.mode;
-    // Colour states what happens on press: black = turn on, red = on air (press to turn off).
-    const color = speaking ? "mic-green mic-live" : "mic-red mic-idle";
-    const selected = state.chairSelectedMode ?? "normal";
-    const modeLabel = { normal: "Включиться в конференцию", hard: "Выключить всех", soft: "Приглушить всех" }[selected];
-    dock.innerHTML = `<button type="button" class="mic-button ${color}" data-mic-action="chair-microphone" ${meetingPaused ? "disabled" : ""} aria-label="${speaking ? "Выключить микрофон" : `Включить микрофон: ${modeLabel}`}">${microphoneIcon(speaking ? "on" : "off")}<span><b>${speaking ? "Выключить микрофон" : "Включить микрофон"}</b><small>${meetingPaused ? "Конференция на паузе" : `Режим: ${modeLabel}${active ? " · активен" : ""}`}</small></span></button>${speaking ? '<span class="on-air-tag" role="status">● В эфире</span>' : ""}`;
+    dock.innerHTML = `<button type="button" class="mic-button chair-mic-button mic-red" data-mic-action="chair-priority" ${meetingPaused ? "disabled" : ""} aria-label="Приоритет: выключить микрофоны остальных участников, кроме председателей, и взять слово">${microphoneIcon("on")}<span><b>Приоритет</b><small>Выключить остальные микрофоны</small></span></button><button type="button" class="mic-button chair-mic-button ${speaking ? "mic-green mic-live" : "mic-red mic-idle"}" data-mic-action="chair-take-floor" ${meetingPaused ? "disabled" : ""} aria-label="${speaking ? "Выключить свой микрофон" : "Взять слово без отключения остальных"}">${microphoneIcon(speaking ? "on" : "off")}<span><b>${speaking ? "Выключить микрофон" : "Взять слово"}</b><small>${speaking ? "Вы в эфире" : "Остальные микрофоны работают"}</small></span></button>${speaking ? '<span class="on-air-tag" role="status">● В эфире</span>' : ""}`;
     updateDocumentViewerBadge();
     return;
   }
@@ -547,10 +543,10 @@ async function clearSecretaryEditor() {
 const WORKSPACE_BASE_PANELS = ["program", "speakers", "queue", "materials", "vote"];
 const WORKSPACE_PANEL_SIZES = { program: { width: 7, height: 400 }, speakers: { width: 5, height: 140 },
   queue: { width: 5, height: 250 }, materials: { width: 5, height: 190 }, vote: { width: 5, height: 190 },
-  modes: { width: 7, height: 90 }, metrics: { width: 7, height: 100 },
+  metrics: { width: 7, height: 100 },
   service: { width: 4, height: 170 }, translation: { width: 4, height: 190 } };
 const WORKSPACE_PANEL_LABELS = { program: "Трансляция зала", speakers: "Сейчас выступают", queue: "Очередь запросов",
-  materials: "Материалы к пункту", vote: "Голосование", modes: "Режимы микрофона", metrics: "Показатели",
+  materials: "Материалы к пункту", vote: "Голосование", metrics: "Показатели",
   service: "Сервис", translation: "Перевод" };
 const WORKSPACE_PERSONAL_ROLES = ["operator", "av_operator", "technician", "admin"];
 // Blocks pack on 2 px rows with a 6 px gap between them.
@@ -588,7 +584,7 @@ function watchProgramTiles() {
 
 function workspacePanelIds(role = state.profile?.role) {
   if (["interpreter", "translator"].includes(role)) return ["program", "translation", "speakers"];
-  if (role === "chair") return ["program", "speakers", "queue", "modes", "materials", "vote"];
+  if (role === "chair") return ["program", "speakers", "queue", "materials", "vote"];
   if (WORKSPACE_PERSONAL_ROLES.includes(role)) return [...WORKSPACE_BASE_PANELS, "metrics"];
   return [...WORKSPACE_BASE_PANELS];
 }
@@ -888,11 +884,6 @@ function conferenceHtml() {
   const voteStatus = focusVote ? "" : conferenceVoteStatusCard(openVote, closedVote);
   const activePresentation = state.presentations.find((item) => item.status === "active");
   const presentationOffer = activePresentation ? `<article class="panel panel-pad material-offer"><h4 class="panel-title">Материал отправлен в показ</h4><h3>${escapeHtml(activePresentation.title)}</h3><div class="action-strip"><button class="button button-secondary" data-action="open-presentation-document" data-document-id="${activePresentation.documentId}" data-presentation-id="${activePresentation.id}">Открыть показ</button>${canManageContent() ? `<button class="button button-danger" data-action="stop-presentation" data-presentation-id="${activePresentation.id}">Убрать из показа</button>` : ""}</div></article>` : "";
-  const chairPriority = state.profile.role === "chair" ? `<div class="chair-priority-grid">${[
-    ["normal", "Включиться в конференцию", "Без отключения остальных"],
-    ["hard", "Выключить всех", "Очередь будет сброшена"],
-    ["soft", "Приглушить всех", "Очередь будет сохранена"]
-  ].map(([mode, label, hint]) => `<button type="button" class="chair-priority-card ${state.chairSelectedMode === mode ? "is-selected" : ""} ${state.meeting.chairPriority?.mode === mode ? "is-active" : ""}" data-mic-action="chair-mode" data-chair-mode="${mode}" aria-pressed="${state.chairSelectedMode === mode}"><span class="priority-icon">${microphoneIcon(mode === "normal" ? "off" : mode)}</span><span><b>${label}</b><small>${hint}${state.chairSelectedMode === mode ? " · нажмите ещё раз для включения" : ""}</small></span></button>`).join("")}</div>` : "";
   const programPanel = `<article class="panel conference-program-panel"><div id="programStage" class="preview-stage program-stage-large"><div class="preview-empty">В Program пока не назначен источник.</div></div></article>`;
   const channelsPanel = `<article class="panel panel-pad secretary-open-channels"><h4 class="panel-title">Открытые каналы</h4><div class="secretary-speakers">${secretarySpeakersHtml()}</div></article>`;
   const queuePanel = `<article class="panel panel-pad conference-queue-panel"><div class="section-title-row"><h4 class="panel-title">Очередь запросов</h4><span class="count-badge">${state.meeting.floorQueue.length}</span></div>${queue}</article>`;
@@ -912,7 +903,7 @@ function conferenceHtml() {
       materials: presentationOffer || materialOffer ? `<div class="workspace-stack">${presentationOffer}${materialOffer}</div>`
         : emptyCard("Материалы к пункту", "К этому пункту материалов нет.", "material-offer"),
       vote: voteFocus || voteStatus || emptyCard("Голосование", "Голосований пока не было.", "conference-vote-status"),
-      modes: chairPriority, metrics,
+      metrics,
       service: serviceCardHtml("workspace-service"),
       translation: !state.translateStatus?.licensed ? emptyCard("Перевод", "Синхроперевод не подключён.", "workspace-translation")
         : (state.translateMeeting?.channels ?? []).length ? translationListenHtml("workspace-translation")
@@ -927,7 +918,7 @@ function conferenceHtml() {
     workspaceDashboard = `<div class="workspace-area"><div class="secretary-layout-grid workspace-grid${state.secretaryLayoutDraft ? " is-editing" : ""}" style="grid-auto-rows:${WORKSPACE_ROW}px;column-gap:${WORKSPACE_GAP}px">${layout.order.filter((id) => panels[id]).map((id) => secretaryLayoutPanel(id, panels[id])).join("")}</div></div>`;
     watchProgramTiles();
   }
-  const standardDashboard = workspaceDashboard || `<div class="conference-dashboard ${focusVote ? "has-focus" : ""}"><div class="conference-main-column">${voteFocus}${programPanel}${chairPriority}${belowProgram}</div><div class="conference-side-stack">${speakersPanel}${queuePanel}</div></div>`;
+  const standardDashboard = workspaceDashboard || `<div class="conference-dashboard ${focusVote ? "has-focus" : ""}"><div class="conference-main-column">${voteFocus}${programPanel}${belowProgram}</div><div class="conference-side-stack">${speakersPanel}${queuePanel}</div></div>`;
   return `
     <header class="conference-agenda-bar"><span class="agenda-number">${activeAgendaIndex || "—"}</span><div><small>${state.meeting.pausedAt ? "КОНФЕРЕНЦИЯ НА ПАУЗЕ" : activeAgenda ? "ОБСУЖДАЕТСЯ СЕЙЧАС" : "ПОВЕСТКА"}</small><strong>${escapeHtml(activeAgenda?.title ?? "Текущий вопрос не выбран")}</strong></div><div class="conference-agenda-actions">${agendaAction}${pauseAction}${closeAction}</div></header>
     ${state.profile.role === "secretary" ? secretaryDashboard : standardDashboard}
@@ -1617,6 +1608,7 @@ function votingHtml() {
   const items = state.votes.length ? state.votes.map((vote) => {
     const options = vote.options.map((option) => {
       const selectedOptionId = state.voteSelections.get(vote.id) ?? vote.namedBallots?.find((ballot) => ballot.participantId === state.participantId)?.optionId;
+      const pendingOptionId = state.voteCastPending?.get(vote.id);
       const selected = selectedOptionId === option.id;
       const namedVoters = vote.mode === "named" && vote.namedBallots
         ? vote.namedBallots.filter((ballot) => ballot.optionId === option.id).map((ballot) => ballot.displayName).join(", ")
@@ -1624,7 +1616,7 @@ function votingHtml() {
       const semantic = { "за": "vote-for", "против": "vote-against", "воздержался": "vote-abstain" }[String(option.label).trim().toLocaleLowerCase("ru-RU")] ?? "vote-other";
       return `<div class="option-row ${semantic} ${selected ? "selected" : ""}"><span>${escapeHtml(option.label)}${selected ? `<small class="selected-vote-label">✓ Ваш выбор принят</small>` : ""}${namedVoters ? `<small class="voter-names">${escapeHtml(namedVoters)}</small>` : ""}</span>${
       vote.status === "open" && isEligibleForVote(vote) && vote.ballotType === "single"
-        ? `<button class="button vote-choice ${semantic} ${selected ? "button-selected" : ""}" aria-pressed="${selected}" data-action="cast-vote" data-vote-id="${vote.id}" data-option-id="${option.id}" ${selectedOptionId || vote.hasVoted ? "disabled" : ""}>${selected ? "✓ Выбрано" : vote.hasVoted ? "Голос принят" : "Выбрать"}</button>`
+        ? `<button class="button vote-choice ${semantic} ${selected ? "button-selected" : ""}" aria-pressed="${selected}" data-action="cast-vote" data-vote-id="${vote.id}" data-option-id="${option.id}" ${selectedOptionId || vote.hasVoted || pendingOptionId ? "disabled" : ""}>${selected ? "✓ Выбрано" : vote.hasVoted ? "Голос принят" : pendingOptionId === option.id ? "Отправляем…" : "Выбрать"}</button>`
         : vote.results ? `<strong>${vote.results[option.id] || 0}</strong>` : ""
     }</div>`;
     }).join("");

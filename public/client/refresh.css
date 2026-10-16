@@ -100,7 +100,14 @@ body:not([data-role="admin"]):not([data-role="technician"]):not([data-role="oper
   .conference-agenda-bar strong { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 15px; }
   .topbar h2 { font-size: 15px; }
 }
-.on-air-tag { order: -1; }
+.on-air-tag { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.chair-mic-button { width: min(250px, 27vw); flex: 0 1 250px; min-width: 0; }
+.chair-mic-button b { font-size: 14px; }
+@media (max-width: 760px) {
+  .chair-mic-button { width: min(46vw, 250px); flex: 0 1 250px; padding-inline: 8px; gap: 6px; }
+  .chair-mic-button small { display: none; }
+  .on-air-tag { left: 8px; top: 0; transform: translateY(-100%); font-size: 11px; padding: 3px 7px; }
+}
 
 /* Program picture keeps its 16:9 shape on landscape tablets: no letterbox bars. */
 @media (orientation: landscape) and (min-width: 761px) {
@@ -150,7 +157,6 @@ body:not([data-role="admin"]):not([data-role="technician"]):not([data-role="oper
   .conference-main-column { display: contents; }
   .conference-focus { order: 0; }
   .conference-program-panel { order: 1; }
-  .chair-priority-grid { order: 2; }
   .conference-side-stack { order: 3; }
   .conference-below { order: 4; }
 }
@@ -162,16 +168,6 @@ body:not([data-role="admin"]):not([data-role="technician"]):not([data-role="oper
   .conference-dashboard {
     --pgm-w: min(calc(100vw - var(--side-rail-width) - 380px), calc((100dvh - var(--bottom-controls-height) - 394px) * 16 / 9));
     grid-template-columns: var(--pgm-w) minmax(300px, 1fr) !important; }
-  /* Chair: picture + priority modes on the left; floor, queue and reference cards share the right column. */
-  .conference-dashboard:has(.chair-priority-grid) {
-    --pgm-w: min(calc(100vw - var(--side-rail-width) - 400px), calc((100dvh - var(--bottom-controls-height) - 260px) * 16 / 9));
-    grid-template-areas: "pgm side" "modes below"; grid-template-rows: auto auto; align-items: start; align-content: start; }
-  .conference-dashboard:has(.chair-priority-grid) .conference-main-column { display: contents; }
-  .conference-dashboard:has(.chair-priority-grid) .conference-program-panel { grid-area: pgm; }
-  .conference-dashboard:has(.chair-priority-grid) .chair-priority-grid { grid-area: modes; }
-  .conference-dashboard:has(.chair-priority-grid) .conference-side-stack { grid-area: side; align-self: stretch; }
-  .conference-dashboard:has(.chair-priority-grid) .conference-below { grid-area: below; grid-template-columns: 1fr; align-self: start; }
-  .conference-dashboard:has(.chair-priority-grid) .conference-program-panel { height: auto !important; min-height: 0; align-self: start; }
   .conference-main-column > .conference-program-panel { width: 100%; }
 }
 
@@ -188,16 +184,23 @@ body:not([data-role="admin"]):not([data-role="technician"]):not([data-role="oper
 /* ---------- Conference workspace (constructor) for participant and technical roles ---------- */
 .workspace-grid { grid-auto-rows: 2px; row-gap: 0 !important; column-gap: 6px; grid-auto-flow: row dense; align-items: start; }
 .conference-screen-fit:has(.workspace-area){overflow-y:auto!important;overscroll-behavior:contain}
+/* Keep the scroll track above the fixed microphone dock on iPad and desktop.
+   The dock height is measured by ResizeObserver, including the safe area. */
+@media (min-width: 761px) {
+  .conference-screen-fit {
+    box-sizing: border-box;
+    height: calc(100dvh - 64px - var(--bottom-controls-height));
+    padding-bottom: 12px;
+    overflow-y: auto;
+  }
+}
 .workspace-grid > .secretary-layout-panel { grid-column: span var(--layout-span); }
 .workspace-grid > .secretary-layout-panel > .conference-program-panel { height: auto !important; overflow: hidden; }
 .workspace-grid .workspace-stack { display: grid; gap: 6px; height: 100%; min-height: 0; overflow: auto; align-content: start; }
 .workspace-grid .workspace-stack > .panel { margin: 0; }
-.workspace-grid .chair-priority-grid { height: 100%; align-items: stretch; }
 .workspace-metrics .grid-3 { gap: 8px; }
 .workspace-metrics .metric { padding: 8px 10px; border-radius: 8px; background: var(--paper); }
 @media (max-width: 900px) { .workspace-grid > .secretary-layout-panel { grid-column: span 12 !important; } }
-.workspace-grid .chair-priority-grid { align-items: stretch; }
-.workspace-grid .chair-priority-card { min-height: 0; }
 
 .workspace-grid .conference-vote-status h3.vote-status-question { font-size: 15px !important; line-height: 1.3; }
 .workspace-grid .conference-vote-status .action-strip .button { min-height: 34px; padding: 6px 10px; font-size: 12px; }
