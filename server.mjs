@@ -214,7 +214,7 @@ const handleHttp = async (request, response) => {
     response.writeHead(404); response.end("Not found"); return;
   }
   const type = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
-    ".svg": "image/svg+xml", ".json": "application/json", ".webmanifest": "application/manifest+json", ".mjs": "text/javascript; charset=utf-8" }[path.extname(target)] ?? "application/octet-stream";
+    ".svg": "image/svg+xml", ".woff2": "font/woff2", ".png": "image/png", ".json": "application/json", ".webmanifest": "application/manifest+json", ".mjs": "text/javascript; charset=utf-8" }[path.extname(target)] ?? "application/octet-stream";
   response.writeHead(200, { "content-type": type, "cache-control": target.endsWith("index.html") ? "no-store" : "public,max-age=300" });
   createReadStream(target).pipe(response);
 };
