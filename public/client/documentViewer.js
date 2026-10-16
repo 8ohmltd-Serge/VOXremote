@@ -108,23 +108,39 @@ export function updateDocumentViewerBadge() {
   if (!dock) return;
   let badge = document.querySelector("#documentViewerBadge");
   if (!badge) {
-    badge = document.createElement("button");
+    badge = document.createElement("span");
     badge.id = "documentViewerBadge";
-    badge.type = "button";
-    badge.className = "button button-secondary document-viewer-badge";
-    badge.textContent = "▣ Развернуть документ";
-    badge.addEventListener("click", () => {
+    badge.className = "document-viewer-badge-group";
+    badge.innerHTML = '<button type="button" class="button button-secondary document-viewer-badge" data-document-expand>▣ Развернуть документ</button>' +
+      '<button type="button" class="button button-secondary document-viewer-stop" data-document-stop title="Убрать из показа" aria-label="Убрать документ из показа">' +
+      '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 12h8"/></svg></button>';
+    badge.querySelector("[data-document-expand]").addEventListener("click", () => {
       if (!current) return;
       current.root.hidden = false;
       badge.hidden = true;
       current.minimized = false;
       updateDocumentViewerBadge();
     });
+    badge.querySelector("[data-document-stop]").addEventListener("click", async (event) => {
+      if (!current?.presentation || !current.canControl || !current.onStopPresentation) return;
+      const button = event.currentTarget;
+      button.disabled = true;
+      try { await current.onStopPresentation(current.presentation.id); closeDocumentViewer(); }
+      catch (error) { viewerError(current, error.message); button.disabled = false; }
+    });
   }
   if (badge.parentElement !== dock) dock.append(badge);
-  badge.hidden = !current?.minimized;
+  badge.hidden = !current?.minimized || Boolean(document.querySelector("#activePresentationBadge"));
+  badge.querySelector("[data-document-stop]").hidden = !current?.presentation || !current.canControl;
   dock.classList.toggle("has-document-badge", Boolean(current?.minimized));
   if (current?.minimized) dock.hidden = false;
+}
+
+export function minimizeDocumentViewer() {
+  if (!current?.presentation) return;
+  current.minimized = true;
+  current.root.hidden = true;
+  updateDocumentViewerBadge();
 }
 
 export function closeDocumentViewer() {
@@ -352,15 +368,18 @@ function pointFromEvent(viewer, event) {
 
 export async function openDocumentViewer({ api, document: item, presentation = null,
   userId, participantId = null, quickMeeting = false, canAnnotate = false, canControl = false,
-  draft = false, onSendToHall = null,
+  draft = false, onSendToHall = null, onStopPresentation = null,
   archiveScene = null }) {
   closeDocumentViewer();
-  const isPresentationLeader = presentation?.startedByParticipantId
-    ? presentation.startedByParticipantId === participantId
-    : presentation?.startedBy === userId;
-  const canDriveViewport = Boolean(presentation && canControl &&
-    (!quickMeeting || !presentation.startedBy || isPresentationLeader));
-  const followAvailable = Boolean(presentation && !archiveScene && !canDriveViewport);
+  const isPresentationLeader = presentation?.leaderParticipantId
+    ? presentation.leaderParticipantId === participantId
+    : presentation?.leaderUserId ? presentation.leaderUserId === userId
+      : presentation?.leaderAssigned ? false
+        : presentation?.startedByParticipantId ? presentation.startedByParticipantId === participantId
+        : presentation?.startedBy === userId;
+  const canDriveViewport = Boolean(presentation && (quickMeeting ? isPresentationLeader : canControl));
+  const hasLeader = !presentation?.leaderAssigned || Boolean(presentation.leaderParticipantId || presentation.leaderUserId);
+  const followAvailable = Boolean(presentation && hasLeader && !archiveScene && !canDriveViewport);
   const response = await api.request("/documents/" + encodeURIComponent(item.id) + "/content");
   const blob = await response.blob();
   const root = document.createElement("div");
@@ -373,7 +392,6 @@ export async function openDocumentViewer({ api, document: item, presentation = n
     '<button type="button" data-viewer="minus">−</button><span data-viewer-zoom></span>' +
     '<button type="button" data-viewer="plus">+</button>' +
     (followAvailable ? '<button type="button" data-viewer="follow" class="selected" aria-pressed="true">Следую за ведущим</button>' : '') +
-    (presentation && !archiveScene ? '<button type="button" data-viewer="minimize">Свернуть</button>' : '') +
     (canControl ? '<button type="button" class="button" data-viewer="hall">' +
       (presentation?.programStreamId ? 'Завершить показ в PGM' :
         presentation?.multiviewStreamId ? 'Убрать плитку из PGM' : 'Отправить в зал') + '</button>' : '') +
@@ -396,7 +414,7 @@ export async function openDocumentViewer({ api, document: item, presentation = n
   const sceneBase = archiveScene ? null : presentation ? "/presentations/" + presentation.id :
     draft ? "/documents/" + item.id + "/draft" : null;
   const viewer = { api, item, presentation, draft, userId, canAnnotate, canControl,
-    canDriveViewport, followAvailable, onSendToHall,
+    canDriveViewport, followAvailable, onSendToHall, onStopPresentation,
     sceneBase, scenePath: presentation ? sceneBase + "/scene" : sceneBase,
     sceneId: presentation?.id ?? (draft ? "draft:" + item.id : null),
     root, stage: root.querySelector(".document-viewer-stage"),
@@ -409,7 +427,9 @@ export async function openDocumentViewer({ api, document: item, presentation = n
     renderToken: 0, text: null };
   current = viewer;
   root.querySelector('[data-viewer="close"]').addEventListener("click", () => {
-    if (current === viewer) closeDocumentViewer();
+    if (current !== viewer) return;
+    if (viewer.presentation && !archiveScene) minimizeDocumentViewer();
+    else closeDocumentViewer();
   });
   updateDocumentViewerRights({ canView: true, canAnnotate });
   root.querySelector("h2").textContent = item.fileName;
@@ -678,7 +698,6 @@ export async function openDocumentViewer({ api, document: item, presentation = n
       try { await api.post(viewer.sceneBase + "/color", { color }); await refreshScene(viewer); }
       catch (error) { viewerError(viewer, error.message); }
     }
-    if (action === "minimize") { viewer.minimized = true; root.hidden = true; updateDocumentViewerBadge(); }
     if (action === "hall") {
       try {
         const target = presentation.programStreamId ? "remove-program" :

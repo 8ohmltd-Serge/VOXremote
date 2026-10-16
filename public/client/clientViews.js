@@ -150,7 +150,8 @@ function updateNavigationVisibility() {
     $$(`.nav-item[data-tab="${tab}"]`).forEach((button) => { button.hidden = !shown; });
     if (!shown && state.activeTab === tab) selectTab(interpreterRole ? "translation" : "conference").catch(() => {});
   }
-  $$(".nav-item[data-tab='operations']").forEach((button) => { button.hidden = interpreterRole; });
+  const remoteParticipant = state.profile?.remote === true;
+  $$(".nav-item[data-tab='operations']").forEach((button) => { button.hidden = interpreterRole || remoteParticipant; });
   $$(".nav-item[data-tab='translation']").forEach((button) => {
     const label = button.querySelector("span:last-child");
     if (interpreterRole && label) label.textContent = button.closest("#mobileNav") ? "Пульт" : "Рабочее место";
@@ -251,12 +252,26 @@ function advancedBallot(vote) {
   if (vote.ballotType === "single") return "";
   const name = `ballot-${vote.id}`;
   const fields = vote.options.map((option, index) => {
-    if (vote.ballotType === "cumulative") return `<label class="option-row"><span>${escapeHtml(option.label)}</span><input type="number" min="0" max="${vote.ballotConfig?.points ?? 10}" value="0" data-ballot-allocation="${escapeHtml(option.id)}"></label>`;
-    if (vote.ballotType === "ranked") return `<label class="option-row"><span>${escapeHtml(option.label)}</span><input type="number" min="0" max="${vote.options.length}" value="${index + 1}" data-ballot-rank="${escapeHtml(option.id)}"></label>`;
+    if (vote.ballotType === "cumulative") return `<label class="option-row"><span>${escapeHtml(option.label)}</span><input type="number" min="0" max="${vote.ballotConfig?.points ?? 10}" value="0" data-ballot-allocation="${escapeHtml(option.id)}" aria-label="Баллы: ${escapeHtml(option.label)}"></label>`;
+    if (vote.ballotType === "ranked") return `<label class="option-row"><span>${escapeHtml(option.label)}</span><input type="number" min="0" max="${vote.options.length}" value="${index + 1}" data-ballot-rank="${escapeHtml(option.id)}" aria-label="Место в рейтинге: ${escapeHtml(option.label)}"></label>`;
     const attribute = vote.ballotType === "veto" ? "data-ballot-veto" : "data-ballot-approval";
     return `<label class="option-row"><span>${escapeHtml(option.label)}</span><input type="checkbox" ${attribute}="${escapeHtml(option.id)}"></label>`;
   }).join("");
-  return `<div class="advanced-ballot" data-ballot-vote="${escapeHtml(vote.id)}" aria-label="Бюллетень">${fields}<button class="button button-primary" data-action="cast-advanced-vote" data-vote-id="${escapeHtml(vote.id)}">Отправить бюллетень</button></div>`;
+  return `<div class="advanced-ballot" data-ballot-vote="${escapeHtml(vote.id)}" role="group" aria-label="Бюллетень"><p class="advanced-ballot-hint">${vote.ballotType === "ranked" ? "Укажите порядок предпочтения" : vote.ballotType === "cumulative" ? "Распределите баллы между вариантами" : "Отметьте подходящие варианты"}</p>${fields}<button class="button button-primary" data-action="cast-advanced-vote" data-vote-id="${escapeHtml(vote.id)}">Отправить бюллетень</button></div>`;
+}
+
+const VOTE_MODE_LABELS = { named: "Открытое", anonymous: "Тайное", secret: "Тайное" };
+const VOTE_STATUS_LABELS = { draft: "Подготовка", open: "Идёт голосование", closed: "Завершено" };
+const VOTE_RULE_LABELS = { "standard-majority": "Обычное большинство" };
+function voteTimer(vote, remaining) {
+  return remaining === null ? "" : `<strong class="vote-timer" role="timer" data-vote-countdown="${escapeHtml(vote.closesAt)}" aria-label="Осталось времени"><small>ОСТАЛОСЬ</small><span>${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}</span></strong>`;
+}
+function updateVoteCountdowns() {
+  document.querySelectorAll("[data-vote-countdown]").forEach((timer) => {
+    const seconds = Math.max(0, Math.ceil((Date.parse(timer.dataset.voteCountdown) - Date.now()) / 1000));
+    const label = timer.querySelector("span");
+    if (label) label.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  });
 }
 
 function voteOutcomeLabel(vote) {
@@ -278,7 +293,7 @@ function conferenceVoteCard(vote, heading) {
   }).join("");
   const summary = vote.electorateSummary ?? {};
   const ballot = vote.status === "open" && isEligibleForVote(vote) && !vote.hasVoted ? advancedBallot(vote) : "";
-  return `<article class="vote-detail ${vote.status === "open" ? "active-vote" : "vote-result"}"><h4 class="panel-title">${heading}</h4><h3 class="vote-question">${escapeHtml(vote.topic ?? vote.question)}</h3><p>${escapeHtml(vote.question)}</p>${vote.status === "closed" ? `<p class="vote-outcome"><strong>Результат:</strong> ${escapeHtml(voteOutcomeLabel(vote))}</p>` : ""}<p>Приглашены: ${summary.invitedEligible ?? "—"} · Подключены: ${summary.connectedNow ?? summary.connectedAtOpen ?? "—"} · Проголосовали: ${summary.ballotsCast ?? vote.ballotsCast ?? 0} · Не проголосовали: ${summary.notVoted ?? "—"}${remaining !== null ? ` · осталось ${remaining} сек.` : ""}</p>${vote.hasVoted ? '<p class="selected-vote-label">Ваш голос принят</p>' : ""}${options}${ballot}</article>`;
+  return `<article class="vote-detail ${vote.status === "open" ? "active-vote" : "vote-result"}"><div class="vote-card-top"><h4 class="panel-title">${heading}</h4>${voteTimer(vote, remaining)}</div><h3 class="vote-question">${escapeHtml(vote.topic ?? vote.question)}</h3><p>${escapeHtml(vote.question)}</p>${vote.status === "closed" ? `<p class="vote-outcome"><strong>Результат:</strong> ${escapeHtml(voteOutcomeLabel(vote))}</p>` : ""}<p>Приглашены: ${summary.invitedEligible ?? "—"} · Подключены: ${summary.connectedNow ?? summary.connectedAtOpen ?? "—"} · Проголосовали: ${summary.ballotsCast ?? vote.ballotsCast ?? 0} · Не проголосовали: ${summary.notVoted ?? "—"}</p>${vote.hasVoted ? '<p class="selected-vote-label">Ваш голос принят</p>' : ""}${ballot || options}</article>`;
 }
 
 // Compact action buttons: icon + label; the label hides in narrow blocks (container queries in refresh.css),
@@ -324,12 +339,25 @@ function microphoneIcon(kind) {
   return `<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${mic}${extra}</svg>`;
 }
 
+function recordingToggleHtml(meetingPaused) {
+  if (!can("conference.recording")) return "";
+  const recording = Boolean(state.recordingStatus?.enabled);
+  return `<button type="button" class="button secretary-record-toggle ${recording ? "is-recording" : "is-off"}" data-action="secretary-toggle-recording" ${meetingPaused ? "disabled" : ""} aria-pressed="${recording}">${meetingPaused ? "Запись на паузе" : recording ? "● Запись идёт" : "● Включить запись"}</button>`;
+}
+
+function presentationDockHtml() {
+  const active = state.presentations.find((item) => item.status === "active");
+  if (!active || (!canViewFiles() && !canManageContent())) return "";
+  return `<span id="activePresentationBadge" class="document-viewer-badge-group"><button type="button" class="button button-secondary document-viewer-badge" data-action="open-presentation-document" data-document-id="${escapeHtml(active.documentId)}" data-presentation-id="${escapeHtml(active.id)}" title="Открыть документ в показе">▣ ${escapeHtml(active.title || "Документ в показе")}</button>${canManageContent() ? `<button type="button" class="button button-secondary document-viewer-stop" data-action="stop-presentation" data-presentation-id="${escapeHtml(active.id)}" title="Убрать из показа" aria-label="Убрать документ из показа"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 12h8"/></svg></button>` : ""}</span>`;
+}
+
 function renderMicrophoneDock() {
   const dock = $("#microphoneDock");
   const participant = state.meeting?.participants?.[state.participantId];
   if (!participant || participant.permissions?.canSpeak === false || ["observer", "auditor", "interpreter", "translator", "service", "signage"].includes(participant.role)) {
-    dock.hidden = true;
-    dock.innerHTML = "";
+    const extra = `${participant && can("conference.recording") ? recordingToggleHtml(Boolean(state.meeting?.pausedAt)) : ""}${presentationDockHtml()}`;
+    dock.hidden = !extra;
+    dock.innerHTML = extra;
     updateDocumentViewerBadge();
     return;
   }
@@ -345,15 +373,19 @@ function renderMicrophoneDock() {
       state.localMedia?.getAudioTracks().some((track) => track.readyState === "live" && track.enabled);
     const color = physical === "on" ? "mic-green mic-live" : physical === "requested" ? "mic-yellow mic-queued" : "mic-red mic-idle";
     dock.innerHTML = `<div class="mic-button ${color}" role="status" aria-live="polite">${microphoneIcon(physical === "on" ? "on" : "off")}<span><b>${label}</b><small>${capture ? "Микрофон планшета готов к записи" : "Микрофон планшета недоступен — персональная запись невозможна"}</small></span></div>`;
-    if (state.profile.role === "secretary") {
-      const recording = Boolean(state.recordingStatus?.enabled);
-      dock.insertAdjacentHTML("beforeend", `<button type="button" class="button secretary-record-toggle ${recording ? "is-recording" : "is-off"}" data-action="secretary-toggle-recording" ${meetingPaused ? "disabled" : ""}>${meetingPaused ? "Запись на паузе" : recording ? "● Запись идёт" : "● Включить запись"}</button>`);
-    }
+    dock.insertAdjacentHTML("beforeend", recordingToggleHtml(meetingPaused));
+    dock.insertAdjacentHTML("beforeend", presentationDockHtml());
     updateDocumentViewerBadge();
     return;
   }
   if (participant.role === "chair") {
-    dock.innerHTML = `<button type="button" class="mic-button chair-mic-button mic-red" data-mic-action="chair-priority" ${meetingPaused ? "disabled" : ""} aria-label="Приоритет: выключить микрофоны остальных участников, кроме председателей, и взять слово">${microphoneIcon("on")}<span><b>Приоритет</b><small>Выключить остальные микрофоны</small></span></button><button type="button" class="mic-button chair-mic-button ${speaking ? "mic-green mic-live" : "mic-red mic-idle"}" data-mic-action="chair-take-floor" ${meetingPaused ? "disabled" : ""} aria-label="${speaking ? "Выключить свой микрофон" : "Взять слово без отключения остальных"}">${microphoneIcon(speaking ? "on" : "off")}<span><b>${speaking ? "Выключить микрофон" : "Взять слово"}</b><small>${speaking ? "Вы в эфире" : "Остальные микрофоны работают"}</small></span></button>${speaking ? '<span class="on-air-tag" role="status">● В эфире</span>' : ""}`;
+    const nextId = state.meeting.audioSettings?.discussionMode === "managed"
+      ? state.meeting.floorQueue.find((id) => state.meeting.participants?.[id]?.state === "joined") : null;
+    const next = nextId ? state.meeting.participants[nextId] : null;
+    const nextIcon = `<span class="chair-next-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15m-6-6 6 6-6 6"/></svg><svg class="chair-next-attention" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15m-6-6 6 6-6 6"/></svg></span>`;
+    dock.innerHTML = `<button type="button" class="mic-button chair-mic-button mic-neutral" data-mic-action="chair-priority" ${meetingPaused ? "disabled" : ""} aria-label="Приоритет: выключить микрофоны остальных участников, кроме председателей, и взять слово">${microphoneIcon("on")}<span><b>Приоритет</b><small>Отключить остальных</small></span></button><button type="button" class="mic-button chair-mic-button mic-green ${speaking ? "mic-live" : "mic-idle"}" data-mic-action="chair-take-floor" ${meetingPaused ? "disabled" : ""} aria-label="${speaking ? "Выключить свой микрофон" : "Взять слово без отключения остальных"}">${microphoneIcon(speaking ? "on" : "off")}<span><b>${speaking ? "Выключить микрофон" : "Взять слово"}</b><small>${speaking ? "Вы в эфире" : "Без отключения других"}</small></span></button><button type="button" class="mic-button chair-mic-button mic-neutral chair-next ${next ? "has-queue" : ""}" data-mic-action="chair-next" ${!next || meetingPaused ? "disabled" : ""} aria-label="${next ? `Дать слово следующему: ${escapeHtml(next.displayName)}` : "Нет запросов слова в очереди"}" title="${next ? escapeHtml(next.displayName) : "Очередь пуста"}">${nextIcon}<span><b>Следующий</b><small>${next ? `В очереди: ${state.meeting.floorQueue.length}` : "Очередь пуста"}</small></span></button>${speaking ? '<span class="on-air-tag" role="status">● В эфире</span>' : ""}`;
+    dock.insertAdjacentHTML("beforeend", recordingToggleHtml(meetingPaused));
+    dock.insertAdjacentHTML("beforeend", presentationDockHtml());
     updateDocumentViewerBadge();
     return;
   }
@@ -363,10 +395,8 @@ function renderMicrophoneDock() {
   const blocked = meetingPaused || (state.meeting.chairPriority?.mode === "hard" && !speaking && !queued);
   const blockedReason = meetingPaused ? "Конференция на паузе" : "Председатель использует приоритет; запрос временно недоступен";
   dock.innerHTML = `<button type="button" class="mic-button ${color}" data-mic-action="delegate" aria-label="${blocked ? blockedReason : label}" title="${blocked ? blockedReason : label}" ${blocked ? "disabled" : ""}>${microphoneIcon(speaking ? "on" : queued ? "wait" : "off")}<span><b>${meetingPaused ? "Микрофон на паузе" : speaking ? "Завершить выступление" : queued ? "Отменить запрос" : "Попросить слово"}</b><small>${meetingPaused ? "Заседание на паузе" : speaking ? "Вас слышит зал" : queued ? `Вы в очереди: №${queuePlace}` : blocked ? "Приоритет председателя" : "Нажмите, чтобы выступить"}</small></span></button>${speaking ? '<span class="on-air-tag" role="status">● В эфире</span>' : ""}`;
-  if (state.profile.role === "secretary") {
-    const recording = Boolean(state.recordingStatus?.enabled);
-    dock.insertAdjacentHTML("beforeend", `<button type="button" class="button secretary-record-toggle ${recording ? "is-recording" : "is-off"}" data-action="secretary-toggle-recording" ${meetingPaused ? "disabled" : ""}>${meetingPaused ? "Запись на паузе" : recording ? "● Запись идёт" : "● Включить запись"}</button>`);
-  }
+  dock.insertAdjacentHTML("beforeend", recordingToggleHtml(meetingPaused));
+  dock.insertAdjacentHTML("beforeend", presentationDockHtml());
   updateDocumentViewerBadge();
 }
 
@@ -1635,7 +1665,7 @@ function votingHtml() {
     }${vote.status === "open" ? `<button class="button button-danger" data-action="close-vote" data-vote-id="${vote.id}">Закрыть</button>` : ""}${vote.status === "closed" && vote.finalResult?.nextRoundAllowed ? `<button class="button button-secondary" data-action="next-vote-round" data-vote-id="${vote.id}">Следующий тур</button>` : ""}</div>` : "";
     const remaining = vote.status === "open" && vote.closesAt ? Math.max(0, Math.ceil((Date.parse(vote.closesAt) - Date.now()) / 1000)) : null;
     const summary = vote.electorateSummary ?? {};
-    return `<article class="panel list-item vote-card"><div class="list-item-head"><div><h3 class="vote-question">${escapeHtml(vote.topic ?? vote.question)}</h3><p>${escapeHtml(vote.question)}</p>${vote.status === "closed" ? `<p class="vote-outcome"><strong>Результат:</strong> ${escapeHtml(voteOutcomeLabel(vote))}</p>` : ""}<p>${escapeHtml(vote.mode)} · ${escapeHtml(vote.ruleSetId ?? "standard-majority")} · тур ${vote.round ?? 1} · приглашены ${summary.invitedEligible ?? "—"} · подключены ${summary.connectedNow ?? summary.connectedAtOpen ?? "—"} · проголосовали ${summary.ballotsCast ?? vote.ballotsCast ?? 0} · не проголосовали ${summary.notVoted ?? "—"}${remaining !== null ? ` · осталось ${remaining} сек.` : ""}</p></div><span class="chip">${escapeHtml(vote.status)}</span></div>${options}${ballot}${controls}</article>`;
+    return `<article class="panel list-item vote-card"><div class="list-item-head"><div><h3 class="vote-question">${escapeHtml(vote.topic ?? vote.question)}</h3><p>${escapeHtml(vote.question)}</p>${vote.status === "closed" ? `<p class="vote-outcome"><strong>Результат:</strong> ${escapeHtml(voteOutcomeLabel(vote))}</p>` : ""}<p>${escapeHtml(VOTE_MODE_LABELS[vote.mode] ?? vote.mode)} · ${escapeHtml(VOTE_RULE_LABELS[vote.ruleSetId] ?? "Правило голосования")} · тур ${vote.round ?? 1} · приглашены ${summary.invitedEligible ?? "—"} · подключены ${summary.connectedNow ?? summary.connectedAtOpen ?? "—"} · проголосовали ${summary.ballotsCast ?? vote.ballotsCast ?? 0} · не проголосовали ${summary.notVoted ?? "—"}</p></div><div class="vote-card-status">${voteTimer(vote, remaining)}<span class="chip">${escapeHtml(VOTE_STATUS_LABELS[vote.status] ?? vote.status)}</span></div></div>${ballot || options}${controls}</article>`;
   }).join("") : `<article class="panel empty">Голосований нет.</article>`;
   return `${pageHead("Голосование", "Самостоятельная подсистема с отдельными правами и данными", action)}<div class="grid">${items}</div>`;
 }
@@ -1676,10 +1706,12 @@ function contentHtml() {
     (managedPrivateDocuments.length && canManageContent()
       ? documentGroup("Личные документы других участников · служебный доступ", managedPrivateDocuments, "") : "");
   const shows = state.presentations.length ? state.presentations.map((item) => {
-    const isStarter = item.startedByParticipantId
-      ? item.startedByParticipantId === state.participantId : item.startedBy === state.profile.userId;
-    const canTurnPage = !state.meeting?.quick || !item.startedBy || isStarter;
-    return `<div class="list-item"><div class="list-item-head"><div><h4>${escapeHtml(item.title)}</h4><p>${escapeHtml(item.status)} · страница ${item.currentPage ?? "—"} / ${item.pageCount ?? "—"}</p>${state.meeting?.quick && item.status === "active" && item.startedByName ? `<p>Показ ведёт: ${escapeHtml(item.startedByName)}</p>` : ""}</div><div class="action-strip">${item.status === "active" ? `<button class="button button-secondary" data-action="open-presentation-document" data-document-id="${item.documentId}" data-presentation-id="${item.id}">Открыть показ</button>` : ""}${canManageContent() ? item.status !== "active" ? `<button class="button button-secondary" data-action="start-presentation" data-presentation-id="${item.id}">Старт</button>` : `${canTurnPage ? `<button class="button button-quiet" data-action="next-page" data-presentation-id="${item.id}" data-page="${(item.currentPage || 1) + 1}">Следующая</button>` : ""}<button class="button button-danger" data-action="stop-presentation" data-presentation-id="${item.id}">Стоп</button>` : `<span class="chip">${escapeHtml(item.status)}</span>`}</div></div></div>`;
+    const isLeader = item.leaderParticipantId ? item.leaderParticipantId === state.participantId
+      : item.leaderUserId ? item.leaderUserId === state.profile.userId
+        : item.leaderAssigned ? false : item.startedByParticipantId
+          ? item.startedByParticipantId === state.participantId : item.startedBy === state.profile.userId;
+    const canTurnPage = !state.meeting?.quick || isLeader;
+    return `<div class="list-item"><div class="list-item-head"><div><h4>${escapeHtml(item.title)}</h4><p>${escapeHtml(item.status)} · страница ${item.currentPage ?? "—"} / ${item.pageCount ?? "—"}</p>${state.meeting?.quick && item.status === "active" ? `<p>Показ ведёт: ${escapeHtml(item.leaderName || (item.leaderAssigned ? "ведущий не назначен" : item.startedByName || "ведущий не назначен"))}</p>` : ""}</div><div class="action-strip">${item.status === "active" ? `<button class="button button-secondary" data-action="open-presentation-document" data-document-id="${item.documentId}" data-presentation-id="${item.id}">Открыть показ</button>` : ""}${canManageContent() ? item.status !== "active" ? `<button class="button button-secondary" data-action="start-presentation" data-presentation-id="${item.id}">Старт</button>` : `${canTurnPage ? `<button class="button button-quiet" data-action="next-page" data-presentation-id="${item.id}" data-page="${(item.currentPage || 1) + 1}">Следующая</button>` : ""}<button class="button button-danger" data-action="stop-presentation" data-presentation-id="${item.id}">Стоп</button>` : `<span class="chip">${escapeHtml(item.status)}</span>`}</div></div></div>`;
   }).join("") : `<div class="empty">Презентации не созданы.</div>`;
   return `${pageHead("Материалы", "Документы конференции и управление показом", upload)}
     <div class="grid grid-2 materials-page"><article class="panel"><div class="panel-pad"><h4 class="panel-title">Документы</h4></div><div class="list">${docs}</div></article><article class="panel"><div class="panel-pad"><h4 class="panel-title">Презентации</h4></div><div class="list">${shows}</div></article></div>`;
@@ -1732,7 +1764,7 @@ function chatHtml() {
   const sessions = state.chatSessions.map((session) => {
     const partner = partnerFor(session);
     const channel = state.chatChannels.get(session.id);
-    const status = channel?.readyState === "open" ? "connected" : session.status;
+    const status = channel?.readyState === "open" ? "Прямой канал" : "Через сервер";
     const unread = state.chatUnread.get(session.id) ?? 0;
     return `<button class="chat-session ${state.activeChatId === session.id ? "active" : ""} ${unread ? "has-unread" : ""}" data-action="select-chat" data-session-id="${session.id}"><strong>${escapeHtml(partner.displayName)}</strong><span>${unread ? `<b class="unread-dot">${unread}</b>` : ""}${escapeHtml(status)}</span></button>`;
   }).join("") || `<div class="empty">Активных P2P-диалогов нет.</div>`;
@@ -1743,9 +1775,9 @@ function chatHtml() {
     ? `<div class="empty">Канал открыт. Сообщения передаются напрямую между участниками.</div>`
     : `<div class="empty">Канал готовится. Первое сообщение можно отправить после статуса open.</div>`;
   const dialog = active
-    ? `<article class="panel chat-dialog"><div class="chat-dialog-head"><div><h4>${escapeHtml(partnerFor(active).displayName)}</h4><p>WebRTC DataChannel · сообщения сервером не сохраняются</p></div><span class="chip ${channelOpen ? "" : "offline"}">${state.chatChannels.get(active.id)?.readyState ?? active.status}</span></div><div class="chat-log">${messages || emptyChat}</div><form id="chatForm" class="chat-compose"><input id="chatMessage" data-session-id="${escapeHtml(active.id)}" maxlength="1000" value="${escapeHtml(state.chatDrafts.get(active.id) ?? "")}" placeholder="Личное сообщение" autocomplete="off"><button class="button button-primary" type="submit">Отправить</button></form></article>`
+    ? `<article class="panel chat-dialog"><div class="chat-dialog-head"><div><h4>${escapeHtml(partnerFor(active).displayName)}</h4><p>Сообщения доступны участникам диалога и хранятся до завершения конференции</p></div><span class="chip">${channelOpen ? "Прямой канал" : "Через сервер"}</span></div><div class="chat-log">${messages || emptyChat}</div><form id="chatForm" class="chat-compose"><input id="chatMessage" data-session-id="${escapeHtml(active.id)}" maxlength="1000" value="${escapeHtml(state.chatDrafts.get(active.id) ?? "")}" placeholder="Личное сообщение" autocomplete="off"><button class="button button-primary" type="submit">Отправить</button></form></article>`
     : `<article class="panel empty">Выберите участника или существующий диалог.</article>`;
-  return `${pageHead("Личный P2P-чат", "Сервер передаёт только WebRTC signaling; текст идёт напрямую между планшетами")}
+  return `${pageHead("Личный чат", "При недоступности прямого канала сообщения доставляются через сервер")}
     <div class="grid chat-layout"><article class="panel"><div class="panel-pad"><h4 class="panel-title">Участники</h4></div><div class="list">${participants}</div><div class="panel-pad"><h4 class="panel-title">Диалоги</h4><div class="chat-sessions">${sessions}</div></div></article>${dialog}</div>`;
 }
 
@@ -1762,7 +1794,8 @@ function operationsHtml() {
   const canAes67 = ["operator", "technician", "admin"].includes(role);
   const readiness = canReadiness ? `<article class="panel panel-pad"><div class="list-item-head"><div><h4 class="panel-title">Готовность зала</h4><p>${state.readiness?.status === "unconfigured" ? "Проверка не настроена: обязательные устройства не зарегистрированы" : state.readiness ? `${state.readiness.onlineDevices}/${state.readiness.requiredDevices} обязательных устройств доступны` : "Проверка не выполнялась"}</p></div><span class="chip ${state.readiness?.status === "ready" ? "" : "offline"}">${escapeHtml(({ ready: "Готов", warning: "Предупреждение", "not-ready": "Не готов", unconfigured: "Не настроено" })[state.readiness?.status] ?? "Не проверено")}</span></div>${(state.readiness?.checks ?? []).map((check) => `<p class="readiness-check">${escapeHtml(state.devices.find((item) => item.id === check.deviceId)?.name ?? check.deviceId)} · ${escapeHtml(check.status)}${check.error ? ` · ${escapeHtml(check.error)}` : ""}</p>`).join("")}<div class="action-strip"><button class="button button-secondary" data-action="check-readiness">Проверить зал</button></div></article>` : "";
   const devices = canDevices ? `<article class="panel"><div class="panel-pad"><h4 class="panel-title">Device Registry</h4></div><div class="list">${state.devices.map((device) => `<div class="list-item"><div class="list-item-head"><div><h4>${escapeHtml(device.name)}</h4><p>${escapeHtml(device.kind)} · ${escapeHtml(device.driverId)} · ${escapeHtml(device.id)}</p></div><span class="chip ${device.health?.status === "online" ? "" : "offline"}">${escapeHtml(device.health?.status ?? "unknown")}</span></div><div class="action-strip compact"><button class="button button-quiet" data-action="check-device" data-device-id="${device.id}">Health</button><button class="button button-quiet" data-action="device-command" data-device-id="${device.id}">Команда</button></div></div>`).join("") || `<div class="empty">Устройства не зарегистрированы.</div>`}</div></article>` : "";
-  const signage = canSignage ? `<article class="panel panel-pad"><h4 class="panel-title">Вывески</h4><p>Регистрация и состояние экранов — в SignageCore.</p><div class="action-strip"><button class="button button-quiet" data-action="publish-room-free">Зал свободен</button><button class="button button-quiet" data-action="publish-room-busy">Идёт заседание</button><button class="button button-secondary" data-action="call-participant">Вызвать участника</button><a class="button button-quiet" href="/service/?tab=signage-core" target="_blank" rel="noopener">SignageCore</a></div></article>` : "";
+  const roomPlayers = state.signagePlayers.filter((player) => player.roomId === (state.meeting.roomId ?? "default-room"));
+  const signage = canSignage ? `<article class="panel panel-pad"><h4 class="panel-title">Вывески</h4><p>${roomPlayers.length ? `Выберите экран зала или отправьте статус на все ${roomPlayers.length} экрана.` : "Для этого зала ещё не зарегистрирован экран. Добавьте его в SignageCore."}</p><label class="signage-target-label">Экран<select id="signageTargetPlayer"><option value="">Все экраны этого зала</option>${roomPlayers.map((player) => `<option value="${escapeHtml(player.id)}">${escapeHtml(player.name || player.id)}</option>`).join("")}</select></label><div class="action-strip"><button class="button button-quiet" data-action="publish-room-free" ${roomPlayers.length ? "" : "disabled"}>Зал свободен</button><button class="button button-quiet" data-action="publish-room-busy" ${roomPlayers.length ? "" : "disabled"}>Идёт заседание</button><button class="button button-secondary" data-action="call-participant" ${roomPlayers.length ? "" : "disabled"}>Вызвать участника</button><a class="button button-quiet" href="/service/?tab=signage-core" target="_blank" rel="noopener">SignageCore</a></div></article>` : "";
   const aes67Running = ["starting", "running"].includes(state.aes67?.state);
   const aes67 = canAes67 ? `<article class="panel panel-pad"><div class="list-item-head"><div><h4 class="panel-title">AES67 / RTP L24</h4><p>${escapeHtml(state.aes67?.settings?.name ?? "VOX-S Program Audio")} · ${escapeHtml(state.aes67?.settings?.bus ?? "program")} · автозапуск при старте конференции</p></div><span class="chip ${state.aes67?.state === "running" ? "" : "offline"}">${escapeHtml(state.aes67?.state ?? "stopped")}</span></div>${state.aes67?.error ? `<p class="form-error">${escapeHtml(state.aes67.error)}</p>` : ""}<div class="action-strip"><button class="button ${aes67Running ? "button-danger" : "button-secondary"}" data-action="${aes67Running ? "stop-aes67" : "start-aes67"}">${aes67Running ? "Выключить AES67" : "Включить AES67"}</button></div></article>` : "";
   return `${pageHead("Операции", "Готовность зала, оборудование, аудиоконференция, вывески и сервис")}${audioConferenceHtml()}<div class="grid grid-2 operations-grid">${readiness}${signage}${aes67}${devices}${serviceCardHtml()}</div>`;
@@ -1808,7 +1841,7 @@ function settingsHtml() {
 // Multiview mosaic; anything else is shown as its own preview tile.
 
 export { canEditWorkspaceLayout, handleWorkspaceUiAction, applyWorkspaceLayout, renderPage, updateNavigationVisibility, translationHtml, unreadChatCount, updateChatNotice,
-  markChatRead, pageHead, VOTE_OUTCOME_LABELS, advancedBallot, voteOutcomeLabel, conferenceVoteCard,
+  markChatRead, pageHead, VOTE_OUTCOME_LABELS, advancedBallot, updateVoteCountdowns, voteOutcomeLabel, conferenceVoteCard,
   conferenceVoteStatusCard, closeVoteResultsModal, openVoteResultsModal, microphoneIcon, renderMicrophoneDock,
   renderFixedControls, can, pgmModeHtml, hydrateSlatePreviews, uploadPgmSlate, selectPgmSlate,
   deletePgmSlate, syncSecretaryTurn, secretarySpeakersHtml, secretaryWorkspaceHtml, saveSecretaryTranscript,

@@ -3,31 +3,15 @@ import { observeBottomControls } from "./dockLayout.js";
 import { serviceRequestCategoryLabel, serviceRequestStatusLabel,
   serviceRequestCategoryOptions } from "./serviceRequestLocale.js";
 import { eventRetryDelay } from "./eventConnection.js";
+import { clientBuildReady } from "./clientBuild.js";
 import { PARTICIPANT_LANGUAGES, participantLanguageOptions, configureParticipantLanguages,
   participantLanguage, setParticipantLanguage, applyParticipantLanguage,
   participantText, participantFormatTime } from "./i18n.js";
-import { openDocumentViewer, closeDocumentViewer, updateDocumentViewerRights,
+import { openDocumentViewer, closeDocumentViewer, minimizeDocumentViewer, updateDocumentViewerRights,
   updateDocumentViewerBadge, documentSceneEvent } from "./documentViewer.js";
 
-// Keep the preflight in the entry module: VOX-S serves an explicit static
-// asset allowlist, and a missing imported module prevents this entire app
-// from starting after the conference page hands off the login.
-async function clientBuildReady(api, clientBuild, reloadKey, knownStatus = null) {
-  const status = knownStatus ?? await api.get("/status").catch(() => null);
-  if (!status?.build || status.build === clientBuild) {
-    sessionStorage.removeItem(reloadKey);
-    return true;
-  }
-  if (sessionStorage.getItem(reloadKey) === status.build) {
-    console.error(`Client build ${clientBuild} does not match server ${status.build}`);
-    return true;
-  }
-  sessionStorage.setItem(reloadKey, status.build);
-  location.reload();
-  return false;
-}
 const VoxNoticeLocale = globalThis.VoxNoticeLocale;
-let canEditWorkspaceLayout, handleWorkspaceUiAction, applyWorkspaceLayout, renderPage, updateNavigationVisibility, translationHtml, unreadChatCount, updateChatNotice, markChatRead, pageHead, VOTE_OUTCOME_LABELS,
+let canEditWorkspaceLayout, handleWorkspaceUiAction, applyWorkspaceLayout, renderPage, updateNavigationVisibility, translationHtml, unreadChatCount, updateChatNotice, markChatRead, pageHead, VOTE_OUTCOME_LABELS, updateVoteCountdowns,
   advancedBallot, voteOutcomeLabel, conferenceVoteCard, conferenceVoteStatusCard, closeVoteResultsModal, openVoteResultsModal, microphoneIcon, renderMicrophoneDock,
   renderFixedControls, can, pgmModeHtml, hydrateSlatePreviews, uploadPgmSlate, selectPgmSlate, deletePgmSlate, syncSecretaryTurn,
   secretarySpeakersHtml, secretaryWorkspaceHtml, saveSecretaryTranscript, saveSecretaryEditor, clearSecretaryEditor, secretaryLayoutPanel, moveSecretaryLayoutPanel, handleSecretaryLayoutAction,
@@ -69,6 +53,7 @@ async function loadFeatureModules() {
     markChatRead = views.markChatRead;
     pageHead = views.pageHead;
     VOTE_OUTCOME_LABELS = views.VOTE_OUTCOME_LABELS;
+    updateVoteCountdowns = views.updateVoteCountdowns;
     advancedBallot = views.advancedBallot;
     voteOutcomeLabel = views.voteOutcomeLabel;
     conferenceVoteCard = views.conferenceVoteCard;
@@ -306,7 +291,7 @@ export {
   createNextVoteRound, uploadDocument, importArchivedDocument, uploadAgendaDocument, openDocument, startPresentationBroadcast, shareScreen, stopScreenShare,
   installPwa, toggleFullscreen, encodeIdentityHeader, observeBottomControls, serviceRequestCategoryLabel, serviceRequestStatusLabel, serviceRequestCategoryOptions, eventRetryDelay,
   PARTICIPANT_LANGUAGES, participantLanguageOptions, participantLanguage, setParticipantLanguage, participantText, participantFormatTime, openDocumentViewer, closeDocumentViewer, updateDocumentViewerRights, updateDocumentViewerBadge,
-  documentSceneEvent
+  documentSceneEvent, minimizeDocumentViewer
 };
 
 observeBottomControls();
@@ -321,7 +306,7 @@ const CAMERA_AUTO_KEY = "edge-s-auto-camera";
 const MICROPHONE_AUTO_KEY = "edge-s-auto-microphone";
 const MEDIA_DEVICE_KEY = "edge-s-media-devices-v0.5";
 const TRANSLATION_VOLUME_KEY = "edge-s-translation-volume";
-const CLIENT_BUILD = "0.7.0.62";
+const CLIENT_BUILD = "0.7.0.63";
 const interfaceLocale = () => participantLanguage(state.profile?.userId);
 const uiText = (key) => participantText(key, interfaceLocale());
 const BUILD_RELOAD_KEY = "edge-s-client-build-reload";
@@ -1439,8 +1424,7 @@ async function restoreActiveSession() {
 function startTimers() {
   clearTimers();
   startEventStream();
-  // Push is primary. Polling remains a low-frequency safety net for proxy or
-  // browser environments that interrupt an authenticated streaming fetch.
+  state.voteCountdownTimer = setInterval(updateVoteCountdowns, 1000);
   state.refreshTimer = setInterval(() => refreshAll(true), 30000);
   state.heartbeatTimer = setInterval(() => {
     state.api.post(`/meetings/${state.profile.meetingId}/participants/${state.participantId}/presence`, { presenceId: PRESENCE_ID })
@@ -1456,8 +1440,6 @@ function startTimers() {
         } else notify(`Присутствие: ${error.message}`);
       });
   }, 20000);
-  // Chat negotiation is woken by content-free chat.signal SSE events. This
-  // low-frequency poll is only a recovery path if an event was missed.
   state.signalTimer = setInterval(pollSignaling, 30000);
   void pollSignaling();
   state.programTimer = setInterval(refreshProgram, 10000);
@@ -1485,6 +1467,7 @@ function startTimers() {
 }
 
 function clearTimers() {
+  clearInterval(state.voteCountdownTimer);
   clearInterval(state.refreshTimer);
   clearInterval(state.heartbeatTimer);
   clearInterval(state.signalTimer);
@@ -1732,7 +1715,7 @@ async function refreshAll(silent = false) {
       state.api.get(`/meetings/${meetingId}/presentations`),
       deviceAccess ? keep(state.api.get(`/devices?roomId=default-room&meetingId=${meetingId}`), state.devices) : Promise.resolve(state.devices),
       readinessAccess ? keep(state.api.get(`/rooms/default-room/readiness?meetingId=${meetingId}`), state.readiness) : Promise.resolve(state.readiness),
-      signageAccess ? keep(state.api.get(`/signage/players?roomId=default-room&meetingId=${meetingId}`), state.signagePlayers) : Promise.resolve(state.signagePlayers),
+      signageAccess ? keep(state.api.get(`/signage/players?meetingId=${meetingId}`), state.signagePlayers) : Promise.resolve(state.signagePlayers),
       aes67Access ? keep(state.api.get(`/media/aes67?meetingId=${meetingId}`), state.aes67) : Promise.resolve(state.aes67),
       serviceAccess ? keep(state.api.get(`/service/requests?meetingId=${meetingId}`), state.serviceRequests) : Promise.resolve(state.serviceRequests),
       sharedSeatAccess ? keep(state.api.get("/shared-seats?roomId=default-room"), state.sharedSeats) : Promise.resolve(state.sharedSeats),
@@ -1760,6 +1743,8 @@ async function refreshAll(silent = false) {
       state.protocol = protocol;
       state.recordingStatus = recordingStatus;
       await syncSecretaryTurn();
+    } else if (can("conference.recording")) {
+      state.recordingStatus = await keep(state.api.get(`/meetings/${meetingId}/recording/status`), state.recordingStatus);
     }
     reconcileChatSessions(chatSessions, meeting);
     if (meeting.status === "closed" || meeting.status === "archived") {
@@ -1844,6 +1829,7 @@ function updateBuildLabels() {
 }
 
 async function selectTab(tab) {
+  if (tab === "operations" && state.profile?.remote === true) return;
   if (state.activeTab === "streams" && tab !== "streams") {
     state.streamsWarmUntil = Date.now() + 120_000;
     stopThumbnailLoop(); closeStreamPreviewModal();
@@ -2096,6 +2082,11 @@ async function handleMicrophoneAction(button) {
       const speaking = state.meeting.activeSpeakerIds.includes(state.participantId);
       await runMicrophoneAction(speaking ? selfRelease : () => activateChairMicrophone("normal"));
     }
+    if (action === "chair-next") {
+      const nextId = state.meeting.audioSettings?.discussionMode === "managed"
+        ? state.meeting.floorQueue.find((id) => state.meeting.participants?.[id]?.state === "joined") : null;
+      if (nextId) await runAction(() => grantFloor(nextId), "Слово предоставлено следующему участнику");
+    }
   } finally { button.disabled = false; }
 }
 
@@ -2279,7 +2270,10 @@ $("#pageContent").addEventListener("click", (event) => {
   if (action === "stop-screen-share") runAction(stopScreenShare);
   if (action === "open-presentation-document") runAction(() => openDocument(target.dataset.documentId, target.dataset.presentationId));
   if (action === "next-page") runAction(() => state.api.post(`/presentations/${target.dataset.presentationId}/page`, { page: Number(target.dataset.page) }));
-  if (action === "stop-presentation") runAction(() => state.api.post(`/presentations/${target.dataset.presentationId}/stop`));
+  if (action === "stop-presentation") runAction(async () => {
+    await state.api.post(`/presentations/${target.dataset.presentationId}/stop`);
+    closeDocumentViewer();
+  });
   if (action === "open-chat") runAction(() => openChat(target.dataset.participantId));
   if (action === "select-chat") { state.activeChatId = target.dataset.sessionId; markChatRead(state.activeChatId); renderPage(); }
   if (action === "check-readiness") runAction(checkReadiness, "Проверка готовности завершена");

@@ -31,7 +31,7 @@ import {
   chatHtml, requestItemsText, operationsHtml, settingsHtml, encodeIdentityHeader, observeBottomControls,
   serviceRequestCategoryLabel, serviceRequestStatusLabel, serviceRequestCategoryOptions, eventRetryDelay,
   PARTICIPANT_LANGUAGES, participantLanguage, setParticipantLanguage, participantText, openDocumentViewer,
-  closeDocumentViewer, updateDocumentViewerRights, updateDocumentViewerBadge, documentSceneEvent
+  closeDocumentViewer, minimizeDocumentViewer, updateDocumentViewerRights, updateDocumentViewerBadge, documentSceneEvent
 } from "./app.js";
 
 function inMcu(stream) {
@@ -1585,7 +1585,10 @@ async function pollChatSignaling() {
           messages.push({ id: signal.id, text: String(signal.payload?.text ?? ""), at: signal.payload?.at ?? signal.createdAt, own: false });
           state.chatMessages.set(session.id, messages.slice(-200));
           if (state.activeTab === "chat" && state.activeChatId === session.id) markChatRead(session.id);
-          else state.chatUnread.set(session.id, (state.chatUnread.get(session.id) ?? 0) + 1);
+          else {
+            state.chatUnread.set(session.id, (state.chatUnread.get(session.id) ?? 0) + 1);
+            notify(`Новое личное сообщение от ${partnerFor(session).displayName}`);
+          }
           updateChatNotice();
         }
       }
@@ -1644,16 +1647,27 @@ async function deviceCommand(deviceId) {
 }
 
 async function publishRoom(status) {
+  const roomId = state.meeting.roomId ?? "default-room";
+  const playerId = document.querySelector("#signageTargetPlayer")?.value;
+  const players = state.signagePlayers.filter((player) => player.roomId === roomId);
+  if (!players.length) throw new Error("В этом зале нет зарегистрированных информационных экранов");
+  if (playerId && !players.some((player) => player.id === playerId)) {
+    throw new Error("Выбранный экран больше не относится к этому залу. Обновите список экранов.");
+  }
   await state.api.post(`/signage/scenes?meetingId=${encodeURIComponent(state.profile.meetingId)}`, {
     type: "room-status",
     title: status === "free" ? "Зал свободен" : state.meeting.title,
     body: status === "free" ? "Следующее мероприятие — по расписанию" : "Идёт заседание · просьба не входить",
     roomStatus: status,
-    target: { roomId: "default-room" }
+    target: playerId ? { playerIds: [playerId] } : { roomId }
   });
 }
 
 async function callParticipant() {
+  const roomId = state.meeting?.roomId ?? "default-room";
+  const playerId = document.querySelector("#signageTargetPlayer")?.value;
+  const players = state.signagePlayers.filter((player) => player.roomId === roomId);
+  if (!players.length) throw new Error("В этом зале нет зарегистрированных информационных экранов");
   const source = state.meeting.quick ? Object.values(state.meeting.participants ?? {}).filter((item) => item.state === "joined") : [
     ...(state.meeting.preparedParticipants ?? []), ...Object.values(state.meeting.participants ?? {}).filter((item) => item.state === "joined")
   ];
@@ -1672,7 +1686,7 @@ async function callParticipant() {
   await state.api.post(`/signage/scenes?meetingId=${encodeURIComponent(state.profile.meetingId)}`, {
     type: "participant-call", title: name, body: values.room, roomStatus: "busy",
     participant: { ...(presenter ? { id: presenter.id } : {}), displayName: name }, sound: { enabled: true, tone: "chime", repeats: 2 },
-    durationSeconds: 30, target: { group: "foyer" }
+    durationSeconds: 30, target: playerId ? { playerIds: [playerId] } : { roomId }
   });
 }
 
@@ -1849,6 +1863,23 @@ async function createNextVoteRound(voteId) {
 
 async function uploadDocument(file, agendaItemId = null) {
   if (!file) return;
+  if (state.profile.remote === true) {
+    const meetingId = encodeURIComponent(state.profile.meetingId);
+    const base = `/meetings/${meetingId}/documents/upload-sessions`;
+    const { uploadId, chunkBytes } = await state.api.post(base, {
+      fileName: file.name, mediaType: file.type || "application/octet-stream",
+      sizeBytes: file.size, agendaItemId
+    });
+    let index = 0;
+    for (let offset = 0; offset < file.size; offset += chunkBytes) {
+      await state.api.request(`${base}/${encodeURIComponent(uploadId)}/chunks/${index++}`, {
+        method: "POST", headers: { "Content-Type": "application/octet-stream" },
+        body: file.slice(offset, offset + chunkBytes)
+      });
+    }
+    await state.api.post(`${base}/${encodeURIComponent(uploadId)}/finish`, {});
+    return;
+  }
   await state.api.request(`/meetings/${state.profile.meetingId}/documents`, {
     method: "POST",
     headers: { "Content-Type": file.type || "application/octet-stream", "X-File-Name": encodeIdentityHeader(file.name), ...(agendaItemId ? { "X-Agenda-Item-Id": agendaItemId } : {}) },
@@ -1877,6 +1908,8 @@ async function uploadAgendaDocument(file) {
 async function openDocument(documentId, presentationId = null) {
   const item = state.documents.find((entry) => entry.id === documentId)
     ?? await state.api.get(`/documents/${encodeURIComponent(documentId)}`);
+  presentationId ??= state.presentations.find((entry) =>
+    entry.documentId === documentId && entry.status === "active")?.id ?? null;
   const presentation = presentationId
     ? state.presentations.find((entry) => entry.id === presentationId)
       ?? await state.api.get(`/presentations/${encodeURIComponent(presentationId)}`)
@@ -1891,6 +1924,13 @@ async function openDocument(documentId, presentationId = null) {
       (me?.permissions?.canAnnotatePresentation === true || canManageContent())) ||
       (!presentation && item.uploadedBy === state.profile.userId),
     canControl: Boolean(presentation && canManageContent()),
+    onStopPresentation: async (id) => {
+      await state.api.post(`/presentations/${encodeURIComponent(id)}/stop`);
+      state.presentations = state.presentations.map((entry) =>
+        entry.id === id ? { ...entry, status: "stopped" } : entry);
+      notify("Показ документа завершён");
+      await refreshAll();
+    },
     onSendToHall: async (id, target) => {
       const route = { program: "send-to-program", multiview: "send-to-program-tile",
         "remove-program": "remove-from-program", "remove-multiview": "remove-from-program-tile" }[target];
@@ -1925,6 +1965,7 @@ async function startPresentationBroadcast(presentationId) {
   if (index >= 0) state.presentations[index] = presentation;
   else state.presentations.push(presentation);
   await openDocument(presentation.documentId, presentation.id);
+  minimizeDocumentViewer();
   notify("Показ открыт участникам. PGM не переключён.", 6000);
 }
 
