@@ -298,6 +298,17 @@ body:not([data-role="admin"]):not([data-role="technician"]):not([data-role="oper
 #appView .panel-title { font-size: 18px; line-height: 1.2; }
 #appView .panel :is(p, li) { line-height: 1.45; }
 #appView .panel :is(h2, h3, h4) { text-wrap: balance; }
+/* Keep instructions and metadata quiet; reserve the larger type for decisions and values. */
+#appView .page-head p { max-width: 70ch; color: var(--muted); font-size: 12px; line-height: 1.35; }
+#appView .panel :is(.form-hint, .empty, .participant-console-head p, .slate-library-copy small) {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.42;
+}
+#appView .slate-library-copy { display: grid; gap: 4px; min-width: 0; }
+#appView .slate-library-copy b { font-size: 14px; line-height: 1.2; }
+#appView :is(.conference-side-stack, .workspace-grid) .panel-title { font-size: 16px; }
+#appView :is(.count-badge, .live-badge, .vote-timer) { font-variant-numeric: tabular-nums; }
 #appView :is(button, a, input, select, textarea):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;

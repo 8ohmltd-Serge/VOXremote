@@ -207,7 +207,7 @@ function translationHtml() {
     const current = translation.assignments?.[item.id];
     return `<div class="translation-assignment" data-translation-participant="${escapeHtml(item.id)}"><strong>${escapeHtml(item.displayName)}</strong><label>Язык входа<select data-translation-source-language>${[state.meeting.protocolLanguage ?? "ru", ...channels.map((channel) => channel.languageCode)].filter((code, index, all) => all.indexOf(code) === index).map((code) => `<option value="${escapeHtml(code)}" ${current?.sourceLanguageCode === code ? "selected" : ""}>${escapeHtml(languageName(code))}</option>`).join("")}</select></label><label>Язык выхода<select data-translation-channel><option value="">Выберите язык</option>${channels.map((channel) => `<option value="${escapeHtml(channel.id)}" ${current?.channelId === channel.id ? "selected" : ""}>${escapeHtml(channel.name)}</option>`).join("")}</select></label><label>Источник звука<select data-translation-source><option value="floor">Оригинал</option>${state.translateStatus?.capabilities?.includes("relay") ? channels.map((channel) => `<option value="${escapeHtml(channel.id)}" ${current?.sourceChannelId === channel.id ? "selected" : ""}>Перевод с канала: ${escapeHtml(channel.name)}</option>`).join("") : ""}</select></label><label>Направление<select data-translation-direction><option value="forward">В одну сторону</option><option value="both" ${current?.direction === "both" ? "selected" : ""}>В обе стороны</option></select></label><label>Режим<select data-translation-priority><option value="primary" ${current?.priority !== "backup" ? "selected" : ""}>Основной</option><option value="backup" ${current?.priority === "backup" ? "selected" : ""}>Резервный</option></select></label><button class="button button-secondary" data-action="translate-assign" data-participant-id="${escapeHtml(item.id)}">Назначить</button></div>`;
   }).join("") || `<p class="empty">Подключённых переводчиков нет. Назначьте участнику роль «Переводчик».</p>`}</article>` : "";
-  return `${pageHead(interpreterRole ? "Рабочее место переводчика" : "Синхроперевод", interpreterRole ? "Звук выступающих и управление языковым каналом" : `TranslateCore ${state.translateStatus?.tier === "pro" ? "Pro" : "Basic"}`)}${interpreterRole ? "" : translationListenHtml()}${interpreter}${operator}`;
+  return `${pageHead(interpreterRole ? "Рабочее место переводчика" : "Синхроперевод", interpreterRole ? "Звук выступающих и языковой канал" : "Каналы перевода")}${interpreterRole ? "" : translationListenHtml()}${interpreter}${operator}`;
 }
 
 // "Язык прослушивания" card: on the Translation tab and as a block of the conference workspace.
@@ -434,7 +434,7 @@ function pgmModeHtml() {
       <label class="inline-check"><input id="pgmAgendaUseSlate" type="checkbox" ${chosen.agendaUseSlate ? "checked" : ""}> Использовать выбранную заставку как фон для голосования, времени и темы</label>
       <button class="button button-secondary" data-action="save-pgm-mode">Применить</button>
       ${pgm.override ? `<button class="button button-quiet" data-action="reset-pgm-mode">Вернуть режим администратора</button>` : ""}
-    </div><div class="slate-library"><div class="status-row"><div><b>Библиотека заставок</b><br><small>PNG/JPEG 16:9 · выбранная заставка используется в режиме «Заставка» и может служить фоном часов.</small></div><label class="button button-quiet slate-upload">＋ Загрузить<input id="operatorSlateUpload" type="file" accept="image/png,image/jpeg" hidden></label></div><div class="slate-grid">${slates || `<div class="empty">Заставки ещё не загружены.</div>`}</div></div></article>`;
+    </div><div class="slate-library"><div class="status-row"><div class="slate-library-copy"><b>Библиотека заставок</b><small>PNG/JPEG · 16:9 · фон заставки и часов</small></div><label class="button button-quiet slate-upload">＋ Загрузить<input id="operatorSlateUpload" type="file" accept="image/png,image/jpeg" hidden></label></div><div class="slate-grid">${slates || `<div class="empty">Заставки ещё не загружены.</div>`}</div></div></article>`;
 }
 
 async function hydrateSlatePreviews() {
@@ -1102,7 +1102,7 @@ function participantsAndSourcesHtml() {
   const systemGroup = systemStreamRows.length ? `<tr class="source-group-row"><td colspan="${columnCount}">Камеры и внешние источники</td></tr>${systemStreamRows.join("")}` : "";
   const rows = participantGroup + systemGroup || `<tr><td colspan="${columnCount}" class="empty">Участники и источники пока не зарегистрированы.</td></tr>`;
   const masterRow = showAudioControls ? `<tr class="mix-master"><td><span class="master-waveform">${actionIcon("waveform")}</span></td><td><strong>Mix-master</strong></td><td>PGM AudioCore</td><td>${streamStatusHtml("active")}</td><td><meter class="audio-meter" min="-60" max="0" low="-36" high="-12" optimum="-18" value="-60" data-audio-meter="__mix_master__"></meter></td><td><label class="participant-gain"><input type="range" min="0" max="200" step="1" value="${state.meeting.audioSettings?.masterGain ?? 100}" data-mix-master><output>${state.meeting.audioSettings?.masterGain ?? 100}%</output></label></td><td></td></tr>` : "";
-  return `<article class="panel panel-pad participant-media-console"><div class="participant-console-head"><div><h4 class="panel-title">Участники и источники</h4><p>${mayViewPersonalCameras ? "Персональные Preview и внешние источники доступны" : "Все участники показаны без чужих персональных Preview; своя камера доступна всегда"}</p></div></div><div class="source-wall-wrap"><table class="source-wall-table"><thead><tr><th>Превью</th><th>Участник / источник</th><th>Источник</th><th>Сеть</th><th>Микрофон / аудио</th>${showAudioControls ? "<th>Уровень</th>" : ""}<th>Действия</th></tr></thead><tbody>${rows}${masterRow}</tbody></table></div></article>`;
+  return `<article class="panel panel-pad participant-media-console"><div class="participant-console-head"><div><h4 class="panel-title">Участники и источники</h4><p>${mayViewPersonalCameras ? "Доступны персональные камеры и внешние источники" : "Чужие персональные камеры скрыты; своя доступна"}</p></div></div><div class="source-wall-wrap"><table class="source-wall-table"><thead><tr><th>Превью</th><th>Участник / источник</th><th>Источник</th><th>Сеть</th><th>Микрофон / аудио</th>${showAudioControls ? "<th>Уровень</th>" : ""}<th>Действия</th></tr></thead><tbody>${rows}${masterRow}</tbody></table></div></article>`;
 }
 
 function streamsHtml() {
@@ -1175,7 +1175,7 @@ function streamsHtml() {
       <div style="height:16px"></div><h4>Обнаруженные NDI-источники</h4><p class="hint">Обнаружение не подключает источник к конференции. Сначала сохраните его в каталог камер.</p><div class="grid grid-2">${ndiSources}</div>
     </section>` : "";
   return `
-    ${pageHead("Камеры и потоки", "Другие клиенты и системные источники")}
+    ${pageHead("Камеры и потоки", "Камеры и источники")}
     ${canOperateMedia() ? "" : participantsAndSourcesHtml()}
     ${can("pgm.operate") ? pgmModeHtml() : ""}
     ${advanced}`;
@@ -1665,7 +1665,7 @@ function votingHtml() {
     const summary = vote.electorateSummary ?? {};
     return `<article class="panel list-item vote-card"><div class="list-item-head"><div><h3 class="vote-question">${escapeHtml(vote.topic ?? vote.question)}</h3><p>${escapeHtml(vote.question)}</p>${vote.status === "closed" ? `<p class="vote-outcome"><strong>Результат:</strong> ${escapeHtml(voteOutcomeLabel(vote))}</p>` : ""}<p>${escapeHtml(VOTE_MODE_LABELS[vote.mode] ?? vote.mode)} · ${escapeHtml(VOTE_RULE_LABELS[vote.ruleSetId] ?? "Правило голосования")} · тур ${vote.round ?? 1} · приглашены ${summary.invitedEligible ?? "—"} · подключены ${summary.connectedNow ?? summary.connectedAtOpen ?? "—"} · проголосовали ${summary.ballotsCast ?? vote.ballotsCast ?? 0} · не проголосовали ${summary.notVoted ?? "—"}</p></div><div class="vote-card-status">${voteTimer(vote, remaining)}<span class="chip">${escapeHtml(VOTE_STATUS_LABELS[vote.status] ?? vote.status)}</span></div></div>${ballot || options}${controls}</article>`;
   }).join("") : `<article class="panel empty">Голосований нет.</article>`;
-  return `${pageHead("Голосование", "Самостоятельная подсистема с отдельными правами и данными", action)}<div class="grid">${items}</div>`;
+  return `${pageHead("Голосование", "Вопросы и результаты", action)}<div class="grid">${items}</div>`;
 }
 
 function canManageContent() {
@@ -1765,7 +1765,7 @@ function chatHtml() {
     const status = channel?.readyState === "open" ? "Прямой канал" : "Через сервер";
     const unread = state.chatUnread.get(session.id) ?? 0;
     return `<button class="chat-session ${state.activeChatId === session.id ? "active" : ""} ${unread ? "has-unread" : ""}" data-action="select-chat" data-session-id="${session.id}"><strong>${escapeHtml(partner.displayName)}</strong><span>${unread ? `<b class="unread-dot">${unread}</b>` : ""}${escapeHtml(status)}</span></button>`;
-  }).join("") || `<div class="empty">Активных P2P-диалогов нет.</div>`;
+  }).join("") || `<div class="empty">Диалогов пока нет</div>`;
   const active = state.chatSessions.find((item) => item.id === state.activeChatId);
   const messages = active ? (state.chatMessages.get(active.id) ?? []).map((message) => `<div class="chat-message ${message.own ? "own" : "peer"}"><span>${escapeHtml(message.text)}</span><small>${participantFormatTime(message.at, interfaceLocale())}</small></div>`).join("") : "";
   const channelOpen = active && state.chatChannels.get(active.id)?.readyState === "open";
@@ -1775,7 +1775,7 @@ function chatHtml() {
   const dialog = active
     ? `<article class="panel chat-dialog"><div class="chat-dialog-head"><div><h4>${escapeHtml(partnerFor(active).displayName)}</h4><p>Сообщения доступны участникам диалога и хранятся до завершения конференции</p></div><span class="chip">${channelOpen ? "Прямой канал" : "Через сервер"}</span></div><div class="chat-log">${messages || emptyChat}</div><form id="chatForm" class="chat-compose"><input id="chatMessage" data-session-id="${escapeHtml(active.id)}" maxlength="1000" value="${escapeHtml(state.chatDrafts.get(active.id) ?? "")}" placeholder="Личное сообщение" autocomplete="off"><button class="button button-primary" type="submit">Отправить</button></form></article>`
     : `<article class="panel empty">Выберите участника или существующий диалог.</article>`;
-  return `${pageHead("Личный чат", "При недоступности прямого канала сообщения доставляются через сервер")}
+  return `${pageHead("Личный чат", "Личные сообщения участников")}
     <div class="grid chat-layout"><article class="panel"><div class="panel-pad"><h4 class="panel-title">Участники</h4></div><div class="list">${participants}</div><div class="panel-pad"><h4 class="panel-title">Диалоги</h4><div class="chat-sessions">${sessions}</div></div></article>${dialog}</div>`;
 }
 
@@ -1797,7 +1797,7 @@ function operationsHtml() {
   const signage = canSignage ? `<article class="panel panel-pad signage-control"><h4 class="panel-title">Вывески</h4><p>${roomPlayers.length ? `Выберите один экран или отправьте сцену на все экраны зала.` : "Для этого зала ещё не зарегистрирован экран. Добавьте его в SignageCore."}</p><label class="signage-target-label">Куда отправить<select id="signageTargetPlayer"><option value="">Все экраны этого зала</option>${roomPlayers.map((player) => `<option value="${escapeHtml(player.id)}">${escapeHtml(player.name || player.id)}${player.online ? " · в сети" : " · не в сети"}</option>`).join("")}</select></label><div class="action-strip compact"><button class="button button-quiet" data-action="publish-room-free" ${roomPlayers.length ? "" : "disabled"}>Зал свободен</button><button class="button button-quiet" data-action="publish-room-busy" ${roomPlayers.length ? "" : "disabled"}>Идёт заседание</button><button class="button button-secondary" data-action="call-participant" ${roomPlayers.length ? "" : "disabled"}>Вызвать участника</button></div><div class="signage-compose"><label>Контент<select id="signageSceneType"><option value="text">Текст</option><option value="schedule">Расписание</option><option value="document">Документ</option></select></label><label data-signage-text>Заголовок<input id="signageSceneTitle" maxlength="160" autocomplete="off" placeholder="Что показать на экране"></label><label data-signage-text>Текст<textarea id="signageSceneBody" rows="3" maxlength="2000" placeholder="Необязательно"></textarea></label><label data-signage-document hidden>Документ<select id="signageSceneDocument">${signageDocuments.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.fileName)}</option>`).join("")}</select></label><div class="action-strip compact"><button class="button button-secondary" data-action="publish-signage-scene" ${roomPlayers.length ? "" : "disabled"}>Отправить на экран</button><a class="button button-quiet" href="/service/?tab=signage-core" target="_blank" rel="noopener">Настроить экраны</a></div></div><p class="signage-feedback" id="signageFeedback" role="status" aria-live="polite">${escapeHtml(state.signageFeedback ?? "")}</p></article>` : "";
   const aes67Running = ["starting", "running"].includes(state.aes67?.state);
   const aes67 = canAes67 ? `<article class="panel panel-pad"><div class="list-item-head"><div><h4 class="panel-title">AES67 / RTP L24</h4><p>${escapeHtml(state.aes67?.settings?.name ?? "VOX-S Program Audio")} · ${escapeHtml(state.aes67?.settings?.bus ?? "program")} · автозапуск при старте конференции</p></div><span class="chip ${state.aes67?.state === "running" ? "" : "offline"}">${escapeHtml(state.aes67?.state ?? "stopped")}</span></div>${state.aes67?.error ? `<p class="form-error">${escapeHtml(state.aes67.error)}</p>` : ""}<div class="action-strip"><button class="button ${aes67Running ? "button-danger" : "button-secondary"}" data-action="${aes67Running ? "stop-aes67" : "start-aes67"}">${aes67Running ? "Выключить AES67" : "Включить AES67"}</button></div></article>` : "";
-  return `${pageHead("Операции", "Готовность зала, оборудование, аудиоконференция, вывески и сервис")}${audioConferenceHtml()}<div class="grid grid-2 operations-grid">${readiness}${signage}${aes67}${devices}${serviceCardHtml()}</div>`;
+  return `${pageHead("Операции", "Зал, звук, вывески и сервис")}${audioConferenceHtml()}<div class="grid grid-2 operations-grid">${readiness}${signage}${aes67}${devices}${serviceCardHtml()}</div>`;
 }
 
 // Service calls card: on the Service tab and as a block of the conference workspace.
@@ -1816,7 +1816,7 @@ function settingsHtml() {
   const languageOptions = participantLanguageOptions().map(({ code, label }) =>
     `<option value="${code}"${interfaceLocale() === code ? " selected" : ""}>${escapeHtml(label)}</option>`).join("");
   const pinPanel = canManagePin ? `<article class="panel panel-pad settings-block"><h4 class="panel-title">ПИН конференции</h4><div class="status-row"><span>Текущий ПИН</span><code>${state.accessPin ? escapeHtml(state.accessPin) : "скрыт"}</code></div><div class="action-strip">${state.accessPin ? "" : `<button class="button button-quiet" data-action="reveal-access-pin">Показать</button>`}<button class="button button-secondary" data-action="edit-access-pin">Изменить</button></div></article>` : "";
-  return `${pageHead("Настройки", "Параметры стенда и подготовка браузера")}
+  return `${pageHead("Настройки", "Конференция и браузер")}
     ${localAvDevicesHtml()}
     <div class="grid grid-2">
       <article class="panel panel-pad settings-block"><h4 class="panel-title">${uiText("settings.language.title")}</h4><label>${uiText("settings.language.title")}<select id="participantLanguage" aria-label="${uiText("settings.language.title")}">${languageOptions}</select></label><p>${uiText("settings.language.note")}</p></article>
