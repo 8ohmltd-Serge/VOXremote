@@ -288,3 +288,56 @@ body:not([data-role="admin"]):not([data-role="technician"]):not([data-role="oper
   padding: 5px 10px; border: 1px solid #ded9d3; border-radius: 8px; background: #fff; color: #111; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
 #appView:not([data-role="secretary"]) .side-layout-actions button:hover { background: #f4f2ef; }
 #appView:not([data-role="secretary"]) .side-layout-actions button[data-action="secretary-layout-save"] { background: #111; border-color: #111; color: #fff; }
+/* Conference workspaces use the same precise visual language as the sign-in,
+   without altering either entry page. */
+#appView .side-nav .nav-item { min-height: 45px; gap: 10px; font-size: 13px; }
+#appView .side-nav .nav-icon svg { width: 20px; height: 20px; }
+#appView .side-foot { font-size: 11px; line-height: 1.35; }
+#appView .page-content { padding-top: 20px; }
+#appView .panel { border-radius: 12px; box-shadow: none; }
+#appView .panel-title { font-size: 18px; line-height: 1.2; }
+#appView .panel :is(p, li) { line-height: 1.45; }
+#appView .panel :is(h2, h3, h4) { text-wrap: balance; }
+#appView :is(button, a, input, select, textarea):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+#appView ::selection { background: #f4c9c7; color: #111; }
+@media (max-width: 1180px) and (min-width: 761px) {
+  #appView .side-nav .nav-item { min-height: 48px; }
+  #appView .side-layout-actions .workspace-add-menu > summary { min-height: 44px; }
+}
+@media (max-width: 1180px) and (min-width: 761px) {
+  #appView[data-role] { --side-rail-width: 72px; }
+  #appView[data-role] .side-rail { padding-inline: 6px; }
+  #appView[data-role] .side-nav .nav-item {
+    justify-content: center;
+    min-height: 50px;
+    padding: 8px;
+  }
+  #appView[data-role] .side-nav .nav-item span:last-child { display: none !important; }
+  #appView[data-role] .side-nav .nav-icon svg { width: 23px; height: 23px; }
+  #appView[data-role] :is(.side-layout-label, .side-layout-action-label),
+  #appView[data-role] .side-layout-actions strong { display: none !important; }
+  #appView[data-role] :is(.side-layout-button, .side-layout-actions button, .workspace-add-menu > summary) {
+    justify-content: center;
+    min-height: 44px;
+    padding: 8px;
+  }
+  #appView[data-role] .workspace-add-menu > summary { display: grid; place-items: center; }
+  #appView[data-role] .workspace-add-options {
+    top: auto;
+    bottom: 0;
+    left: calc(100% + 8px);
+    width: min(260px, calc(100vw - var(--side-rail-width) - 24px));
+    max-height: min(52dvh, 360px);
+    overflow-y: auto;
+  }
+}
+@media (max-width: 760px) {
+  #appView .page-content { padding-top: 14px; }
+  #appView .mobile-nav .nav-item { min-height: 44px; }
+}
+@media (pointer: coarse) {
+  #appView :is(.icon-button, .action-strip button, .workspace-add-options button) { min-width: 44px; min-height: 44px; }
+}
