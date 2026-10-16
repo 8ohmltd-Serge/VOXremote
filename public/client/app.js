@@ -3,6 +3,7 @@ import { observeBottomControls } from "./dockLayout.js";
 import { serviceRequestCategoryLabel, serviceRequestStatusLabel,
   serviceRequestCategoryOptions } from "./serviceRequestLocale.js";
 import { eventRetryDelay } from "./eventConnection.js";
+import { clientBuildReady } from "./clientBuild.js";
 import { PARTICIPANT_LANGUAGES, participantLanguage, setParticipantLanguage,
   setSystemInterfaceLanguage, applyParticipantLanguage,
   participantText } from "./i18n.js";
@@ -303,7 +304,7 @@ const CAMERA_AUTO_KEY = "edge-s-auto-camera";
 const MICROPHONE_AUTO_KEY = "edge-s-auto-microphone";
 const MEDIA_DEVICE_KEY = "edge-s-media-devices-v0.5";
 const TRANSLATION_VOLUME_KEY = "edge-s-translation-volume";
-const CLIENT_BUILD = "0.7.0.56";
+const CLIENT_BUILD = "0.7.0.61";
 const interfaceLocale = () => participantLanguage(state.profile?.userId);
 const uiText = (key) => participantText(key, interfaceLocale());
 const BUILD_RELOAD_KEY = "edge-s-client-build-reload";
@@ -1159,6 +1160,7 @@ async function connectWithProfile(profile) {
   const api = new EdgeApi(profile);
   let lease;
   try {
+    if (!await clientBuildReady(api, CLIENT_BUILD, BUILD_RELOAD_KEY)) return false;
     await api.get(`/meetings/${encodeURIComponent(profile.meetingId)}`);
     lease = await api.post("/licenses/leases", {
       entitlementId: profile.entitlementId, deviceId: profile.deviceId,
@@ -1185,8 +1187,6 @@ async function consumeConferenceHandoff() {
   try {
     profile = JSON.parse(sessionStorage.getItem(HANDOFF_KEY) || localStorage.getItem(HANDOFF_KEY) || "null");
   } catch (_) { profile = null; }
-  sessionStorage.removeItem(HANDOFF_KEY);
-  localStorage.removeItem(HANDOFF_KEY);
   if (!profile?.meetingId || !profile?.userId || !profile?.role) return false;
   let previous;
   try { previous = JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch (_) { previous = null; }
@@ -1205,7 +1205,9 @@ async function consumeConferenceHandoff() {
   }
   clearActiveSession();
   if (!profile.authToken) sessionStorage.removeItem(AUTH_TOKEN_KEY);
-  await connectWithProfile(profile);
+  if (!await connectWithProfile(profile)) return true;
+  sessionStorage.removeItem(HANDOFF_KEY);
+  localStorage.removeItem(HANDOFF_KEY);
   return true;
 }
 
@@ -1358,6 +1360,7 @@ async function restoreActiveSession() {
   if (!saved?.profile || !saved.leaseId || !saved.participantId) return false;
   const api = new EdgeApi(saved.profile);
   try {
+    if (!await clientBuildReady(api, CLIENT_BUILD, BUILD_RELOAD_KEY)) return true;
     const meeting = await api.get(`/meetings/${encodeURIComponent(saved.profile.meetingId)}`);
     await api.post(`/licenses/leases/${encodeURIComponent(saved.leaseId)}/heartbeat`, {
       deviceId: saved.profile.deviceId
@@ -1719,18 +1722,7 @@ async function refreshAll(silent = false) {
       keep(state.api.get("/translate-core/status"), state.translateStatus),
       keep(state.api.get(`/meetings/${meetingId}/translate-core`), state.translateMeeting)
     ]);
-    if (systemStatus?.build && systemStatus.build !== CLIENT_BUILD) {
-      // One cache-refresh attempt is enough. A stale hard-coded marker must
-      // never turn entry into an unbounded reload/join loop.
-      if (sessionStorage.getItem(BUILD_RELOAD_KEY) !== systemStatus.build) {
-        sessionStorage.setItem(BUILD_RELOAD_KEY, systemStatus.build);
-        location.reload();
-        return;
-      }
-      console.error(`Client build ${CLIENT_BUILD} does not match server ${systemStatus.build}`);
-    } else {
-      sessionStorage.removeItem(BUILD_RELOAD_KEY);
-    }
+    if (!await clientBuildReady(state.api, CLIENT_BUILD, BUILD_RELOAD_KEY, systemStatus)) return;
     Object.assign(state, { meeting, streams, votes, documents, presentations, devices, readiness, signagePlayers, aes67, serviceRequests, sharedSeats, cameras, mediaRuntime, routing, programDescriptor, mediaWorkers, multicastJobs, ndiJobs, systemStatus, mcuHealth, pgmSlates, translateStatus, translateMeeting });
     if (role === "secretary") {
       const [protocol, recordingStatus] = await Promise.all([
@@ -1963,8 +1955,8 @@ $("#secretaryLayoutBtn")?.addEventListener("click", (event) => {
   renderPage();
 });
 $("#secretaryLayoutActions")?.addEventListener("click", (event) => {
-  const action = event.target.closest("[data-action]")?.dataset.action;
-  if (action) handleSecretaryLayoutAction(action);
+  const t = event.target.closest("[data-action]");
+  if (t) handleSecretaryLayoutAction(t.dataset.action, t);
 });
 $("#chatNoticeBtn")?.addEventListener("click", () => selectTab("chat").catch((error) => notify(error.message)));
 $$(".nav-item[data-tab]").forEach((button) => button.addEventListener("click", () => {
@@ -2444,4 +2436,3 @@ navigator.mediaDevices?.addEventListener?.("devicechange", () => {
     if (state.activeTab === "streams") renderPage();
   }).catch(() => {});
 });
-

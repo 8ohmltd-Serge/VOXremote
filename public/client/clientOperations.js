@@ -1884,6 +1884,20 @@ async function openDocument(documentId, presentationId = null) {
 }
 
 async function startPresentationBroadcast(presentationId) {
+  const current = await state.api.get(`/meetings/${state.profile.meetingId}/presentations`);
+  const alreadyActive = current.find((item) => item.status === "active" && item.id === presentationId);
+  if (alreadyActive) {
+    await openDocument(alreadyActive.documentId, alreadyActive.id);
+    return;
+  }
+  const active = current.find((item) => item.status === "active" && item.id !== presentationId);
+  if (active) {
+    const replace = await confirmDialog(`Сейчас в показе «${active.title}». Завершить его показ и открыть новый документ?`,
+      "Транслировать новый", "Оставить текущий");
+    if (!replace) return false;
+    await state.api.post(`/presentations/${active.id}/stop`);
+    state.presentations = state.presentations.map((item) => item.id === active.id ? { ...item, status: "stopped" } : item);
+  }
   const presentation = await state.api.post(`/presentations/${presentationId}/start`);
   const index = state.presentations.findIndex((item) => item.id === presentation.id);
   if (index >= 0) state.presentations[index] = presentation;

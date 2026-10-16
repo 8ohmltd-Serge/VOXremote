@@ -136,8 +136,8 @@ body:not([data-role="admin"]):not([data-role="technician"]):not([data-role="oper
 }
 .conference-below .conference-vote-status h3.vote-status-question { font-size: 16px !important; line-height: 1.3; }
 
-/* Program tile = header strip above + an exact 16:9 picture; the strip never covers the image. */
-.conference-program-panel { display: grid; grid-template-rows: auto auto !important; }
+/* Program tile contains only the exact 16:9 picture. */
+.conference-program-panel { display: grid; grid-template-rows: auto !important; }
 .conference-program-panel .program-panel-head { position: static !important; inset: auto !important; min-height: 40px; padding: 6px 8px 6px 12px;
   background: #111; border-bottom: 1px solid #2a2a2a; }
 .conference-program-panel .program-stage-large { aspect-ratio: 16 / 9 !important; width: 100%; height: auto !important; max-height: none !important; }
@@ -235,12 +235,12 @@ body:not([data-role="admin"]):not([data-role="technician"]):not([data-role="oper
 /* Layout actions in the narrow tablet rail: compact icon rows with captions. */
 @media (max-width: 1180px) and (min-width: 761px) {
   .side-layout-actions { display: grid; gap: 4px; padding: 6px 4px; }
-  .side-layout-actions strong { font-size: 10.5px; text-align: center; }
+  .side-layout-actions strong { font-size: 11px; text-align: center; }
   .side-layout-actions button { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 48px; padding: 4px 2px;
-    font-size: 10.5px; line-height: 1.1; border-radius: 8px; }
-  .side-layout-actions .side-layout-action-label { display: block !important; font-size: 10px; white-space: normal; text-align: center; }
-  .side-layout-button { flex-direction: column; gap: 2px; font-size: 10.5px; }
-  .side-layout-button .side-layout-label { display: block !important; font-size: 10.5px; }
+    font-size: 11px; line-height: 1.1; border-radius: 8px; }
+  .side-layout-actions .side-layout-action-label { display: block !important; font-size: 11px; white-space: normal; text-align: center; }
+  .side-layout-button { flex-direction: column; gap: 2px; font-size: 11px; }
+  .side-layout-button .side-layout-label { display: block !important; font-size: 11px; }
 }
 
 /* ---------- Edit mode: the tool strip lies inside the block it moves ---------- */
@@ -262,6 +262,21 @@ body:not([data-role="admin"]):not([data-role="technician"]):not([data-role="oper
 .secretary-panel-tools .layout-remove { margin-left: auto; color: #a8211d; font-size: 16px; font-weight: 700; }
 .secretary-panel-tools .layout-remove:hover { background: #fbe9e7; }
 .workspace-area { min-height: 0; }
+.workspace-add-menu[hidden] { display: none !important; }
+.workspace-add-menu { position: relative; min-width: 0; }
+.workspace-add-menu > summary { display: block; min-height: 32px; padding: 7px 10px; border: 1px solid #ded9d3; border-radius: 8px;
+  background: #fff; color: #111; font-size: 13px; font-weight: 650; cursor: pointer; list-style: none; }
+.workspace-add-menu > summary::-webkit-details-marker { display: none; }
+.workspace-add-menu > summary:focus-visible { outline: 2px solid #e5322d; outline-offset: 2px; }
+.workspace-add-options { position: absolute; z-index: 30; top: 0; left: calc(100% + 8px); display: grid; gap: 4px;
+  width: min(240px, calc(100vw - var(--side-rail-width) - 24px)); padding: 8px; border: 1px solid #d8d2cb;
+  border-radius: 9px; background: #fff; box-shadow: 0 8px 24px rgb(0 0 0 / 18%); }
+.workspace-add-menu:not([open]) .workspace-add-options { display: none; }
+.side-layout-actions .workspace-add-options button { min-height: 40px !important; padding: 8px 10px !important;
+  font-size: 14px !important; line-height: 1.2; text-align: left !important; white-space: nowrap; }
+.workspace-add-options small { padding: 8px; color: #625e59; }
+.side-rail { z-index: 40; }
+#appView[data-role="secretary"] .conference-program-panel .program-stage-large { height: 100% !important; }
 /* Layout actions in the light rail of participant and technical roles (the secretary keeps her dark rail styles). */
 #appView:not([data-role="secretary"]) .side-layout-actions { display: grid; gap: 5px; width: 100%; margin: 8px 0; }
 #appView:not([data-role="secretary"]) .side-layout-actions[hidden] { display: none; }

@@ -96,6 +96,17 @@ function renderPage() {
   if (state.activeTab === "chat") page.innerHTML = chatHtml();
   if (state.activeTab === "operations") page.innerHTML = operationsHtml();
   if (state.activeTab === "settings") page.innerHTML = settingsHtml();
+  const addMenu = $("#workspaceAddMenu");
+  if (addMenu) {
+    const draft = state.secretaryLayoutDraft;
+    addMenu.hidden = !draft || state.profile.role === "secretary" || !["conference", "translation"].includes(state.activeTab);
+    if (!addMenu.hidden) {
+      const addable = workspaceAddablePanels(draft);
+      addMenu.querySelector(".workspace-add-options").innerHTML = addable.length
+        ? addable.map((id) => `<button type="button" data-action="layout-add" data-panel-id="${id}">${escapeHtml(WORKSPACE_PANEL_LABELS[id])}</button>`).join("")
+        : `<small>Все блоки уже размещены</small>`;
+    }
+  }
   if (["conference", "translation"].includes(state.activeTab) && state.programStageNode) {
     $("#programStage")?.replaceWith(state.programStageNode);
   }
@@ -178,11 +189,9 @@ function translationHtml() {
     const fits = Array.isArray(current?.order) && current.order.includes("translation") && current.order.every((id) => allowed.includes(id));
     if (!fits) state.secretaryLayout = structuredClone(fallback);
     const layout = fits ? current : state.secretaryLayout;
-    const addable = state.secretaryLayoutDraft ? workspaceAddablePanels(layout) : [];
-    const addBar = state.secretaryLayoutDraft ? `<div class="workspace-add-bar"><span>Добавить блок</span>${addable.map((id) => `<button type="button" class="button button-secondary" data-action="layout-add" data-panel-id="${id}">+ ${WORKSPACE_PANEL_LABELS[id]}</button>`).join("") || "<small>Все блоки уже на экране</small>"}</div>` : "";
     interpreter = `<section class="translation-workplace"><div class="status-row"><h3 class="panel-title">Рабочее место переводчика</h3><span class="chip ${assignment?.status === "on-air" && !assignment.cough && !assignment.talkback ? "translation-live" : ""}" role="status">${assignment?.talkback ? "Служебная связь" : assignment?.cough ? "Микрофон заглушен" : assignment?.status === "on-air" ? "● В эфире" : assignment ? "Готов" : "Ожидание назначения"}</span></div>
       ${agendaTitle ? `<p class="translation-agenda"><span>Текущая тема</span><strong>${escapeHtml(agendaTitle)}</strong></p>` : ""}
-      <div class="workspace-area">${addBar}<div class="secretary-layout-grid workspace-grid translation-workplace-grid${state.secretaryLayoutDraft ? " is-editing" : ""}" style="grid-auto-rows:${WORKSPACE_ROW}px;column-gap:${WORKSPACE_GAP}px">${layout.order.map((id) => secretaryLayoutPanel(id, interpreterPanels[id])).join("")}</div></div></section>`;
+      <div class="workspace-area"><div class="secretary-layout-grid workspace-grid translation-workplace-grid${state.secretaryLayoutDraft ? " is-editing" : ""}" style="grid-auto-rows:${WORKSPACE_ROW}px;column-gap:${WORKSPACE_GAP}px">${layout.order.map((id) => secretaryLayoutPanel(id, interpreterPanels[id])).join("")}</div></div></section>`;
   }
   const operator = !interpreterRole && can("conference.participants") ? `<article class="panel panel-pad"><div class="status-row"><h4 class="panel-title">Назначения переводчиков</h4><button class="button button-secondary" data-action="translate-configure">Языки конференции</button></div>${Object.values(state.meeting.participants ?? {}).filter((item) => item.state === "joined" && ["interpreter", "translator"].includes(item.role)).map((item) => {
     const current = translation.assignments?.[item.id];
@@ -557,12 +566,12 @@ function workspaceAddablePanels(layout) {
   return workspaceAllowedPanels().filter((id) => !layout.order.includes(id) && (id !== "translation" || state.translateStatus?.licensed));
 }
 
-// The Program tile takes its real width: header strip + exact 16:9 picture, measured after each render.
+// The Program tile follows its real width and keeps an exact 16:9 picture.
 function fitProgramTiles() {
   for (const wrap of document.querySelectorAll('.workspace-grid > [data-layout-panel="program"]')) {
     const panel = wrap.querySelector(".conference-program-panel");
     if (!panel) continue;
-    const head = panel.querySelector(".program-panel-head")?.offsetHeight ?? 40;
+    const head = panel.querySelector(".program-panel-head")?.offsetHeight ?? 0;
     const height = Math.ceil(head + panel.clientWidth * 9 / 16 + panel.offsetHeight - panel.clientHeight);
     if (wrap.style.getPropertyValue("--layout-height") === `${height}px`) continue;
     wrap.style.setProperty("--layout-height", `${height}px`);
@@ -606,13 +615,13 @@ function roleWorkspaceLayout() {
   return structuredClone(state.workspaceRoleLayout ?? workspaceLayoutDefault());
 }
 
-// Height of a Program tile spanning `span` of 12 columns: header strip + exact 16:9 picture.
+// Height of a Program tile spanning `span` of 12 columns: exact 16:9 picture.
 function programTileHeight(span) {
   const content = $("#pageContent");
   const style = content ? getComputedStyle(content) : null;
   const width = (content?.clientWidth ?? window.innerWidth) - (style ? parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) : 40);
   const column = (width - 11 * WORKSPACE_GAP) / 12;
-  return Math.round((span * column + (span - 1) * WORKSPACE_GAP) * 9 / 16 + 42);
+  return Math.round((span * column + (span - 1) * WORKSPACE_GAP) * 9 / 16);
 }
 
 // Width/height locks: the administrator's role locks bind participants; anyone may add their own.
@@ -642,7 +651,7 @@ function handleWorkspaceUiAction(action, target) {
     if (!draft || !workspaceAllowedPanels().includes(id)) return true;
     if (action === "layout-add" && !draft.order.includes(id)) {
       draft.order.push(id);
-      draft.panels[id] ??= { ...workspaceLayoutDefault().panels[id] };
+      draft.panels[id] ??= { ...(WORKSPACE_PANEL_SIZES[id] ?? workspaceLayoutDefault().panels[id]) };
     } else if (action === "layout-remove" && draft.order.length > 1 && !(id === "translation" && ["interpreter", "translator"].includes(state.profile.role))) {
       draft.order.splice(draft.order.indexOf(id), 1);
       delete draft.panels[id];
@@ -673,15 +682,15 @@ function applyWorkspaceLayout(saved, role) {
 
 function secretaryLayoutPanel(id, content) {
   const layout = state.secretaryLayoutDraft ?? state.secretaryLayout;
-  const own = layout.panels[id] ?? workspaceLayoutDefault().panels[id] ?? { ...WORKSPACE_PANEL_SIZES[id] };
+  const own = layout.panels[id] ?? workspaceLayoutDefault().panels[id] ?? WORKSPACE_PANEL_SIZES[id];
   // Sizes the administrator fixed for the role always win over a participant's own copy.
   const roleSize = state.workspaceRoleLayout?.panels?.[id];
-  const size = { ...own,
+  const size = { ...WORKSPACE_PANEL_SIZES[id], ...own,
     ...(roleLock(id, "width") ? { width: roleSize.width } : {}),
     ...(roleLock(id, "height") ? { height: roleSize.height } : {}) };
   const order = layout.order.indexOf(id);
   const editing = Boolean(state.secretaryLayoutDraft);
-  // Workspace grids pack blocks densely on 10 px rows; the Program tile height follows its width (16:9).
+  // Workspace grids pack blocks on 2 px rows; the Program tile height follows its width (16:9).
   const masonry = state.profile.role !== "secretary";
   const height = masonry && id === "program" ? programTileHeight(size.width) : size.height;
   const rows = masonry ? `;grid-row:span ${Math.ceil((height + WORKSPACE_GAP) / WORKSPACE_ROW)}` : "";
@@ -703,9 +712,12 @@ function moveSecretaryLayoutPanel(id, offset) {
   renderPage();
 }
 
-function handleSecretaryLayoutAction(action) {
+function handleSecretaryLayoutAction(action, target) {
   if (!canEditWorkspaceLayout() || !["conference", "translation"].includes(state.activeTab) || !state.secretaryLayoutDraft) return;
-  if (action === "secretary-layout-cancel") {
+  if (action === "layout-add") {
+    $("#workspaceAddMenu").open = false;
+    handleWorkspaceUiAction(action, target);
+  } else if (action === "secretary-layout-cancel") {
     state.secretaryLayoutDraft = null;
     renderPage();
   } else if (action === "secretary-layout-reset") {
@@ -764,8 +776,10 @@ function moveSecretaryLayoutGesture(event) {
     const column = grid.getBoundingClientRect().width / 12;
     const current = state.secretaryLayoutDraft.panels[gesture.id];
     const width = panelLocked(current, gesture.id, "width") ? gesture.width : Math.max(3, Math.min(12, gesture.width + Math.round(dx / column)));
+    const verticalStep = state.profile?.role === "secretary" ? 8 : 10;
     const height = panelLocked(current, gesture.id, "height") ? gesture.height
-      : Math.max(state.profile?.role === "secretary" ? 160 : 80, Math.min(900, gesture.height + Math.round(dy / 8) * 8));
+      : Math.max(state.profile?.role === "secretary" ? 160 : 80,
+        Math.min(900, gesture.height + Math.round(dy / verticalStep) * verticalStep));
     gesture.panel.style.setProperty("--layout-span", width);
     gesture.panel.style.setProperty("--layout-height", `${height}px`);
     gesture.nextSize = { width, height };
@@ -879,8 +893,7 @@ function conferenceHtml() {
     ["hard", "Выключить всех", "Очередь будет сброшена"],
     ["soft", "Приглушить всех", "Очередь будет сохранена"]
   ].map(([mode, label, hint]) => `<button type="button" class="chair-priority-card ${state.chairSelectedMode === mode ? "is-selected" : ""} ${state.meeting.chairPriority?.mode === mode ? "is-active" : ""}" data-mic-action="chair-mode" data-chair-mode="${mode}" aria-pressed="${state.chairSelectedMode === mode}"><span class="priority-icon">${microphoneIcon(mode === "normal" ? "off" : mode)}</span><span><b>${label}</b><small>${hint}${state.chairSelectedMode === mode ? " · нажмите ещё раз для включения" : ""}</small></span></button>`).join("")}</div>` : "";
-  const programSource = streamLabel(state.routing?.buses?.program?.sourceId);
-  const programPanel = `<article class="panel conference-program-panel"><div class="program-panel-head"><div><span class="on-air-dot"></span><b>Трансляция зала</b><small>PGM</small></div><span class="program-source-name">${escapeHtml(programSource)}</span></div><div id="programStage" class="preview-stage program-stage-large"><div class="preview-empty">В Program пока не назначен источник.</div></div></article>`;
+  const programPanel = `<article class="panel conference-program-panel"><div id="programStage" class="preview-stage program-stage-large"><div class="preview-empty">В Program пока не назначен источник.</div></div></article>`;
   const channelsPanel = `<article class="panel panel-pad secretary-open-channels"><h4 class="panel-title">Открытые каналы</h4><div class="secretary-speakers">${secretarySpeakersHtml()}</div></article>`;
   const queuePanel = `<article class="panel panel-pad conference-queue-panel"><div class="section-title-row"><h4 class="panel-title">Очередь запросов</h4><span class="count-badge">${state.meeting.floorQueue.length}</span></div>${queue}</article>`;
   const speakersPanel = `<article class="panel panel-pad conference-speakers-panel"><div class="section-title-row"><h4 class="panel-title">Сейчас выступают</h4><span class="live-badge">● В эфире ${state.meeting.activeSpeakerIds.length}</span></div>${activeSpeakers}${presenterSchedule}</article>`;
@@ -911,11 +924,7 @@ function conferenceHtml() {
     if (!fits(state.secretaryLayout)) state.secretaryLayout = structuredClone(workspaceLayoutDefault());
     if (state.secretaryLayoutDraft && !fits(state.secretaryLayoutDraft)) state.secretaryLayoutDraft = structuredClone(state.secretaryLayout);
     const layout = state.secretaryLayoutDraft ?? state.secretaryLayout;
-    const addable = state.secretaryLayoutDraft ? workspaceAddablePanels(layout) : [];
-    const addBar = state.secretaryLayoutDraft ? `<div class="workspace-add-bar"><span>Добавить блок</span>${addable.map((id) =>
-      `<button type="button" class="button button-secondary" data-action="layout-add" data-panel-id="${id}">+ ${WORKSPACE_PANEL_LABELS[id]}</button>`).join("")
-      || "<small>Все доступные блоки уже на экране</small>"}</div>` : "";
-    workspaceDashboard = `<div class="workspace-area">${addBar}<div class="secretary-layout-grid workspace-grid${state.secretaryLayoutDraft ? " is-editing" : ""}" style="grid-auto-rows:${WORKSPACE_ROW}px;column-gap:${WORKSPACE_GAP}px">${layout.order.filter((id) => panels[id]).map((id) => secretaryLayoutPanel(id, panels[id])).join("")}</div></div>`;
+    workspaceDashboard = `<div class="workspace-area"><div class="secretary-layout-grid workspace-grid${state.secretaryLayoutDraft ? " is-editing" : ""}" style="grid-auto-rows:${WORKSPACE_ROW}px;column-gap:${WORKSPACE_GAP}px">${layout.order.filter((id) => panels[id]).map((id) => secretaryLayoutPanel(id, panels[id])).join("")}</div></div>`;
     watchProgramTiles();
   }
   const standardDashboard = workspaceDashboard || `<div class="conference-dashboard ${focusVote ? "has-focus" : ""}"><div class="conference-main-column">${voteFocus}${programPanel}${chairPriority}${belowProgram}</div><div class="conference-side-stack">${speakersPanel}${queuePanel}</div></div>`;
@@ -1128,7 +1137,7 @@ function streamsHtml() {
       <div class="switcher-grid">
         <article class="studio-monitor bus-preview"><header><span>PREVIEW</span><strong>${escapeHtml(streamLabel(previewSource))}</strong></header><div id="studioPreviewStage" class="preview-stage studio-stage"><div class="preview-empty">Источник Preview не выбран</div></div></article>
         <article class="take-panel"><span class="auto-director-state ${autoDirectorEnabled ? "is-on" : "is-off"}">AUTO ${autoDirectorEnabled ? "ON" : "OFF"}</span><button class="take-button" data-action="take-program" ${manualDisabled} title="${manualTitle}">TAKE →</button><button class="button button-quiet" data-action="fade-program" ${manualDisabled} title="${manualTitle}">FADE 500 ms</button></article>
-        <article class="studio-monitor bus-program"><header><span>PROGRAM</span><strong>${escapeHtml(streamLabel(programSource))}</strong></header><div id="studioProgramStage" class="preview-stage studio-stage"><div class="preview-empty">PGM пока не сформирован</div></div></article>
+        <article class="studio-monitor bus-program" aria-label="PGM: ${escapeHtml(streamLabel(programSource))}"><div id="studioProgramStage" class="preview-stage studio-stage"><div class="preview-empty">PGM пока не сформирован</div></div></article>
       </div>
       ${autoDirectorStatus}
       <p class="hint">Preview (PVW) — служебная шина оператора: зрители её не видят. TAKE или FADE переносит выбранный источник в PGM.</p>

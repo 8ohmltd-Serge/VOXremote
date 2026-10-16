@@ -389,6 +389,9 @@ export async function openDocumentViewer({ api, document: item, presentation = n
     follow: Boolean(presentation && !canControl && !archiveScene),
     renderToken: 0, text: null };
   current = viewer;
+  root.querySelector('[data-viewer="close"]').addEventListener("click", () => {
+    if (current === viewer) closeDocumentViewer();
+  });
   updateDocumentViewerRights({ canView: true, canAnnotate });
   root.querySelector("h2").textContent = item.fileName;
   if (presentation) {
@@ -447,7 +450,9 @@ export async function openDocumentViewer({ api, document: item, presentation = n
       root.querySelector("a").href = URL.createObjectURL(blob);
       return;
     }
+    if (current !== viewer) return;
     await renderPage(viewer);
+    if (current !== viewer) return;
     viewer.ready = true;
     if (archiveScene) {
       viewer.scene = archiveScene;
@@ -456,12 +461,16 @@ export async function openDocumentViewer({ api, document: item, presentation = n
       drawAnnotations(viewer);
     } else if (viewer.sceneBase) {
       await refreshScene(viewer);
+      if (current !== viewer) return;
       viewer.poll = setInterval(() => refreshScene(viewer).catch(() => {}), 4000);
     }
   } catch (error) {
+    if (current !== viewer) return;
     closeDocumentViewer();
     throw error;
   }
+
+  if (current !== viewer) return;
 
   viewer.stage.addEventListener("scroll", () => scheduleViewport(viewer), { passive: true });
   viewer.stage.addEventListener("wheel", (event) => {
@@ -644,7 +653,6 @@ export async function openDocumentViewer({ api, document: item, presentation = n
       try { await api.post(viewer.sceneBase + "/color", { color }); await refreshScene(viewer); }
       catch (error) { viewerError(viewer, error.message); }
     }
-    if (action === "close") closeDocumentViewer();
     if (action === "minimize") { viewer.minimized = true; root.hidden = true; updateDocumentViewerBadge(); }
     if (action === "hall") {
       try {
