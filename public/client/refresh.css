@@ -271,7 +271,7 @@ body:not([data-role="admin"]):not([data-role="technician"]):not([data-role="oper
   background: #fff; color: #111; font-size: 13px; font-weight: 650; cursor: pointer; list-style: none; }
 .workspace-add-menu > summary::-webkit-details-marker { display: none; }
 .workspace-add-menu > summary:focus-visible { outline: 2px solid #e5322d; outline-offset: 2px; }
-.workspace-add-options { position: absolute; z-index: 30; top: 0; left: calc(100% + 8px); display: grid; gap: 4px;
+.workspace-add-options { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; display: grid; gap: 4px;
   width: min(240px, calc(100vw - var(--side-rail-width) - 24px)); padding: 8px; border: 1px solid #d8d2cb;
   border-radius: 9px; background: #fff; box-shadow: 0 8px 24px rgb(0 0 0 / 18%); }
 .workspace-add-menu:not([open]) .workspace-add-options { display: none; }

@@ -31,7 +31,7 @@ import {
   chatHtml, requestItemsText, operationsHtml, settingsHtml, encodeIdentityHeader, observeBottomControls,
   serviceRequestCategoryLabel, serviceRequestStatusLabel, serviceRequestCategoryOptions, eventRetryDelay,
   PARTICIPANT_LANGUAGES, participantLanguage, setParticipantLanguage, participantText, openDocumentViewer,
-  closeDocumentViewer, minimizeDocumentViewer, updateDocumentViewerRights, updateDocumentViewerBadge, documentSceneEvent
+  closeDocumentViewer, expandPresentationViewer, updateDocumentViewerRights, documentSceneEvent
 } from "./app.js";
 
 function inMcu(stream) {
@@ -1661,6 +1661,28 @@ async function publishRoom(status) {
     roomStatus: status,
     target: playerId ? { playerIds: [playerId] } : { roomId }
   });
+  state.signageFeedback = status === "free" ? "Статус «Зал свободен» отправлен" : "Статус «Идёт заседание» отправлен";
+}
+
+async function publishSignageScene() {
+  const type = document.querySelector("#signageSceneType")?.value;
+  if (!["text", "schedule", "document"].includes(type)) throw new Error("Выберите контент для вывески");
+  const roomId = state.meeting.roomId ?? "default-room";
+  const playerId = document.querySelector("#signageTargetPlayer")?.value;
+  const players = state.signagePlayers.filter((player) => player.roomId === roomId);
+  if (!players.length) throw new Error("В этом зале нет зарегистрированных информационных экранов");
+  if (playerId && !players.some((player) => player.id === playerId)) throw new Error("Выбранный экран больше не относится к этому залу");
+  const documentId = document.querySelector("#signageSceneDocument")?.value;
+  const item = type === "document" ? state.documents.find((entry) => entry.id === documentId) : null;
+  if (type === "document" && !item) throw new Error("Выберите доступный документ");
+  const title = type === "document" ? item.fileName : document.querySelector("#signageSceneTitle")?.value.trim();
+  const body = type === "document" ? "" : document.querySelector("#signageSceneBody")?.value.trim();
+  if (!title) throw new Error("Укажите заголовок");
+  const result = await state.api.post(`/signage/scenes?meetingId=${encodeURIComponent(state.profile.meetingId)}`, {
+    type, title, body, ...(item ? { documentId: item.id } : {}),
+    target: playerId ? { playerIds: [playerId] } : { roomId }
+  });
+  state.signageFeedback = `Контент отправлен на ${result.playerIds?.length ?? 0} экран(а)`;
 }
 
 async function callParticipant() {
@@ -1688,6 +1710,7 @@ async function callParticipant() {
     participant: { ...(presenter ? { id: presenter.id } : {}), displayName: name }, sound: { enabled: true, tone: "chime", repeats: 2 },
     durationSeconds: 30, target: playerId ? { playerIds: [playerId] } : { roomId }
   });
+  state.signageFeedback = "Вызов отправлен на вывеску";
 }
 
 async function startAes67() {
@@ -1906,10 +1929,9 @@ async function uploadAgendaDocument(file) {
 }
 
 async function openDocument(documentId, presentationId = null) {
+  if (presentationId && expandPresentationViewer(presentationId)) return;
   const item = state.documents.find((entry) => entry.id === documentId)
     ?? await state.api.get(`/documents/${encodeURIComponent(documentId)}`);
-  presentationId ??= state.presentations.find((entry) =>
-    entry.documentId === documentId && entry.status === "active")?.id ?? null;
   const presentation = presentationId
     ? state.presentations.find((entry) => entry.id === presentationId)
       ?? await state.api.get(`/presentations/${encodeURIComponent(presentationId)}`)
@@ -1949,7 +1971,10 @@ async function startPresentationBroadcast(presentationId) {
   const current = await state.api.get(`/meetings/${state.profile.meetingId}/presentations`);
   const alreadyActive = current.find((item) => item.status === "active" && item.id === presentationId);
   if (alreadyActive) {
-    await openDocument(alreadyActive.documentId, alreadyActive.id);
+    const index = state.presentations.findIndex((item) => item.id === alreadyActive.id);
+    if (index >= 0) state.presentations[index] = alreadyActive;
+    else state.presentations.push(alreadyActive);
+    renderMicrophoneDock();
     return;
   }
   const active = current.find((item) => item.status === "active" && item.id !== presentationId);
@@ -1964,8 +1989,7 @@ async function startPresentationBroadcast(presentationId) {
   const index = state.presentations.findIndex((item) => item.id === presentation.id);
   if (index >= 0) state.presentations[index] = presentation;
   else state.presentations.push(presentation);
-  await openDocument(presentation.documentId, presentation.id);
-  minimizeDocumentViewer();
+  renderMicrophoneDock();
   notify("Показ открыт участникам. PGM не переключён.", 6000);
 }
 
@@ -2048,7 +2072,7 @@ export { inMcu, runAction, requestFloor, applyLocalFloorResult, runMicrophoneAct
   updateHeadphoneWarning, attachAudioMixInput, detachAudioMixInput, syncConferenceAudio, reconcileServerAudioMix,
   watchServerAudioMix, closeServerAudioSubscriber, closeAllPeers, bindChatChannel, newChatPeer,
   startChatOffer, openChat, pollChatSignaling, sendChatMessage, closeAllChats, checkReadiness,
-  checkDevice, deviceCommand, publishRoom, callParticipant, startAes67, stopAes67, createServiceRequest,
+  checkDevice, deviceCommand, publishRoom, publishSignageScene, callParticipant, startAes67, stopAes67, createServiceRequest,
   serviceStatus, assignSeat, assignPresenterWorkplace, releaseSeat, claimSeat, createVote, castVote,
   castAdvancedVote, createNextVoteRound, uploadDocument, importArchivedDocument, uploadAgendaDocument,
   openDocument, startPresentationBroadcast, shareScreen, stopScreenShare, installPwa, toggleFullscreen };

@@ -7,8 +7,8 @@ import { clientBuildReady } from "./clientBuild.js";
 import { PARTICIPANT_LANGUAGES, participantLanguageOptions, configureParticipantLanguages,
   participantLanguage, setParticipantLanguage, applyParticipantLanguage,
   participantText, participantFormatTime } from "./i18n.js";
-import { openDocumentViewer, closeDocumentViewer, minimizeDocumentViewer, updateDocumentViewerRights,
-  updateDocumentViewerBadge, documentSceneEvent } from "./documentViewer.js";
+import { openDocumentViewer, closeDocumentViewer, expandPresentationViewer, closePresentationViewer,
+  updateDocumentViewerRights, documentSceneEvent } from "./documentViewer.js";
 
 const VoxNoticeLocale = globalThis.VoxNoticeLocale;
 let canEditWorkspaceLayout, handleWorkspaceUiAction, applyWorkspaceLayout, renderPage, updateNavigationVisibility, translationHtml, unreadChatCount, updateChatNotice, markChatRead, pageHead, VOTE_OUTCOME_LABELS, updateVoteCountdowns,
@@ -33,7 +33,7 @@ let canEditWorkspaceLayout, handleWorkspaceUiAction, applyWorkspaceLayout, rende
   closeMcuSubscriber, watchClientStream, reconcileSelectedStream, pollSignaling, closeViewerStream, pruneUnusedViewerPeers, ensureAudioContext, updateAudioUnlock,
   mobileAudioEndpoint, updateHeadphoneWarning, attachAudioMixInput, detachAudioMixInput, syncConferenceAudio, reconcileServerAudioMix, watchServerAudioMix, closeServerAudioSubscriber,
   closeAllPeers, bindChatChannel, newChatPeer, startChatOffer, openChat, pollChatSignaling, sendChatMessage, closeAllChats,
-  checkReadiness, checkDevice, deviceCommand, publishRoom, callParticipant, startAes67, stopAes67, createServiceRequest,
+  checkReadiness, checkDevice, deviceCommand, publishRoom, publishSignageScene, callParticipant, startAes67, stopAes67, createServiceRequest,
   serviceStatus, assignSeat, assignPresenterWorkplace, releaseSeat, claimSeat, createVote, castVote, castAdvancedVote,
   createNextVoteRound, uploadDocument, importArchivedDocument, uploadAgendaDocument, openDocument, startPresentationBroadcast, shareScreen, stopScreenShare,
   installPwa, toggleFullscreen;
@@ -226,6 +226,7 @@ async function loadFeatureModules() {
     checkDevice = operations.checkDevice;
     deviceCommand = operations.deviceCommand;
     publishRoom = operations.publishRoom;
+    publishSignageScene = operations.publishSignageScene;
     callParticipant = operations.callParticipant;
     startAes67 = operations.startAes67;
     stopAes67 = operations.stopAes67;
@@ -286,12 +287,12 @@ export {
   closeMcuSubscriber, watchClientStream, reconcileSelectedStream, pollSignaling, closeViewerStream, pruneUnusedViewerPeers, ensureAudioContext, updateAudioUnlock,
   mobileAudioEndpoint, updateHeadphoneWarning, attachAudioMixInput, detachAudioMixInput, syncConferenceAudio, reconcileServerAudioMix, watchServerAudioMix, closeServerAudioSubscriber,
   closeAllPeers, bindChatChannel, newChatPeer, startChatOffer, openChat, pollChatSignaling, sendChatMessage, closeAllChats,
-  checkReadiness, checkDevice, deviceCommand, publishRoom, callParticipant, startAes67, stopAes67, createServiceRequest,
+  checkReadiness, checkDevice, deviceCommand, publishRoom, publishSignageScene, callParticipant, startAes67, stopAes67, createServiceRequest,
   serviceStatus, assignSeat, assignPresenterWorkplace, releaseSeat, claimSeat, createVote, castVote, castAdvancedVote,
   createNextVoteRound, uploadDocument, importArchivedDocument, uploadAgendaDocument, openDocument, startPresentationBroadcast, shareScreen, stopScreenShare,
   installPwa, toggleFullscreen, encodeIdentityHeader, observeBottomControls, serviceRequestCategoryLabel, serviceRequestStatusLabel, serviceRequestCategoryOptions, eventRetryDelay,
-  PARTICIPANT_LANGUAGES, participantLanguageOptions, participantLanguage, setParticipantLanguage, participantText, participantFormatTime, openDocumentViewer, closeDocumentViewer, updateDocumentViewerRights, updateDocumentViewerBadge,
-  documentSceneEvent, minimizeDocumentViewer
+  PARTICIPANT_LANGUAGES, participantLanguageOptions, participantLanguage, setParticipantLanguage, participantText, participantFormatTime, openDocumentViewer, closeDocumentViewer, expandPresentationViewer, closePresentationViewer, updateDocumentViewerRights,
+  documentSceneEvent
 };
 
 observeBottomControls();
@@ -306,7 +307,7 @@ const CAMERA_AUTO_KEY = "edge-s-auto-camera";
 const MICROPHONE_AUTO_KEY = "edge-s-auto-microphone";
 const MEDIA_DEVICE_KEY = "edge-s-media-devices-v0.5";
 const TRANSLATION_VOLUME_KEY = "edge-s-translation-volume";
-const CLIENT_BUILD = "0.7.0.63";
+const CLIENT_BUILD = "0.7.0.64";
 const interfaceLocale = () => participantLanguage(state.profile?.userId);
 const uiText = (key) => participantText(key, interfaceLocale());
 const BUILD_RELOAD_KEY = "edge-s-client-build-reload";
@@ -326,23 +327,14 @@ const SECRETARY_LAYOUT_DEFAULT = Object.freeze({
     protocol: { width: 4, height: 330 } }
 });
 const TAB_ID_KEY = "edge-s-tab-id";
-// One shared draw timer serves every "Камеры и потоки" thumbnail (not one
-// timer per row): each still-subscribed WebRTC track keeps decoding at its
-// native rate regardless, but the browser only has to composite/paint each
-// tile 6-12 times a second instead of continuously, which is what makes a
-// grid of many simultaneous tiles affordable to keep on screen.
+// Shared thumbnail paint timer; subscribed WebRTC tracks keep decoding.
 const THUMBNAIL_FPS = 8;
 const RESOURCE_CONSTRAINED_CLIENT = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
   (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const THUMBNAIL_DECODE_BUDGET = RESOURCE_CONSTRAINED_CLIENT ? 2 : 6;
 // Unique per loaded document: an old pagehide cannot disconnect its replacement.
 const PRESENCE_ID = crypto.randomUUID();
-// edge-s-active-session-v0.6 lives in localStorage (shared by every tab of
-// this origin) so a reload or a reopened tab can restore the same
-// participant. TAB_ID lives in sessionStorage (unique per tab, never shared
-// with a freshly opened one) purely to tell "this exact tab is switching
-// identity" apart from "a different, still-open tab owns that session" -
-// see consumeConferenceHandoff().
+// A per-tab ID prevents another tab's saved session from being disconnected.
 const TAB_ID = (() => {
   let id;
   try { id = sessionStorage.getItem(TAB_ID_KEY); } catch (_) { id = null; }
@@ -1191,11 +1183,7 @@ async function consumeConferenceHandoff() {
   if (!profile?.meetingId || !profile?.userId || !profile?.role) return false;
   let previous;
   try { previous = JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch (_) { previous = null; }
-  // edge-s-active-session-v0.6 is shared localStorage, so it may belong to a
-  // different, still-open tab (e.g. another participant joined from the same
-  // browser) rather than a stale identity this same tab is replacing. Only
-  // auto-leave/release it when this tab's own TAB_ID saved it - otherwise a
-  // second tab's handoff would silently disconnect a live session in tab one.
+  // Release only this tab's prior lease, never another tab's live participant.
   if (previous?.profile && previous?.participantId && previous?.leaseId && previous?.tabId === TAB_ID &&
       (previous.profile.userId !== profile.userId || previous.profile.meetingId !== profile.meetingId)) {
     const previousApi = new EdgeApi(previous.profile);
@@ -1500,10 +1488,7 @@ function schedulePushRefresh(eventType) {
         type === "mcu.video-scene-visible" ||
       type === "mediaplane.video-scene-visible" ||
         type === "participant.updated")) refreshProgram();
-    // A floor change used to fetch every product module and rebuild the whole
-    // source page on every client. Besides being expensive on Safari, that
-    // temporarily detached thumbnail canvases and looked like a strobe. Floor
-    // events need only authoritative meeting state plus PGM metadata.
+    // Floor events update meeting state without detaching live video canvases.
     if (floorOnly) refreshFloorState();
     else refreshAll(true);
   }, 60);
@@ -1546,10 +1531,7 @@ async function refreshFloorState() {
         field?.setSelectionRange(...selection);
       }
     }
-    // Never rebuild or temporarily detach the Conference DOM for a microphone
-    // event. WebKit/iPadOS can paint black when a live <video> is removed and
-    // reinserted even though its MediaStream and consumer never changed.
-    // The dock, fixed controls and PGM captions are updated independently.
+    // Preserve the Conference DOM on floor changes to avoid a WebKit black frame.
     if (state.activeTab === "streams") updateSourceWallFloorState();
     syncConferenceAudio().catch(() => {});
   } catch (error) {
@@ -1696,9 +1678,9 @@ async function refreshAll(silent = false) {
         state.secretaryLayoutLoaded = true;
       }
     }
-    if (role !== "secretary" && state.workspaceLayoutRole !== role) {
-      // Role layout (participants, set by the administrator) or personal layout (technical roles).
-      applyWorkspaceLayout(await keep(state.api.get(`/me/workspace-layout?meetingId=${meetingId}`), null), role);
+    const layoutDevice = window.innerWidth >= 1600 ? "pc" : window.innerWidth >= 1180 ? "laptop" : "tablet";
+    if (role !== "secretary" && (state.workspaceLayoutRole !== role || state.workspaceLayoutDevice !== layoutDevice)) {
+      applyWorkspaceLayout(await keep(state.api.get(`/me/workspace-layout?meetingId=${meetingId}&device=${layoutDevice}`), null), role);
     }
     const deviceAccess = ["operator", "technician", "admin"].includes(role);
     const readinessAccess = ["chair", "secretary", "operator", "technician", "admin"].includes(role);
@@ -1893,12 +1875,7 @@ async function disconnect() {
   await saveSecretaryTranscript().catch((error) => notify(`Стенограмма не сохранена: ${error.message}`));
   clearTimers();
   closeDocumentViewer();
-  // Local WebRTC/media teardown (closeAllPeers/closeAllChats, track.stop())
-  // can throw synchronously on some mobile browsers when a connection is
-  // already in an unstable state - an uncaught throw here used to abort the
-  // rest of disconnect() outright, so tapping "disconnect" silently did
-  // nothing (no server leave call, no redirect). Best-effort cleanup, but
-  // the server-side leave and the redirect below must always happen.
+  // Cleanup is best-effort; an unstable WebRTC peer must not abort server leave.
   try {
     for (const view of state.mediaViews.values()) view.hls?.destroy();
     state.mediaViews.clear();
@@ -1963,6 +1940,10 @@ $("#secretaryLayoutActions")?.addEventListener("click", (event) => {
   const t = event.target.closest("[data-action]");
   if (t) handleSecretaryLayoutAction(t.dataset.action, t);
 });
+$("#workspaceAddMenu")?.addEventListener("click", (event) => {
+  const target = event.target.closest('[data-action="layout-add"]');
+  if (target) handleSecretaryLayoutAction?.("layout-add", target);
+});
 $("#chatNoticeBtn")?.addEventListener("click", () => selectTab("chat").catch((error) => notify(error.message)));
 $$(".nav-item[data-tab]").forEach((button) => button.addEventListener("click", () => {
   selectTab(button.dataset.tab).catch((error) => notify(error.message));
@@ -1975,6 +1956,12 @@ document.addEventListener("pointerup", (event) => finishSecretaryLayoutGesture?.
 document.addEventListener("pointercancel", (event) => finishSecretaryLayoutGesture?.(event));
 
 $("#pageContent").addEventListener("change", (event) => {
+  if (event.target.id === "signageSceneType") {
+    const isDocument = event.target.value === "document";
+    document.querySelectorAll("[data-signage-text]").forEach((field) => { field.hidden = isDocument; });
+    document.querySelector("[data-signage-document]").hidden = !isDocument;
+    return;
+  }
   if (event.target.id === "participantLanguage") {
     setParticipantLanguage(state.profile?.userId, event.target.value);
     renderPage();
@@ -2268,11 +2255,11 @@ $("#pageContent").addEventListener("click", (event) => {
   if (action === "start-presentation") runAction(() => startPresentationBroadcast(target.dataset.presentationId));
   if (action === "share-screen") runAction(shareScreen);
   if (action === "stop-screen-share") runAction(stopScreenShare);
-  if (action === "open-presentation-document") runAction(() => openDocument(target.dataset.documentId, target.dataset.presentationId));
+  if (action === "open-presentation-document") void openDocument(target.dataset.documentId, target.dataset.presentationId).catch(e => notify(e.message));
   if (action === "next-page") runAction(() => state.api.post(`/presentations/${target.dataset.presentationId}/page`, { page: Number(target.dataset.page) }));
   if (action === "stop-presentation") runAction(async () => {
     await state.api.post(`/presentations/${target.dataset.presentationId}/stop`);
-    closeDocumentViewer();
+    closePresentationViewer(target.dataset.presentationId);
   });
   if (action === "open-chat") runAction(() => openChat(target.dataset.participantId));
   if (action === "select-chat") { state.activeChatId = target.dataset.sessionId; markChatRead(state.activeChatId); renderPage(); }
@@ -2281,6 +2268,16 @@ $("#pageContent").addEventListener("click", (event) => {
   if (action === "device-command") runAction(() => deviceCommand(target.dataset.deviceId), "Команда выполнена");
   if (action === "publish-room-free") runAction(() => publishRoom("free"), "Статус опубликован");
   if (action === "publish-room-busy") runAction(() => publishRoom("busy"), "Статус опубликован");
+  if (action === "publish-signage-scene") {
+    target.disabled = true;
+    void publishSignageScene().then(() => {
+      const status = document.querySelector("#signageFeedback");
+      if (status) status.textContent = state.signageFeedback;
+    }).catch((error) => {
+      const status = document.querySelector("#signageFeedback");
+      if (status) status.textContent = error.message;
+    }).finally(() => { target.disabled = false; });
+  }
   if (action === "call-participant") runAction(callParticipant, "Вызов отправлен на вывески");
   if (action === "edit-live-roster") runAction(editLiveRoster, "Состав обновлён");
   if (action === "report-up") runAction(() => moveLiveReport(target.dataset.presenterId, -1), "Очередь обновлена");

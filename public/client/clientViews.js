@@ -39,7 +39,7 @@ import {
   encodeIdentityHeader, observeBottomControls, serviceRequestCategoryLabel, serviceRequestStatusLabel,
   serviceRequestCategoryOptions, eventRetryDelay, PARTICIPANT_LANGUAGES, participantLanguageOptions, participantLanguage,
   setParticipantLanguage, participantText, participantFormatTime, openDocumentViewer, closeDocumentViewer, updateDocumentViewerRights,
-  updateDocumentViewerBadge, documentSceneEvent
+  documentSceneEvent
 } from "./app.js";
 
 function renderPage() {
@@ -348,7 +348,7 @@ function recordingToggleHtml(meetingPaused) {
 function presentationDockHtml() {
   const active = state.presentations.find((item) => item.status === "active");
   if (!active || (!canViewFiles() && !canManageContent())) return "";
-  return `<span id="activePresentationBadge" class="document-viewer-badge-group"><button type="button" class="button button-secondary document-viewer-badge" data-action="open-presentation-document" data-document-id="${escapeHtml(active.documentId)}" data-presentation-id="${escapeHtml(active.id)}" title="Открыть документ в показе">▣ ${escapeHtml(active.title || "Документ в показе")}</button>${canManageContent() ? `<button type="button" class="button button-secondary document-viewer-stop" data-action="stop-presentation" data-presentation-id="${escapeHtml(active.id)}" title="Убрать из показа" aria-label="Убрать документ из показа"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 12h8"/></svg></button>` : ""}</span>`;
+  return `<span id="activePresentationBadge" class="document-viewer-badge-group"><button type="button" class="button button-secondary document-viewer-badge" data-action="open-presentation-document" data-document-id="${escapeHtml(active.documentId)}" data-presentation-id="${escapeHtml(active.id)}" title="Открыть документ в показе" aria-label="Открыть документ в показе: ${escapeHtml(active.title || "Документ")}"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M14 3v5h4M9 13h6m-6 4h6"/></svg><span><small>В показе</small><strong>${escapeHtml(active.title || "Документ")}</strong></span></button>${canManageContent() ? `<button type="button" class="button button-secondary document-viewer-stop" data-action="stop-presentation" data-presentation-id="${escapeHtml(active.id)}" title="Убрать из показа" aria-label="Убрать из показа: ${escapeHtml(active.title || "Документ")}"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 12h8"/></svg></button>` : ""}</span>`;
 }
 
 function renderMicrophoneDock() {
@@ -358,7 +358,6 @@ function renderMicrophoneDock() {
     const extra = `${participant && can("conference.recording") ? recordingToggleHtml(Boolean(state.meeting?.pausedAt)) : ""}${presentationDockHtml()}`;
     dock.hidden = !extra;
     dock.innerHTML = extra;
-    updateDocumentViewerBadge();
     return;
   }
   dock.hidden = false;
@@ -375,7 +374,6 @@ function renderMicrophoneDock() {
     dock.innerHTML = `<div class="mic-button ${color}" role="status" aria-live="polite">${microphoneIcon(physical === "on" ? "on" : "off")}<span><b>${label}</b><small>${capture ? "Микрофон планшета готов к записи" : "Микрофон планшета недоступен — персональная запись невозможна"}</small></span></div>`;
     dock.insertAdjacentHTML("beforeend", recordingToggleHtml(meetingPaused));
     dock.insertAdjacentHTML("beforeend", presentationDockHtml());
-    updateDocumentViewerBadge();
     return;
   }
   if (participant.role === "chair") {
@@ -386,7 +384,6 @@ function renderMicrophoneDock() {
     dock.innerHTML = `<button type="button" class="mic-button chair-mic-button mic-neutral" data-mic-action="chair-priority" ${meetingPaused ? "disabled" : ""} aria-label="Приоритет: выключить микрофоны остальных участников, кроме председателей, и взять слово">${microphoneIcon("on")}<span><b>Приоритет</b><small>Отключить остальных</small></span></button><button type="button" class="mic-button chair-mic-button mic-green ${speaking ? "mic-live" : "mic-idle"}" data-mic-action="chair-take-floor" ${meetingPaused ? "disabled" : ""} aria-label="${speaking ? "Выключить свой микрофон" : "Взять слово без отключения остальных"}">${microphoneIcon(speaking ? "on" : "off")}<span><b>${speaking ? "Выключить микрофон" : "Взять слово"}</b><small>${speaking ? "Вы в эфире" : "Без отключения других"}</small></span></button><button type="button" class="mic-button chair-mic-button mic-neutral chair-next ${next ? "has-queue" : ""}" data-mic-action="chair-next" ${!next || meetingPaused ? "disabled" : ""} aria-label="${next ? `Дать слово следующему: ${escapeHtml(next.displayName)}` : "Нет запросов слова в очереди"}" title="${next ? escapeHtml(next.displayName) : "Очередь пуста"}">${nextIcon}<span><b>Следующий</b><small>${next ? `В очереди: ${state.meeting.floorQueue.length}` : "Очередь пуста"}</small></span></button>${speaking ? '<span class="on-air-tag" role="status">● В эфире</span>' : ""}`;
     dock.insertAdjacentHTML("beforeend", recordingToggleHtml(meetingPaused));
     dock.insertAdjacentHTML("beforeend", presentationDockHtml());
-    updateDocumentViewerBadge();
     return;
   }
   const color = speaking ? "mic-green mic-live" : queued ? "mic-yellow mic-queued" : "mic-red mic-idle";
@@ -397,7 +394,6 @@ function renderMicrophoneDock() {
   dock.innerHTML = `<button type="button" class="mic-button ${color}" data-mic-action="delegate" aria-label="${blocked ? blockedReason : label}" title="${blocked ? blockedReason : label}" ${blocked ? "disabled" : ""}>${microphoneIcon(speaking ? "on" : queued ? "wait" : "off")}<span><b>${meetingPaused ? "Микрофон на паузе" : speaking ? "Завершить выступление" : queued ? "Отменить запрос" : "Попросить слово"}</b><small>${meetingPaused ? "Заседание на паузе" : speaking ? "Вас слышит зал" : queued ? `Вы в очереди: №${queuePlace}` : blocked ? "Приоритет председателя" : "Нажмите, чтобы выступить"}</small></span></button>${speaking ? '<span class="on-air-tag" role="status">● В эфире</span>' : ""}`;
   dock.insertAdjacentHTML("beforeend", recordingToggleHtml(meetingPaused));
   dock.insertAdjacentHTML("beforeend", presentationDockHtml());
-  updateDocumentViewerBadge();
 }
 
 function renderFixedControls() {
@@ -713,6 +709,7 @@ function applyWorkspaceLayout(saved, role) {
   state.secretaryLayout = structuredClone(saved.personal ?? saved.roleLayout ?? workspaceLayoutDefault(role));
   state.secretaryLayoutDraft = null;
   state.workspaceLayoutRole = role;
+  state.workspaceLayoutDevice = saved.device ?? "pc";
 }
 
 function secretaryLayoutPanel(id, content) {
@@ -760,7 +757,7 @@ function handleSecretaryLayoutAction(action, target) {
     renderPage();
   } else if (action === "secretary-layout-save" && state.profile?.role !== "secretary") {
     void (async () => {
-      const path = `/me/workspace-layout?meetingId=${encodeURIComponent(state.profile.meetingId)}`;
+      const path = `/me/workspace-layout?meetingId=${encodeURIComponent(state.profile.meetingId)}&device=${state.workspaceLayoutDevice ?? "pc"}`;
       const draft = state.secretaryLayoutDraft;
       const sameAsRole = JSON.stringify({ order: draft.order, panels: draft.panels })
         === JSON.stringify({ order: roleWorkspaceLayout().order, panels: roleWorkspaceLayout().panels });
@@ -808,7 +805,8 @@ function moveSecretaryLayoutGesture(event) {
   const dy = event.clientY - gesture.startY;
   if (gesture.mode === "resize") {
     const grid = gesture.panel.closest(".secretary-layout-grid");
-    const column = grid.getBoundingClientRect().width / 12;
+    const gap = parseFloat(getComputedStyle(grid).columnGap) || 0;
+    const column = (grid.getBoundingClientRect().width - 11 * gap) / 12 + gap;
     const current = state.secretaryLayoutDraft.panels[gesture.id];
     const width = panelLocked(current, gesture.id, "width") ? gesture.width : Math.max(3, Math.min(12, gesture.width + Math.round(dx / column)));
     const verticalStep = state.profile?.role === "secretary" ? 8 : 10;
@@ -1795,7 +1793,8 @@ function operationsHtml() {
   const readiness = canReadiness ? `<article class="panel panel-pad"><div class="list-item-head"><div><h4 class="panel-title">Готовность зала</h4><p>${state.readiness?.status === "unconfigured" ? "Проверка не настроена: обязательные устройства не зарегистрированы" : state.readiness ? `${state.readiness.onlineDevices}/${state.readiness.requiredDevices} обязательных устройств доступны` : "Проверка не выполнялась"}</p></div><span class="chip ${state.readiness?.status === "ready" ? "" : "offline"}">${escapeHtml(({ ready: "Готов", warning: "Предупреждение", "not-ready": "Не готов", unconfigured: "Не настроено" })[state.readiness?.status] ?? "Не проверено")}</span></div>${(state.readiness?.checks ?? []).map((check) => `<p class="readiness-check">${escapeHtml(state.devices.find((item) => item.id === check.deviceId)?.name ?? check.deviceId)} · ${escapeHtml(check.status)}${check.error ? ` · ${escapeHtml(check.error)}` : ""}</p>`).join("")}<div class="action-strip"><button class="button button-secondary" data-action="check-readiness">Проверить зал</button></div></article>` : "";
   const devices = canDevices ? `<article class="panel"><div class="panel-pad"><h4 class="panel-title">Device Registry</h4></div><div class="list">${state.devices.map((device) => `<div class="list-item"><div class="list-item-head"><div><h4>${escapeHtml(device.name)}</h4><p>${escapeHtml(device.kind)} · ${escapeHtml(device.driverId)} · ${escapeHtml(device.id)}</p></div><span class="chip ${device.health?.status === "online" ? "" : "offline"}">${escapeHtml(device.health?.status ?? "unknown")}</span></div><div class="action-strip compact"><button class="button button-quiet" data-action="check-device" data-device-id="${device.id}">Health</button><button class="button button-quiet" data-action="device-command" data-device-id="${device.id}">Команда</button></div></div>`).join("") || `<div class="empty">Устройства не зарегистрированы.</div>`}</div></article>` : "";
   const roomPlayers = state.signagePlayers.filter((player) => player.roomId === (state.meeting.roomId ?? "default-room"));
-  const signage = canSignage ? `<article class="panel panel-pad"><h4 class="panel-title">Вывески</h4><p>${roomPlayers.length ? `Выберите экран зала или отправьте статус на все ${roomPlayers.length} экрана.` : "Для этого зала ещё не зарегистрирован экран. Добавьте его в SignageCore."}</p><label class="signage-target-label">Экран<select id="signageTargetPlayer"><option value="">Все экраны этого зала</option>${roomPlayers.map((player) => `<option value="${escapeHtml(player.id)}">${escapeHtml(player.name || player.id)}</option>`).join("")}</select></label><div class="action-strip"><button class="button button-quiet" data-action="publish-room-free" ${roomPlayers.length ? "" : "disabled"}>Зал свободен</button><button class="button button-quiet" data-action="publish-room-busy" ${roomPlayers.length ? "" : "disabled"}>Идёт заседание</button><button class="button button-secondary" data-action="call-participant" ${roomPlayers.length ? "" : "disabled"}>Вызвать участника</button><a class="button button-quiet" href="/service/?tab=signage-core" target="_blank" rel="noopener">SignageCore</a></div></article>` : "";
+  const signageDocuments = state.documents.filter((item) => item.meetingId === state.profile.meetingId);
+  const signage = canSignage ? `<article class="panel panel-pad signage-control"><h4 class="panel-title">Вывески</h4><p>${roomPlayers.length ? `Выберите один экран или отправьте сцену на все экраны зала.` : "Для этого зала ещё не зарегистрирован экран. Добавьте его в SignageCore."}</p><label class="signage-target-label">Куда отправить<select id="signageTargetPlayer"><option value="">Все экраны этого зала</option>${roomPlayers.map((player) => `<option value="${escapeHtml(player.id)}">${escapeHtml(player.name || player.id)}${player.online ? " · в сети" : " · не в сети"}</option>`).join("")}</select></label><div class="action-strip compact"><button class="button button-quiet" data-action="publish-room-free" ${roomPlayers.length ? "" : "disabled"}>Зал свободен</button><button class="button button-quiet" data-action="publish-room-busy" ${roomPlayers.length ? "" : "disabled"}>Идёт заседание</button><button class="button button-secondary" data-action="call-participant" ${roomPlayers.length ? "" : "disabled"}>Вызвать участника</button></div><div class="signage-compose"><label>Контент<select id="signageSceneType"><option value="text">Текст</option><option value="schedule">Расписание</option><option value="document">Документ</option></select></label><label data-signage-text>Заголовок<input id="signageSceneTitle" maxlength="160" autocomplete="off" placeholder="Что показать на экране"></label><label data-signage-text>Текст<textarea id="signageSceneBody" rows="3" maxlength="2000" placeholder="Необязательно"></textarea></label><label data-signage-document hidden>Документ<select id="signageSceneDocument">${signageDocuments.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.fileName)}</option>`).join("")}</select></label><div class="action-strip compact"><button class="button button-secondary" data-action="publish-signage-scene" ${roomPlayers.length ? "" : "disabled"}>Отправить на экран</button><a class="button button-quiet" href="/service/?tab=signage-core" target="_blank" rel="noopener">Настроить экраны</a></div></div><p class="signage-feedback" id="signageFeedback" role="status" aria-live="polite">${escapeHtml(state.signageFeedback ?? "")}</p></article>` : "";
   const aes67Running = ["starting", "running"].includes(state.aes67?.state);
   const aes67 = canAes67 ? `<article class="panel panel-pad"><div class="list-item-head"><div><h4 class="panel-title">AES67 / RTP L24</h4><p>${escapeHtml(state.aes67?.settings?.name ?? "VOX-S Program Audio")} · ${escapeHtml(state.aes67?.settings?.bus ?? "program")} · автозапуск при старте конференции</p></div><span class="chip ${state.aes67?.state === "running" ? "" : "offline"}">${escapeHtml(state.aes67?.state ?? "stopped")}</span></div>${state.aes67?.error ? `<p class="form-error">${escapeHtml(state.aes67.error)}</p>` : ""}<div class="action-strip"><button class="button ${aes67Running ? "button-danger" : "button-secondary"}" data-action="${aes67Running ? "stop-aes67" : "start-aes67"}">${aes67Running ? "Выключить AES67" : "Включить AES67"}</button></div></article>` : "";
   return `${pageHead("Операции", "Готовность зала, оборудование, аудиоконференция, вывески и сервис")}${audioConferenceHtml()}<div class="grid grid-2 operations-grid">${readiness}${signage}${aes67}${devices}${serviceCardHtml()}</div>`;

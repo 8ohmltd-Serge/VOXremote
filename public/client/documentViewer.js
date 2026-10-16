@@ -103,44 +103,22 @@ function svgFor(annotation) {
     (annotation.tool === "marker" ? ' opacity=".42" stroke-width="' + Math.max(15, width * 5) + '"' : "") + '/>';
 }
 
-export function updateDocumentViewerBadge() {
-  const dock = document.querySelector("#microphoneDock");
-  if (!dock) return;
-  let badge = document.querySelector("#documentViewerBadge");
-  if (!badge) {
-    badge = document.createElement("span");
-    badge.id = "documentViewerBadge";
-    badge.className = "document-viewer-badge-group";
-    badge.innerHTML = '<button type="button" class="button button-secondary document-viewer-badge" data-document-expand>▣ Развернуть документ</button>' +
-      '<button type="button" class="button button-secondary document-viewer-stop" data-document-stop title="Убрать из показа" aria-label="Убрать документ из показа">' +
-      '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 12h8"/></svg></button>';
-    badge.querySelector("[data-document-expand]").addEventListener("click", () => {
-      if (!current) return;
-      current.root.hidden = false;
-      badge.hidden = true;
-      current.minimized = false;
-      updateDocumentViewerBadge();
-    });
-    badge.querySelector("[data-document-stop]").addEventListener("click", async (event) => {
-      if (!current?.presentation || !current.canControl || !current.onStopPresentation) return;
-      const button = event.currentTarget;
-      button.disabled = true;
-      try { await current.onStopPresentation(current.presentation.id); closeDocumentViewer(); }
-      catch (error) { viewerError(current, error.message); button.disabled = false; }
-    });
-  }
-  if (badge.parentElement !== dock) dock.append(badge);
-  badge.hidden = !current?.minimized || Boolean(document.querySelector("#activePresentationBadge"));
-  badge.querySelector("[data-document-stop]").hidden = !current?.presentation || !current.canControl;
-  dock.classList.toggle("has-document-badge", Boolean(current?.minimized));
-  if (current?.minimized) dock.hidden = false;
-}
-
 export function minimizeDocumentViewer() {
   if (!current?.presentation) return;
   current.minimized = true;
   current.root.hidden = true;
-  updateDocumentViewerBadge();
+}
+
+export function expandPresentationViewer(presentationId) {
+  if (!current?.minimized || current.presentation?.id !== presentationId) return false;
+  current.minimized = false;
+  current.root.hidden = false;
+  current.root.querySelector('[data-viewer="close"]')?.focus();
+  return true;
+}
+
+export function closePresentationViewer(presentationId) {
+  if (current?.presentation?.id === presentationId) closeDocumentViewer();
 }
 
 export function closeDocumentViewer() {
@@ -153,7 +131,6 @@ export function closeDocumentViewer() {
   current.abort?.abort();
   current.root.remove();
   current = null;
-  updateDocumentViewerBadge();
 }
 
 function sizePresentationStage(viewer) {
@@ -428,7 +405,7 @@ export async function openDocumentViewer({ api, document: item, presentation = n
   current = viewer;
   root.querySelector('[data-viewer="close"]').addEventListener("click", () => {
     if (current !== viewer) return;
-    if (viewer.presentation && !archiveScene) minimizeDocumentViewer();
+    if (viewer.presentation && !archiveScene && viewer.canControl) minimizeDocumentViewer();
     else closeDocumentViewer();
   });
   updateDocumentViewerRights({ canView: true, canAnnotate });
@@ -726,5 +703,4 @@ export async function openDocumentViewer({ api, document: item, presentation = n
       if (viewer.follow) await applyViewport(viewer, viewer.scene?.viewport);
     }
   });
-  updateDocumentViewerBadge();
 }

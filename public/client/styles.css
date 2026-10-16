@@ -178,6 +178,11 @@ input:focus, select:focus { border-color: var(--teal); box-shadow: 0 0 0 3px rgb
 .metric .metric-tag { color: var(--teal); font-size: 10px; font-weight: 800; letter-spacing: .12em; }
 .action-strip { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .action-strip.compact { margin-top: 12px; }
+.signage-control .signage-target-label,.signage-compose label{display:grid;gap:6px;min-width:0;font-size:12px;font-weight:650}
+.signage-control select,.signage-compose input,.signage-compose textarea{width:100%;min-width:0}
+.signage-compose{display:grid;gap:12px;margin-top:18px;padding-top:14px;border-top:1px solid var(--line,#ded9d3)}
+.signage-compose [hidden]{display:none}
+.signage-feedback{min-height:1.3em;margin:10px 0 0;color:var(--ok,#28734b);font-size:12px}
 .action-strip.compact .button { min-height: 36px; padding: 7px 11px; font-size: 12px; }
 .status-row { display: flex; justify-content: space-between; gap: 18px; align-items: center; padding: 15px 0; border-bottom: 1px solid var(--line); }
 .status-row:last-child { border-bottom: 0; }
@@ -743,7 +748,7 @@ input,select{border-radius:7px}input:focus,select:focus{border-color:var(--accen
 .secretary-layout-panel.is-drop-target{outline:3px solid var(--accent);outline-offset:2px}
 .secretary-extra-panels{display:grid;gap:10px;margin-top:10px}
 .secretary-extra-panels>.material-offer{margin:0}
-@media(max-width:900px){.secretary-layout-panel{grid-column:span 12!important}}
+@media(max-width:900px){#appView[data-role="secretary"] .secretary-layout-panel{grid-column:span 12!important}}
 
 /* Semantic meeting controls: colour and glyph communicate the decision
    together, and every paired control keeps the same footprint. */
@@ -826,7 +831,11 @@ input,select{border-radius:7px}input:focus,select:focus{border-color:var(--accen
 .document-viewer-overlay{touch-action:auto}
 .document-viewer-owner{position:fixed;z-index:10002;transform:translate(8px,-100%);padding:5px 9px;background:#111;color:#fff;border-radius:7px;font-size:12px;pointer-events:none}
 .document-viewer-unsupported{padding:40px 18px}
-.document-viewer-badge{z-index:400;flex:0 0 auto;align-self:center;max-width:min(240px,35vw);min-height:46px;margin:0;padding:8px 12px;white-space:normal;text-align:center}
+.document-viewer-badge{z-index:400;display:inline-flex;align-items:center;gap:8px;flex:0 1 auto;align-self:center;max-width:min(240px,42vw);min-width:0;min-height:48px;margin:0;padding:6px 10px;text-align:left}
+.document-viewer-badge svg{flex:none}
+.document-viewer-badge span{display:grid;min-width:0;line-height:1.2}
+.document-viewer-badge small{font-size:11px;font-weight:600;color:var(--vx-muted)}
+.document-viewer-badge strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:650}
 .document-viewer-badge[hidden]{display:none}
 .document-viewer-badge-group{display:inline-flex;align-items:center;gap:6px;min-width:0;flex:0 1 auto}
 .document-viewer-badge-group[hidden],.document-viewer-stop[hidden]{display:none}
