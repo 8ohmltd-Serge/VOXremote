@@ -3,12 +3,29 @@ import { observeBottomControls } from "./dockLayout.js";
 import { serviceRequestCategoryLabel, serviceRequestStatusLabel,
   serviceRequestCategoryOptions } from "./serviceRequestLocale.js";
 import { eventRetryDelay } from "./eventConnection.js";
-import { clientBuildReady } from "./clientBuild.js";
 import { PARTICIPANT_LANGUAGES, participantLanguage, setParticipantLanguage,
   setSystemInterfaceLanguage, applyParticipantLanguage,
   participantText } from "./i18n.js";
 import { openDocumentViewer, closeDocumentViewer, updateDocumentViewerRights,
   updateDocumentViewerBadge, documentSceneEvent } from "./documentViewer.js";
+
+// Keep the preflight in the entry module: VOX-S serves an explicit static
+// asset allowlist, and a missing imported module prevents this entire app
+// from starting after the conference page hands off the login.
+async function clientBuildReady(api, clientBuild, reloadKey, knownStatus = null) {
+  const status = knownStatus ?? await api.get("/status").catch(() => null);
+  if (!status?.build || status.build === clientBuild) {
+    sessionStorage.removeItem(reloadKey);
+    return true;
+  }
+  if (sessionStorage.getItem(reloadKey) === status.build) {
+    console.error(`Client build ${clientBuild} does not match server ${status.build}`);
+    return true;
+  }
+  sessionStorage.setItem(reloadKey, status.build);
+  location.reload();
+  return false;
+}
 const VoxNoticeLocale = globalThis.VoxNoticeLocale;
 let canEditWorkspaceLayout, handleWorkspaceUiAction, applyWorkspaceLayout, renderPage, updateNavigationVisibility, translationHtml, unreadChatCount, updateChatNotice, markChatRead, pageHead, VOTE_OUTCOME_LABELS,
   advancedBallot, voteOutcomeLabel, conferenceVoteCard, conferenceVoteStatusCard, closeVoteResultsModal, openVoteResultsModal, microphoneIcon, renderMicrophoneDock,
