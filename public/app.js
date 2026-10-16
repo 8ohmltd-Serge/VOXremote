@@ -62,13 +62,24 @@ function setLang(code) {
   lang = code;
   const t = TEXT[lang];
   document.documentElement.lang = lang;
-  document.querySelector("#title").textContent = t.title;
+  setTitle(t.title);
   document.querySelector("#lead").textContent = t.lead;
   document.querySelector("#label").textContent = t.label;
   document.querySelector("#note").textContent = t.note;
   button.textContent = t.submit;
   nav.querySelectorAll("button").forEach((item) => item.setAttribute("aria-pressed", String(item.dataset.lang === lang)));
   if (lastError) show(lastError);
+}
+// One letter "o" in the headline is the brand's red O; it is the last one in the line, in any language.
+function setTitle(text) {
+  const el = document.querySelector("#title");
+  const chars = Array.from(text);
+  const at = chars.findLastIndex((char) => /[oOоОóÓ]/.test(char));
+  el.textContent = "";
+  if (at < 0) { el.textContent = text; return; }
+  const mark = document.createElement("span");
+  mark.className = "o"; mark.textContent = chars[at];
+  el.append(chars.slice(0, at).join(""), mark, chars.slice(at + 1).join(""));
 }
 function show(key, error = true) {
   lastError = error ? key : null;
