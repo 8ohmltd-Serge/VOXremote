@@ -1,4 +1,4 @@
-const CACHE = "vox-s-client-v0.7.0.61-chair-close-vote";
+const CACHE = "vox-s-client-v0.7.0.62";
 const SHELL = [
   "/client/",
   "/client/styles.css",

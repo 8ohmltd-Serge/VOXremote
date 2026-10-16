@@ -795,6 +795,8 @@ input,select{border-radius:7px}input:focus,select:focus{border-color:var(--accen
 .document-viewer-controls,.document-viewer-tools{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .document-viewer-controls button,.document-viewer-tools button{background:#111;color:#fff;border:1px solid #111;border-radius:8px;padding:8px 12px;min-height:35px;font:inherit;font-size:12px;cursor:pointer}
 .document-viewer-controls button:hover,.document-viewer-tools button:hover{background:#f4c9c7;color:#421718;border-color:#f4c9c7}
+.document-viewer-controls button[data-viewer="follow"][aria-pressed="true"],
+.document-viewer-controls button[data-viewer="follow"][aria-pressed="true"]:is(:hover,:active,:focus-visible){background:#e03446;border-color:#e03446;color:#fff}
 .document-viewer-controls .dialog-icon-close{position:static!important;top:auto!important;right:auto!important;flex:0 0 38px;font-size:21px;min-width:35px;line-height:1;padding:5px}
 .document-viewer-controls span{min-width:54px;text-align:center;font-size:12px}
 .document-viewer-tools{padding:8px 16px;background:#fff;border-bottom:1px solid #ded9d4}
@@ -808,7 +810,8 @@ input,select{border-radius:7px}input:focus,select:focus{border-color:var(--accen
 .document-viewer-tools .document-font-size select{height:35px;border:1px solid #d8d2cc;border-radius:7px;background:#fff;color:#111;font:inherit}
 .document-viewer:has([data-tool="eraser"].selected) .document-viewer-overlay{cursor:crosshair}
 .document-viewer:has([data-tool="move-annotation"].selected) .document-viewer-overlay{cursor:move}
-.document-viewer-tools button.selected{background:#e03446;border-color:#e03446}
+.document-viewer-tools button[data-tool].selected,
+.document-viewer-tools button[data-tool].selected:is(:hover,:active,:focus-visible){background:#e03446;border-color:#e03446;color:#fff}
 .document-viewer-tools [data-viewer-colors]{display:flex;gap:4px;padding:0 7px}
 .document-viewer-tools button.document-color{width:26px;min-width:26px;height:26px;min-height:26px;padding:0;border:3px solid white;border-radius:50%;background:var(--swatch);box-shadow:0 0 0 1px #bbb}
 .document-viewer-tools button.document-color.selected{box-shadow:0 0 0 2px #111}

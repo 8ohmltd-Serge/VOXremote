@@ -37,17 +37,26 @@ import {
   castAdvancedVote, createNextVoteRound, uploadDocument, importArchivedDocument, uploadAgendaDocument,
   openDocument, startPresentationBroadcast, shareScreen, stopScreenShare, installPwa, toggleFullscreen,
   encodeIdentityHeader, observeBottomControls, serviceRequestCategoryLabel, serviceRequestStatusLabel,
-  serviceRequestCategoryOptions, eventRetryDelay, PARTICIPANT_LANGUAGES, participantLanguage,
-  setParticipantLanguage, participantText, openDocumentViewer, closeDocumentViewer, updateDocumentViewerRights,
+  serviceRequestCategoryOptions, eventRetryDelay, PARTICIPANT_LANGUAGES, participantLanguageOptions, participantLanguage,
+  setParticipantLanguage, participantText, participantFormatTime, openDocumentViewer, closeDocumentViewer, updateDocumentViewerRights,
   updateDocumentViewerBadge, documentSceneEvent
 } from "./app.js";
 
 function renderPage() {
   if (!state.meeting) return;
-  $$(".nav-item[data-tab]").forEach((button) => button.classList.toggle("active", button.dataset.tab === state.activeTab));
+  $$(".nav-item[data-tab]").forEach((button) => {
+    const tab = button.dataset.tab;
+    const title = uiText(`nav.${tab}`);
+    const label = button.closest("#mobileNav") ? uiText(`nav.mobile.${tab}`) : title;
+    button.classList.toggle("active", tab === state.activeTab);
+    const text = button.querySelector("span:last-child");
+    if (text) text.textContent = label;
+    button.title = title;
+    button.setAttribute("aria-label", title);
+  });
   const pageTitle = $("#currentPageTitle");
   if (pageTitle) pageTitle.textContent = state.activeTab === "translation" && ["interpreter", "translator"].includes(state.profile.role)
-    ? "Рабочее место переводчика" : TAB_TITLES[state.activeTab] ?? "";
+    ? uiText("nav.interpreter") : (Object.hasOwn(TAB_TITLES, state.activeTab) ? uiText(`nav.${state.activeTab}`) : "");
   $("#participantName").textContent = state.profile.displayName;
   $("#participantRole").textContent = CONFERENCE_ROLE_LABELS[state.profile.role] ?? state.profile.role;
   $("#appView").dataset.role = state.profile.role;
@@ -1666,7 +1675,12 @@ function contentHtml() {
     documentGroup("Предоставлены другими участниками", sharedDocuments, "Другие участники пока не предоставили документы.") +
     (managedPrivateDocuments.length && canManageContent()
       ? documentGroup("Личные документы других участников · служебный доступ", managedPrivateDocuments, "") : "");
-  const shows = state.presentations.length ? state.presentations.map((item) => `<div class="list-item"><div class="list-item-head"><div><h4>${escapeHtml(item.title)}</h4><p>${escapeHtml(item.status)} · страница ${item.currentPage ?? "—"} / ${item.pageCount ?? "—"}</p></div><div class="action-strip">${item.status === "active" ? `<button class="button button-secondary" data-action="open-presentation-document" data-document-id="${item.documentId}" data-presentation-id="${item.id}">Открыть показ</button>` : ""}${canManageContent() ? item.status !== "active" ? `<button class="button button-secondary" data-action="start-presentation" data-presentation-id="${item.id}">Старт</button>` : `<button class="button button-quiet" data-action="next-page" data-presentation-id="${item.id}" data-page="${(item.currentPage || 1) + 1}">Следующая</button><button class="button button-danger" data-action="stop-presentation" data-presentation-id="${item.id}">Стоп</button>` : `<span class="chip">${escapeHtml(item.status)}</span>`}</div></div></div>`).join("") : `<div class="empty">Презентации не созданы.</div>`;
+  const shows = state.presentations.length ? state.presentations.map((item) => {
+    const isStarter = item.startedByParticipantId
+      ? item.startedByParticipantId === state.participantId : item.startedBy === state.profile.userId;
+    const canTurnPage = !state.meeting?.quick || !item.startedBy || isStarter;
+    return `<div class="list-item"><div class="list-item-head"><div><h4>${escapeHtml(item.title)}</h4><p>${escapeHtml(item.status)} · страница ${item.currentPage ?? "—"} / ${item.pageCount ?? "—"}</p>${state.meeting?.quick && item.status === "active" && item.startedByName ? `<p>Показ ведёт: ${escapeHtml(item.startedByName)}</p>` : ""}</div><div class="action-strip">${item.status === "active" ? `<button class="button button-secondary" data-action="open-presentation-document" data-document-id="${item.documentId}" data-presentation-id="${item.id}">Открыть показ</button>` : ""}${canManageContent() ? item.status !== "active" ? `<button class="button button-secondary" data-action="start-presentation" data-presentation-id="${item.id}">Старт</button>` : `${canTurnPage ? `<button class="button button-quiet" data-action="next-page" data-presentation-id="${item.id}" data-page="${(item.currentPage || 1) + 1}">Следующая</button>` : ""}<button class="button button-danger" data-action="stop-presentation" data-presentation-id="${item.id}">Стоп</button>` : `<span class="chip">${escapeHtml(item.status)}</span>`}</div></div></div>`;
+  }).join("") : `<div class="empty">Презентации не созданы.</div>`;
   return `${pageHead("Материалы", "Документы конференции и управление показом", upload)}
     <div class="grid grid-2 materials-page"><article class="panel"><div class="panel-pad"><h4 class="panel-title">Документы</h4></div><div class="list">${docs}</div></article><article class="panel"><div class="panel-pad"><h4 class="panel-title">Презентации</h4></div><div class="list">${shows}</div></article></div>`;
 }
@@ -1723,7 +1737,7 @@ function chatHtml() {
     return `<button class="chat-session ${state.activeChatId === session.id ? "active" : ""} ${unread ? "has-unread" : ""}" data-action="select-chat" data-session-id="${session.id}"><strong>${escapeHtml(partner.displayName)}</strong><span>${unread ? `<b class="unread-dot">${unread}</b>` : ""}${escapeHtml(status)}</span></button>`;
   }).join("") || `<div class="empty">Активных P2P-диалогов нет.</div>`;
   const active = state.chatSessions.find((item) => item.id === state.activeChatId);
-  const messages = active ? (state.chatMessages.get(active.id) ?? []).map((message) => `<div class="chat-message ${message.own ? "own" : "peer"}"><span>${escapeHtml(message.text)}</span><small>${new Date(message.at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</small></div>`).join("") : "";
+  const messages = active ? (state.chatMessages.get(active.id) ?? []).map((message) => `<div class="chat-message ${message.own ? "own" : "peer"}"><span>${escapeHtml(message.text)}</span><small>${participantFormatTime(message.at, interfaceLocale())}</small></div>`).join("") : "";
   const channelOpen = active && state.chatChannels.get(active.id)?.readyState === "open";
   const emptyChat = channelOpen
     ? `<div class="empty">Канал открыт. Сообщения передаются напрямую между участниками.</div>`
@@ -1767,7 +1781,7 @@ function serviceCardHtml(extraClass = "") {
 function settingsHtml() {
   const canConfigureAutoDirector = can("pgm.operate");
   const canManagePin = can("conference.pin");
-  const languageOptions = PARTICIPANT_LANGUAGES.map(({ code, label }) =>
+  const languageOptions = participantLanguageOptions().map(({ code, label }) =>
     `<option value="${code}"${interfaceLocale() === code ? " selected" : ""}>${escapeHtml(label)}</option>`).join("");
   const pinPanel = canManagePin ? `<article class="panel panel-pad settings-block"><h4 class="panel-title">ПИН конференции</h4><div class="status-row"><span>Текущий ПИН</span><code>${state.accessPin ? escapeHtml(state.accessPin) : "скрыт"}</code></div><div class="action-strip">${state.accessPin ? "" : `<button class="button button-quiet" data-action="reveal-access-pin">Показать</button>`}<button class="button button-secondary" data-action="edit-access-pin">Изменить</button></div></article>` : "";
   return `${pageHead("Настройки", "Параметры стенда и подготовка браузера")}

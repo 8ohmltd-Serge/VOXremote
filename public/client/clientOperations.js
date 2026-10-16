@@ -258,9 +258,9 @@ async function startCamera() {
       video: {
         ...deviceConstraint(state.selectedVideoInputId),
         facingMode: state.selectedVideoInputId ? undefined : { ideal: "user" },
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        frameRate: { ideal: 24, max: 30 }
+        width: { ideal: state.profile?.remote ? 640 : 1280 },
+        height: { ideal: state.profile?.remote ? 360 : 720 },
+        frameRate: { ideal: state.profile?.remote ? 15 : 24, max: state.profile?.remote ? 20 : 30 }
       }
     });
   } catch (preferredError) {
@@ -801,7 +801,9 @@ async function publishMediaToMcu(stream, media) {
       // full layer feeding VideoCore stopped for 12+ seconds, causing native
       // input retries and visible PGM freezes.  Publish one bounded 720p layer
       // on iOS; the server still produces every required Preview/PGM raster.
-      const simulcast = track.kind === "video" ? iosCamera
+      const simulcast = track.kind === "video" ? state.profile?.remote === true && stream.sourceType === "client_camera"
+        ? { encodings: [{ maxBitrate: 450_000, maxFramerate: 15 }], codecOptions: { videoGoogleStartBitrate: 250 } }
+        : iosCamera
         ? { encodings: [{ maxBitrate: 900_000, maxFramerate: 24 }], codecOptions: { videoGoogleStartBitrate: 600 } }
         : { encodings: [
           { rid: "q", scaleResolutionDownBy: 4, maxBitrate: 180_000, maxFramerate: 8 },
@@ -1063,7 +1065,7 @@ async function watchProgramStream(stream) {
   // is the only authoritative identity of a receiving subscription.
   const candidates = (await state.api.get(
     `/mcu/consumable-producers?meetingId=${encodeURIComponent(state.profile.meetingId)}` +
-    `&participantId=${encodeURIComponent(state.participantId)}&mode=program&includeAudio=false`
+    `&participantId=${encodeURIComponent(state.participantId)}&mode=${state.profile.remote === true ? "program-remote" : "program"}&includeAudio=false`
   )).filter((item) => item.kind === "video");
   if (!candidates.length) return;
   const key = candidates.map((item) => item.producerId).sort().join("|");
@@ -1882,7 +1884,8 @@ async function openDocument(documentId, presentationId = null) {
   const me = state.meeting?.participants?.[state.participantId];
   await openDocumentViewer({
     api: state.api, document: item, presentation,
-    userId: state.profile.userId,
+    userId: state.profile.userId, participantId: state.participantId,
+    quickMeeting: state.meeting?.quick === true,
     draft: !presentation && item.uploadedBy === state.profile.userId,
     canAnnotate: Boolean(presentation && (canViewFiles() || canManageContent()) &&
       (me?.permissions?.canAnnotatePresentation === true || canManageContent())) ||

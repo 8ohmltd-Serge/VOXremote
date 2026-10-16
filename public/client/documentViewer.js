@@ -18,7 +18,8 @@ const TOOL_ICONS = {
   text: '<path d="M4 6V4h16v2M12 4v16m-4 0h8"/>'
 };
 const toolButton = (name, label, selected = false) => '<button type="button" data-tool="' + name + '"' +
-  (selected ? ' class="selected"' : '') + ' title="' + label + '" aria-label="' + label + '">' +
+  (selected ? ' class="selected"' : '') + ' title="' + label + '" aria-label="' + label +
+  '" aria-pressed="' + selected + '">' +
   '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
   TOOL_ICONS[name] + '</svg></button>';
 let current = null;
@@ -160,8 +161,11 @@ export function updateDocumentViewerRights({ canView, canAnnotate }) {
     current.drawing = null;
     current.moving = null;
     current.root.querySelector(".document-font-size")?.setAttribute("hidden", "");
-    current.root.querySelectorAll("[data-tool]").forEach((button) =>
-      button.classList.toggle("selected", button.dataset.tool === "move"));
+    current.root.querySelectorAll("[data-tool]").forEach((button) => {
+      const selected = button.dataset.tool === "move";
+      button.classList.toggle("selected", selected);
+      button.setAttribute("aria-pressed", String(selected));
+    });
   }
   for (const button of current.root.querySelectorAll("[data-tool]")) {
     button.disabled = !current.canAnnotate && button.dataset.tool !== "move";
@@ -297,7 +301,7 @@ async function applyViewport(viewer, viewport) {
 }
 
 function scheduleViewport(viewer) {
-  if (!viewer.canControl || viewer.applyingViewport || current !== viewer) return;
+  if (!viewer.canDriveViewport || viewer.applyingViewport || current !== viewer) return;
   clearTimeout(viewer.viewportTimer);
   viewer.viewportTimer = setTimeout(async () => {
     const x = clamp((viewer.stage.scrollLeft + viewer.stage.clientWidth / 2 -
@@ -310,11 +314,18 @@ function scheduleViewport(viewer) {
   }, 160);
 }
 
-function pauseFollowing(viewer) {
-  if (!viewer.presentation || viewer.canControl || !viewer.follow) return;
-  viewer.follow = false;
+function updateFollowingButton(viewer) {
   const button = viewer.root.querySelector('[data-viewer="follow"]');
-  if (button) button.hidden = false;
+  if (!button) return;
+  button.textContent = viewer.follow ? "Следую за ведущим" : "Следовать ведущему";
+  button.classList.toggle("selected", viewer.follow);
+  button.setAttribute("aria-pressed", String(viewer.follow));
+}
+
+function pauseFollowing(viewer) {
+  if (!viewer.followAvailable || !viewer.follow) return;
+  viewer.follow = false;
+  updateFollowingButton(viewer);
 }
 
 async function setZoom(viewer, zoom, clientX = null, clientY = null) {
@@ -340,9 +351,16 @@ function pointFromEvent(viewer, event) {
 }
 
 export async function openDocumentViewer({ api, document: item, presentation = null,
-  userId, canAnnotate = false, canControl = false, draft = false, onSendToHall = null,
+  userId, participantId = null, quickMeeting = false, canAnnotate = false, canControl = false,
+  draft = false, onSendToHall = null,
   archiveScene = null }) {
   closeDocumentViewer();
+  const isPresentationLeader = presentation?.startedByParticipantId
+    ? presentation.startedByParticipantId === participantId
+    : presentation?.startedBy === userId;
+  const canDriveViewport = Boolean(presentation && canControl &&
+    (!quickMeeting || !presentation.startedBy || isPresentationLeader));
+  const followAvailable = Boolean(presentation && !archiveScene && !canDriveViewport);
   const response = await api.request("/documents/" + encodeURIComponent(item.id) + "/content");
   const blob = await response.blob();
   const root = document.createElement("div");
@@ -354,7 +372,7 @@ export async function openDocumentViewer({ api, document: item, presentation = n
     '<span data-viewer-page></span><button type="button" data-viewer="next">→</button>' +
     '<button type="button" data-viewer="minus">−</button><span data-viewer-zoom></span>' +
     '<button type="button" data-viewer="plus">+</button>' +
-    (presentation && !canControl && !archiveScene ? '<button type="button" data-viewer="follow" hidden>Следовать ведущему</button>' : '') +
+    (followAvailable ? '<button type="button" data-viewer="follow" class="selected" aria-pressed="true">Следую за ведущим</button>' : '') +
     (presentation && !archiveScene ? '<button type="button" data-viewer="minimize">Свернуть</button>' : '') +
     (canControl ? '<button type="button" class="button" data-viewer="hall">' +
       (presentation?.programStreamId ? 'Завершить показ в PGM' :
@@ -377,7 +395,8 @@ export async function openDocumentViewer({ api, document: item, presentation = n
   document.body.append(root);
   const sceneBase = archiveScene ? null : presentation ? "/presentations/" + presentation.id :
     draft ? "/documents/" + item.id + "/draft" : null;
-  const viewer = { api, item, presentation, draft, userId, canAnnotate, canControl, onSendToHall,
+  const viewer = { api, item, presentation, draft, userId, canAnnotate, canControl,
+    canDriveViewport, followAvailable, onSendToHall,
     sceneBase, scenePath: presentation ? sceneBase + "/scene" : sceneBase,
     sceneId: presentation?.id ?? (draft ? "draft:" + item.id : null),
     root, stage: root.querySelector(".document-viewer-stage"),
@@ -386,7 +405,7 @@ export async function openDocumentViewer({ api, document: item, presentation = n
     legend: root.querySelector("[data-viewer-legend]"), pageLabel: root.querySelector("[data-viewer-page]"),
     zoomLabel: root.querySelector("[data-viewer-zoom]"), owner: root.querySelector(".document-viewer-owner"),
     page: 1, pageCount: 1, zoom: 1, tool: "move", fontSize: 28,
-    follow: Boolean(presentation && !canControl && !archiveScene),
+    follow: followAvailable,
     renderToken: 0, text: null };
   current = viewer;
   root.querySelector('[data-viewer="close"]').addEventListener("click", () => {
@@ -488,6 +507,7 @@ export async function openDocumentViewer({ api, document: item, presentation = n
   });
   viewer.stage.addEventListener("pointermove", (event) => {
     if (!viewer.drag || event.pointerId !== viewer.drag.id) return;
+    if (event.clientX !== viewer.drag.x || event.clientY !== viewer.drag.y) pauseFollowing(viewer);
     viewer.stage.scrollLeft = viewer.drag.left + viewer.drag.x - event.clientX;
     viewer.stage.scrollTop = viewer.drag.top + viewer.drag.y - event.clientY;
   });
@@ -525,6 +545,7 @@ export async function openDocumentViewer({ api, document: item, presentation = n
       event.preventDefault();
     } else if (event.touches.length === 1 && viewer.touch?.kind === "pan") {
       const touch = event.touches[0];
+      if (touch.clientX !== viewer.touch.x || touch.clientY !== viewer.touch.y) pauseFollowing(viewer);
       viewer.stage.scrollLeft = viewer.touch.left + viewer.touch.x - touch.clientX;
       viewer.stage.scrollTop = viewer.touch.top + viewer.touch.y - touch.clientY;
       event.preventDefault();
@@ -646,7 +667,11 @@ export async function openDocumentViewer({ api, document: item, presentation = n
     if (tool) {
       viewer.tool = tool;
       viewer.overlay.style.touchAction = tool === "move" ? "auto" : "none";
-      root.querySelectorAll("[data-tool]").forEach((button) => button.classList.toggle("selected", button.dataset.tool === tool));
+      root.querySelectorAll("[data-tool]").forEach((button) => {
+        const selected = button.dataset.tool === tool;
+        button.classList.toggle("selected", selected);
+        button.setAttribute("aria-pressed", String(selected));
+      });
       root.querySelector(".document-font-size").hidden = tool !== "text";
     }
     if (color && viewer.canAnnotate) {
@@ -677,9 +702,9 @@ export async function openDocumentViewer({ api, document: item, presentation = n
       await setZoom(viewer, viewer.zoom + (action === "plus" ? .25 : -.25));
     }
     if (action === "follow") {
-      viewer.follow = true;
-      event.target.hidden = true;
-      await applyViewport(viewer, viewer.scene?.viewport);
+      viewer.follow = !viewer.follow;
+      updateFollowingButton(viewer);
+      if (viewer.follow) await applyViewport(viewer, viewer.scene?.viewport);
     }
   });
   updateDocumentViewerBadge();

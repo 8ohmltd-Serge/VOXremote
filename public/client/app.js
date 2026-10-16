@@ -3,9 +3,9 @@ import { observeBottomControls } from "./dockLayout.js";
 import { serviceRequestCategoryLabel, serviceRequestStatusLabel,
   serviceRequestCategoryOptions } from "./serviceRequestLocale.js";
 import { eventRetryDelay } from "./eventConnection.js";
-import { PARTICIPANT_LANGUAGES, participantLanguage, setParticipantLanguage,
-  setSystemInterfaceLanguage, applyParticipantLanguage,
-  participantText } from "./i18n.js";
+import { PARTICIPANT_LANGUAGES, participantLanguageOptions, configureParticipantLanguages,
+  participantLanguage, setParticipantLanguage, applyParticipantLanguage,
+  participantText, participantFormatTime } from "./i18n.js";
 import { openDocumentViewer, closeDocumentViewer, updateDocumentViewerRights,
   updateDocumentViewerBadge, documentSceneEvent } from "./documentViewer.js";
 
@@ -305,7 +305,7 @@ export {
   serviceStatus, assignSeat, assignPresenterWorkplace, releaseSeat, claimSeat, createVote, castVote, castAdvancedVote,
   createNextVoteRound, uploadDocument, importArchivedDocument, uploadAgendaDocument, openDocument, startPresentationBroadcast, shareScreen, stopScreenShare,
   installPwa, toggleFullscreen, encodeIdentityHeader, observeBottomControls, serviceRequestCategoryLabel, serviceRequestStatusLabel, serviceRequestCategoryOptions, eventRetryDelay,
-  PARTICIPANT_LANGUAGES, participantLanguage, setParticipantLanguage, participantText, openDocumentViewer, closeDocumentViewer, updateDocumentViewerRights, updateDocumentViewerBadge,
+  PARTICIPANT_LANGUAGES, participantLanguageOptions, participantLanguage, setParticipantLanguage, participantText, participantFormatTime, openDocumentViewer, closeDocumentViewer, updateDocumentViewerRights, updateDocumentViewerBadge,
   documentSceneEvent
 };
 
@@ -321,7 +321,7 @@ const CAMERA_AUTO_KEY = "edge-s-auto-camera";
 const MICROPHONE_AUTO_KEY = "edge-s-auto-microphone";
 const MEDIA_DEVICE_KEY = "edge-s-media-devices-v0.5";
 const TRANSLATION_VOLUME_KEY = "edge-s-translation-volume";
-const CLIENT_BUILD = "0.7.0.61";
+const CLIENT_BUILD = "0.7.0.62";
 const interfaceLocale = () => participantLanguage(state.profile?.userId);
 const uiText = (key) => participantText(key, interfaceLocale());
 const BUILD_RELOAD_KEY = "edge-s-client-build-reload";
@@ -876,7 +876,7 @@ function formatAgendaTime(value) {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return participantFormatTime(date, interfaceLocale(), { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 function agendaTimeline() {
@@ -1330,7 +1330,9 @@ async function enableLocalAv() {
     video: needVideo ? {
       ...deviceConstraint(state.selectedVideoInputId),
       facingMode: state.selectedVideoInputId ? undefined : { ideal: "user" },
-      width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 }
+      width: { ideal: state.profile?.remote ? 640 : 1280 },
+      height: { ideal: state.profile?.remote ? 360 : 720 },
+      frameRate: { ideal: state.profile?.remote ? 15 : 24, max: state.profile?.remote ? 20 : 30 }
     } : false
   });
   const audioTrack = media.getAudioTracks()[0];
@@ -2417,7 +2419,7 @@ async function bootstrapClient() {
   }
   try {
     const languageResponse = await fetch("/api/v1/language-settings", { cache: "no-store" });
-    if (languageResponse.ok) setSystemInterfaceLanguage((await languageResponse.json()).interfaceLanguage);
+    if (languageResponse.ok) configureParticipantLanguages(await languageResponse.json());
     await loadFeatureModules();
     updateHeadphoneWarning();
     if (await consumeConferenceHandoff()) return;
