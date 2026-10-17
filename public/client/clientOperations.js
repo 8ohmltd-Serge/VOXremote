@@ -264,6 +264,9 @@ async function startCamera() {
       }
     });
   } catch (preferredError) {
+    if (["NotAllowedError", "SecurityError", "PermissionDeniedError"].includes(preferredError?.name)) {
+      throw new Error("Доступ к камере не разрешён в браузере. Разрешите камеру для этого сайта.");
+    }
     try {
       media = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
     } catch (fallbackError) {
@@ -1722,7 +1725,7 @@ async function stopAes67() {
 }
 
 async function createServiceRequest() {
-  const values=await httpForm("Сервисный запрос",[{name:"category",label:"Категория",type:"select",value:"water",options:serviceRequestCategoryOptions(interfaceLocale())},{name:"quantity",label:"Количество",type:"number",value:"1"},{name:"comment",label:"Комментарий",type:"textarea",value:"",required:false},{name:"includeVideo",label:"Приложить видео (yes/no)",value:"no",required:false}]);if(!values)return;const category=values.category;
+  const values=await httpForm("Сервисный запрос",[{name:"category",label:"Категория",type:"select",value:"water",options:serviceRequestCategoryOptions(interfaceLocale())},{name:"quantity",label:"Количество",type:"number",value:"1"},{name:"comment",label:"Комментарий",type:"textarea",value:"",required:false},{name:"includeVideo",label:"Приложить видео (yes/no)",value:"no",required:false}]);if(!values)return false;const category=values.category;
   const quantity = Number(values.quantity || 1); const comment=values.comment||""; const includeVideo=Boolean(state.publishedStream&&/^y|да|1$/i.test(values.includeVideo));
   const request = await state.api.post("/service/requests", {
     meetingId: state.profile.meetingId,

@@ -17,6 +17,12 @@ const TOOL_ICONS = {
   circle: '<circle cx="12" cy="12" r="8"/>',
   text: '<path d="M4 6V4h16v2M12 4v16m-4 0h8"/>'
 };
+const FOLLOW_ICONS = {
+  locked: '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
+  open: '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0"/>'
+};
+const followIcon = (following) => '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  FOLLOW_ICONS[following ? "locked" : "open"] + '</svg>';
 const toolButton = (name, label, selected = false) => '<button type="button" data-tool="' + name + '"' +
   (selected ? ' class="selected"' : '') + ' title="' + label + '" aria-label="' + label +
   '" aria-pressed="' + selected + '">' +
@@ -310,7 +316,10 @@ function scheduleViewport(viewer) {
 function updateFollowingButton(viewer) {
   const button = viewer.root.querySelector('[data-viewer="follow"]');
   if (!button) return;
-  button.textContent = viewer.follow ? "Следую за ведущим" : "Следовать ведущему";
+  const label = viewer.follow ? "Следую за ведущим · отключить" : "Свободный просмотр · следовать за ведущим";
+  button.innerHTML = followIcon(viewer.follow);
+  button.title = label;
+  button.setAttribute("aria-label", label);
   button.classList.toggle("selected", viewer.follow);
   button.setAttribute("aria-pressed", String(viewer.follow));
 }
@@ -363,18 +372,19 @@ export async function openDocumentViewer({ api, document: item, presentation = n
   root.className = "document-viewer-backdrop";
   root.innerHTML = '<section class="document-viewer' + (presentation ? ' document-viewer-presentation' : '') +
     '" role="dialog" aria-modal="true" aria-label="Просмотр документа">' +
-    '<header class="document-viewer-header"><div><small>МАТЕРИАЛЫ</small><h2></h2></div>' +
-    '<div class="document-viewer-controls"><button type="button" data-viewer="prev">←</button>' +
-    '<span data-viewer-page></span><button type="button" data-viewer="next">→</button>' +
-    '<button type="button" data-viewer="minus">−</button><span data-viewer-zoom></span>' +
-    '<button type="button" data-viewer="plus">+</button>' +
-    (followAvailable ? '<button type="button" data-viewer="follow" class="selected" aria-pressed="true">Следую за ведущим</button>' : '') +
+    '<header class="document-viewer-header"><div class="document-viewer-title"><small>МАТЕРИАЛЫ</small><h2></h2></div>' +
+    '<div class="document-viewer-controls"><div class="document-viewer-control-group"><button type="button" data-viewer="prev" aria-label="Предыдущая страница">←</button>' +
+    '<span data-viewer-page></span><button type="button" data-viewer="next" aria-label="Следующая страница">→</button></div>' +
+    '<div class="document-viewer-control-group"><button type="button" data-viewer="minus" aria-label="Уменьшить масштаб">−</button><span data-viewer-zoom></span>' +
+    '<button type="button" data-viewer="plus" aria-label="Увеличить масштаб">+</button></div>' +
     (canControl ? '<button type="button" class="button" data-viewer="hall">' +
       (presentation?.programStreamId ? 'Завершить показ в PGM' :
         presentation?.multiviewStreamId ? 'Убрать плитку из PGM' : 'Отправить в зал') + '</button>' : '') +
     '<button type="button" class="dialog-icon-close" data-viewer="close" aria-label="Закрыть">×</button></div></header>' +
     (presentation || draft ? '<nav class="document-viewer-tools" aria-label="Инструменты пометок">' +
-      toolButton('move', 'Перемещение документа', true) + toolButton('pen', 'Перо') +
+      toolButton('move', 'Перемещение документа', true) +
+      (followAvailable ? '<button type="button" data-viewer="follow" class="selected" aria-pressed="true" title="Следую за ведущим · отключить" aria-label="Следую за ведущим · отключить">' + followIcon(true) + '</button>' : '') +
+      toolButton('pen', 'Перо') +
       toolButton('marker', 'Маркер') + toolButton('line', 'Линия') +
       toolButton('circle', 'Окружность') + toolButton('text', 'Текст') +
       '<label class="document-font-size" hidden>Размер текста<select data-font-size aria-label="Размер текста">' +

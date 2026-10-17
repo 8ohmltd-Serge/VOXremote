@@ -12,7 +12,7 @@ import {
   queryCapturePermission, installLocalVideoTrack, isAppleMobile, scheduleVideoRecovery, recoverSuspendedVideo,
   enableLocalAv, toggleParticipantVideo, toggleLocalMediaPreference, hasLocalVideo, restoreActiveSession,
   startTimers, clearTimers, schedulePushRefresh, refreshFloorState, updateSourceWallFloorState,
-  applyAudioMeters, setEventConnectionStatus, startEventStream, refreshProgram, refreshAll, updateBuildLabels,
+  applyAudioMeters, updateTranslationMeters, setEventConnectionStatus, startEventStream, refreshProgram, refreshAll, updateBuildLabels,
   selectTab, activateStreamsPreview, syncSourceWall, budgetedThumbnailStreams, disconnect, exitClosedConference,
   handleMicrophoneAction, bootstrapClient, inMcu, runAction, requestFloor, applyLocalFloorResult,
   runMicrophoneAction, activateChairMicrophone, grantFloor, releaseFloor, selfRelease, saveMicrophoneLimit,
@@ -100,7 +100,21 @@ function renderPage() {
   }
   if (state.activeTab === "streams") page.innerHTML = streamsHtml();
   if (state.activeTab === "voting") page.innerHTML = votingHtml();
-  if (state.activeTab === "content") page.innerHTML = contentHtml();
+  if (state.activeTab === "content") {
+    page.innerHTML = contentHtml();
+    // A push refresh can rerender Materials while the native file chooser is
+    // open. Keep each input's own listener so the chosen file still uploads
+    // even when that input has since been detached from #pageContent.
+    for (const [id, action, notice] of [
+      ["documentUpload", uploadDocument, "Файл отправлен"],
+      ["agendaDocumentUpload", uploadAgendaDocument, "Документ прикреплён к повестке"]
+    ]) {
+      page.querySelector(`#${id}`)?.addEventListener("change", (event) => {
+        const file = event.currentTarget.files?.[0];
+        if (file) void runAction(() => action(file), notice);
+      });
+    }
+  }
   if (state.activeTab === "translation") page.innerHTML = translationHtml();
   if (state.activeTab === "chat") page.innerHTML = chatHtml();
   if (state.activeTab === "operations") page.innerHTML = operationsHtml();
@@ -134,6 +148,13 @@ function renderPage() {
   }
   updateChatNotice();
   updateNavigationVisibility();
+  updateTranslationMeters();
+}
+
+function hasConferenceInterpreter() {
+  const assignedRole = (person) => ["interpreter", "translator"].includes(person?.role) && !person.excludedAt;
+  return (state.meeting?.preparedParticipants ?? []).some(assignedRole) ||
+    Object.values(state.meeting?.participants ?? {}).some(assignedRole);
 }
 
 function updateNavigationVisibility() {
@@ -142,7 +163,7 @@ function updateNavigationVisibility() {
     conference: !interpreterRole,
     streams: !interpreterRole,
     voting: !interpreterRole && (state.votes.length > 0 || can("votes.manage")),
-    translation: interpreterRole || Boolean(state.translateStatus?.licensed && (state.translateMeeting?.channels?.length || can("conference.participants"))),
+    translation: interpreterRole || Boolean(state.translateStatus?.licensed && hasConferenceInterpreter()),
     content: state.documents.length > 0 || state.presentations.length > 0 ||
       canUploadFiles() || can("documents.upload") || can("presentations.control")
   };
@@ -177,7 +198,7 @@ function translationHtml() {
   const microphoneReady = Boolean(state.localMedia?.getAudioTracks().some((track) => track.readyState === "live") &&
     state.publishedStream?.capabilities?.audio);
   const forward = assignment?.activeDirection !== "reverse";
-  const inputName = channelName(assignment?.sourceChannelId);
+  const inputName = channelName(forward ? assignment?.sourceChannelId : assignment?.channelId);
   const outputName = forward ? channelName(assignment?.channelId) : languageName(assignment?.sourceLanguageCode);
   const interpreterPanels = interpreterRole ? {
     program: `<article class="panel translation-program-panel"><h4 class="panel-title">Трансляция зала</h4><div id="programStage" class="preview-stage translation-program-stage"><div class="preview-empty">Ожидание изображения из зала.</div></div></article>`,
@@ -188,7 +209,8 @@ function translationHtml() {
       <div class="translation-microphone-status" role="status"><span>${microphoneReady ? "Микрофон устройства подключён" : "Микрофон устройства не подключён"}</span>${microphoneReady ? "" : `<button class="button button-secondary" data-action="translate-enable-microphone">Подключить микрофон</button>`}</div>
       <label class="translation-volume translation-monitor-volume">Громкость входящего звука <input type="range" min="0" max="100" value="${Math.round(state.translationVolume * 100)}" data-translation-volume><output>${Math.round(state.translationVolume * 100)}%</output></label>
       ${assignment.direction === "both" ? `<div class="translation-direction" role="group" aria-label="Направление перевода"><button class="button ${forward ? "button-primary" : "button-secondary"}" data-action="translate-direction" data-direction="forward" aria-pressed="${forward}" ${assignment.status === "on-air" ? "disabled" : ""}>${escapeHtml(languageName(assignment.sourceLanguageCode))} → ${escapeHtml(languageName(assignment.targetLanguageCode))}</button><button class="button ${!forward ? "button-primary" : "button-secondary"}" data-action="translate-direction" data-direction="reverse" aria-pressed="${!forward}" ${assignment.status === "on-air" ? "disabled" : ""}>${escapeHtml(languageName(assignment.targetLanguageCode))} → ${escapeHtml(languageName(assignment.sourceLanguageCode))}</button></div><small>Направление меняется только после выхода из эфира.</small>` : ""}
-      <div class="translation-console"><button class="button ${assignment.status === "on-air" ? "button-danger" : "button-primary"}" data-action="translate-state" data-on-air="${assignment.status !== "on-air"}" aria-pressed="${assignment.status === "on-air"}">${assignment.status === "on-air" ? "Завершить перевод" : "Выйти в эфир"}</button><button class="button ${assignment.cough ? "button-danger" : "button-secondary"}" data-action="translate-cough" data-cough="${!assignment.cough}" aria-pressed="${assignment.cough}">${assignment.cough ? "Включить микрофон" : "Заглушить микрофон"}</button>${state.translateStatus?.capabilities?.includes("talkback") && state.translateStatus?.settings?.talkbackEnabled ? `<button class="button ${assignment.talkback ? "button-primary" : "button-secondary"}" data-action="translate-talkback" data-talkback="${!assignment.talkback}" aria-pressed="${assignment.talkback}">Служебная связь</button>` : ""}</div></article>`
+      <div class="translation-console"><button class="button ${assignment.status === "on-air" ? "button-danger" : "button-primary"}" data-action="translate-state" data-on-air="${assignment.status !== "on-air"}" aria-pressed="${assignment.status === "on-air"}">${assignment.status === "on-air" ? "Завершить перевод" : "Выйти в эфир"}</button><button class="button ${assignment.cough ? "button-danger" : "button-secondary"}" data-action="translate-cough" data-cough="${!assignment.cough}" aria-pressed="${assignment.cough}">${assignment.cough ? "Включить микрофон" : "Заглушить микрофон"}</button>${state.translateStatus?.capabilities?.includes("talkback") && state.translateStatus?.settings?.talkbackEnabled ? `<button class="button ${assignment.talkback ? "button-primary" : "button-secondary"}" data-action="translate-talkback" data-talkback="${!assignment.talkback}" aria-pressed="${assignment.talkback}">Служебная связь</button>` : ""}</div>
+      ${translationMonitorHtml(forward ? assignment.sourceChannelId : assignment.channelId, inputName)}</article>`
       : `<article class="panel panel-pad translation-workplace-side"><h4 class="panel-title">Управление переводом</h4><p class="empty">Ожидание назначения языковой пары и входного канала оператором.</p></article>`
   } : null;
   let interpreter = "";
@@ -207,7 +229,7 @@ function translationHtml() {
     const current = translation.assignments?.[item.id];
     return `<div class="translation-assignment" data-translation-participant="${escapeHtml(item.id)}"><strong>${escapeHtml(item.displayName)}</strong><label>Язык входа<select data-translation-source-language>${[state.meeting.protocolLanguage ?? "ru", ...channels.map((channel) => channel.languageCode)].filter((code, index, all) => all.indexOf(code) === index).map((code) => `<option value="${escapeHtml(code)}" ${current?.sourceLanguageCode === code ? "selected" : ""}>${escapeHtml(languageName(code))}</option>`).join("")}</select></label><label>Язык выхода<select data-translation-channel><option value="">Выберите язык</option>${channels.map((channel) => `<option value="${escapeHtml(channel.id)}" ${current?.channelId === channel.id ? "selected" : ""}>${escapeHtml(channel.name)}</option>`).join("")}</select></label><label>Источник звука<select data-translation-source><option value="floor">Оригинал</option>${state.translateStatus?.capabilities?.includes("relay") ? channels.map((channel) => `<option value="${escapeHtml(channel.id)}" ${current?.sourceChannelId === channel.id ? "selected" : ""}>Перевод с канала: ${escapeHtml(channel.name)}</option>`).join("") : ""}</select></label><label>Направление<select data-translation-direction><option value="forward">В одну сторону</option><option value="both" ${current?.direction === "both" ? "selected" : ""}>В обе стороны</option></select></label><label>Режим<select data-translation-priority><option value="primary" ${current?.priority !== "backup" ? "selected" : ""}>Основной</option><option value="backup" ${current?.priority === "backup" ? "selected" : ""}>Резервный</option></select></label><button class="button button-secondary" data-action="translate-assign" data-participant-id="${escapeHtml(item.id)}">Назначить</button></div>`;
   }).join("") || `<p class="empty">Подключённых переводчиков нет. Назначьте участнику роль «Переводчик».</p>`}</article>` : "";
-  return `${pageHead(interpreterRole ? "Рабочее место переводчика" : "Синхроперевод", interpreterRole ? "Звук выступающих и языковой канал" : "Каналы перевода")}${interpreterRole ? "" : translationListenHtml()}${interpreter}${operator}`;
+  return `${cameraSetupNoticeHtml()}${pageHead(interpreterRole ? "Рабочее место переводчика" : "Синхроперевод", interpreterRole ? "Звук выступающих и языковой канал" : "Каналы перевода")}${interpreterRole ? "" : translationListenHtml()}${interpreter}${operator}`;
 }
 
 // "Язык прослушивания" card: on the Translation tab and as a block of the conference workspace.
@@ -215,9 +237,19 @@ function translationListenHtml(extraClass = "") {
   const translation = state.translateMeeting ?? { channels: [], selections: {} };
   const channels = translation.channels ?? [];
   const selected = translation.selections?.[state.participantId]?.channelId ?? "floor";
+  const selectedChannel = channels.find((item) => item.id === selected);
   const languageButtons = [{ id: "floor", name: "Оригинал" }, ...channels].map((item) =>
-    `<button class="button ${selected === item.id ? "button-primary" : "button-secondary"}" data-action="translate-select" data-channel-id="${escapeHtml(item.id)}" aria-pressed="${selected === item.id}">${escapeHtml(item.name)}${item.activeInterpreterId ? " · В ЭФИРЕ" : item.id === "floor" ? "" : " · оригинал при тишине"}</button>`).join("");
-  return `<article class="panel panel-pad ${extraClass}"><h4 class="panel-title">Язык прослушивания</h4><p>Если переводчик не в эфире, на выбранном канале звучит оригинал.</p><div class="action-strip">${languageButtons}</div><label class="translation-volume">Громкость канала <input type="range" min="0" max="100" value="${Math.round(state.translationVolume * 100)}" data-translation-volume><output>${Math.round(state.translationVolume * 100)}%</output></label></article>`;
+    `<button class="button ${selected === item.id ? "button-primary" : "button-secondary"} translation-channel-choice" data-action="translate-select" data-channel-id="${escapeHtml(item.id)}" aria-pressed="${selected === item.id}" title="${escapeHtml(item.name)}"><span>${escapeHtml(item.name)}</span><span class="translation-channel-status" data-translation-signal="${item.id === "floor" ? "program" : `language:${escapeHtml(item.id)}`}" data-signal-state="unknown"><span data-translation-status>Нет данных</span></span></button>`).join("");
+  return `<article class="panel panel-pad translation-listen ${extraClass}"><h4 class="panel-title">Язык прослушивания</h4>${translationMonitorHtml(selectedChannel?.id ?? "floor", selectedChannel?.name ?? "Оригинал")}<p class="translation-listen-note">Если переводчик не в эфире, звучит оригинал</p><div class="translation-channel-choices" role="group" aria-label="Язык прослушивания">${languageButtons}</div><label class="translation-volume">Громкость канала <input type="range" min="0" max="100" value="${Math.round(state.translationVolume * 100)}" data-translation-volume><output>${Math.round(state.translationVolume * 100)}%</output></label></article>`;
+}
+
+function translationMonitorHtml(channelId, channelName) {
+  const rows = channelId === "floor" ? [{ id: "floor", name: "Оригинал", kind: "Сейчас звучит" }]
+    : [{ id: channelId, name: channelName, kind: "Выбранный канал" }, { id: "floor", name: "Оригинал", kind: "Исходный звук" }];
+  return `<div class="translation-monitors" aria-label="Уровни звука">${rows.map((row) => {
+    const meterId = row.id === "floor" ? "program" : `language:${row.id}`;
+    return `<div class="translation-meter-row" data-translation-signal="${escapeHtml(meterId)}" data-signal-state="unknown"><div class="translation-meter-heading"><div><small>${row.kind}</small><strong>${escapeHtml(row.name)}</strong></div><span class="translation-signal-state" data-translation-status>Нет данных</span></div><div class="translation-meter-measure"><meter min="-60" max="0" value="-60" data-translation-peak aria-label="Пиковый уровень: ${escapeHtml(row.name)}"></meter><output data-translation-db>−∞ dBFS</output></div></div>`;
+  }).join("")}</div>`;
 }
 
 function unreadChatCount() {
@@ -348,7 +380,7 @@ function recordingToggleHtml(meetingPaused) {
 function presentationDockHtml() {
   const active = state.presentations.find((item) => item.status === "active");
   if (!active || (!canViewFiles() && !canManageContent())) return "";
-  return `<span id="activePresentationBadge" class="document-viewer-badge-group"><button type="button" class="button button-secondary document-viewer-badge" data-action="open-presentation-document" data-document-id="${escapeHtml(active.documentId)}" data-presentation-id="${escapeHtml(active.id)}" title="Открыть документ в показе" aria-label="Открыть документ в показе: ${escapeHtml(active.title || "Документ")}"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M14 3v5h4M9 13h6m-6 4h6"/></svg><span><small>В показе</small><strong>${escapeHtml(active.title || "Документ")}</strong></span></button>${canManageContent() ? `<button type="button" class="button button-secondary document-viewer-stop" data-action="stop-presentation" data-presentation-id="${escapeHtml(active.id)}" title="Убрать из показа" aria-label="Убрать из показа: ${escapeHtml(active.title || "Документ")}"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 12h8"/></svg></button>` : ""}</span>`;
+  return `<span id="activePresentationBadge" class="document-viewer-badge-group"><button type="button" class="button button-secondary document-viewer-badge" data-action="open-presentation-document" data-document-id="${escapeHtml(active.documentId)}" data-presentation-id="${escapeHtml(active.id)}" title="Открыть показ" aria-label="Открыть показ: ${escapeHtml(active.title || "Документ")}"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M14 3v5h4M9 13h6m-6 4h6"/></svg><span><small>В показе</small><strong>${escapeHtml(active.title || "Документ")}</strong></span></button>${canManageContent() ? `<button type="button" class="button button-secondary document-viewer-stop" data-action="stop-presentation" data-presentation-id="${escapeHtml(active.id)}" title="Убрать из показа" aria-label="Убрать из показа: ${escapeHtml(active.title || "Документ")}"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 12h8"/></svg></button>` : ""}</span>`;
 }
 
 function renderMicrophoneDock() {
@@ -410,6 +442,15 @@ function renderFixedControls() {
     permissionButton.hidden = !state.mediaPermissionPending;
     permissionButton.title = "Разрешить камеру и микрофон одним действием";
   }
+}
+
+function cameraSetupNoticeHtml() {
+  if (state.cameraSetupDismissed || (hasLocalVideo() && state.publishedStream)) return "";
+  return `<aside class="camera-setup-notice" aria-label="Подключение камеры">
+    <div><strong>Камера не подключена</strong><span>Выберите камеру и разрешите доступ для этого сайта</span></div>
+    <a class="button button-secondary" href="#camera-setup" data-action="open-camera-setup">Настроить камеру</a>
+    <button class="camera-setup-dismiss" type="button" data-action="dismiss-camera-setup" aria-label="Скрыть напоминание о камере" title="Скрыть">×</button>
+  </aside>`;
 }
 
 function can(capability) {
@@ -594,7 +635,9 @@ function workspaceAllowedPanels(role = state.profile?.role) {
   return [...workspacePanelIds(role), ...(["observer", "auditor"].includes(role) ? [] : ["service"]), "translation"];
 }
 function workspaceAddablePanels(layout) {
-  return workspaceAllowedPanels().filter((id) => !layout.order.includes(id) && (id !== "translation" || state.translateStatus?.licensed));
+  return workspaceAllowedPanels().filter((id) => !layout.order.includes(id) &&
+    (id !== "translation" || ["interpreter", "translator"].includes(state.profile?.role) ||
+      (state.translateStatus?.licensed && hasConferenceInterpreter())));
 }
 
 // The Program tile follows its real width and keeps an exact 16:9 picture.
@@ -920,7 +963,7 @@ function conferenceHtml() {
   const voteFocus = focusVote ? `<section class="panel panel-pad conference-focus focus-vote" aria-label="Голосование">${conferenceVoteCard(openVote, "Идёт голосование — ваш голос")}</section>` : "";
   const voteStatus = focusVote ? "" : conferenceVoteStatusCard(openVote, closedVote);
   const activePresentation = state.presentations.find((item) => item.status === "active");
-  const presentationOffer = activePresentation ? `<article class="panel panel-pad material-offer"><h4 class="panel-title">Материал отправлен в показ</h4><h3>${escapeHtml(activePresentation.title)}</h3><div class="action-strip"><button class="button button-secondary" data-action="open-presentation-document" data-document-id="${activePresentation.documentId}" data-presentation-id="${activePresentation.id}">Открыть показ</button>${canManageContent() ? `<button class="button button-danger" data-action="stop-presentation" data-presentation-id="${activePresentation.id}">Убрать из показа</button>` : ""}</div></article>` : "";
+  const presentationOffer = activePresentation ? `<article class="panel panel-pad material-offer active-material-offer"><h4 class="panel-title">Материал отправлен в показ</h4><p class="active-material-name" title="${escapeHtml(activePresentation.title)}">${escapeHtml(activePresentation.title)}</p><div class="action-strip"><button class="button button-secondary" data-action="open-presentation-document" data-document-id="${activePresentation.documentId}" data-presentation-id="${activePresentation.id}">Открыть показ</button>${canManageContent() ? `<button class="button button-danger" data-action="stop-presentation" data-presentation-id="${activePresentation.id}">Убрать из показа</button>` : ""}</div></article>` : "";
   const programPanel = `<article class="panel conference-program-panel"><div id="programStage" class="preview-stage program-stage-large"><div class="preview-empty">В Program пока не назначен источник.</div></div></article>`;
   const channelsPanel = `<article class="panel panel-pad secretary-open-channels"><h4 class="panel-title">Открытые каналы</h4><div class="secretary-speakers">${secretarySpeakersHtml()}</div></article>`;
   const queuePanel = `<article class="panel panel-pad conference-queue-panel"><div class="section-title-row"><h4 class="panel-title">Очередь запросов</h4><span class="count-badge">${state.meeting.floorQueue.length}</span></div>${queue}</article>`;
@@ -942,7 +985,7 @@ function conferenceHtml() {
       vote: voteFocus || voteStatus || emptyCard("Голосование", "Голосований пока не было.", "conference-vote-status"),
       metrics,
       service: serviceCardHtml("workspace-service"),
-      translation: !state.translateStatus?.licensed ? emptyCard("Перевод", "Синхроперевод не подключён.", "workspace-translation")
+      translation: !state.translateStatus?.licensed || !hasConferenceInterpreter() ? ""
         : (state.translateMeeting?.channels ?? []).length ? translationListenHtml("workspace-translation")
           : emptyCard("Перевод", "В этой конференции перевод не ведётся.", "workspace-translation") };
     // A layout made for another role (or none yet) falls back to this role's default blocks.
@@ -957,6 +1000,7 @@ function conferenceHtml() {
   }
   const standardDashboard = workspaceDashboard || `<div class="conference-dashboard ${focusVote ? "has-focus" : ""}"><div class="conference-main-column">${voteFocus}${programPanel}${belowProgram}</div><div class="conference-side-stack">${speakersPanel}${queuePanel}</div></div>`;
   return `
+    ${cameraSetupNoticeHtml()}
     <header class="conference-agenda-bar"><span class="agenda-number">${activeAgendaIndex || "—"}</span><div><small>${state.meeting.pausedAt ? "КОНФЕРЕНЦИЯ НА ПАУЗЕ" : activeAgenda ? "ОБСУЖДАЕТСЯ СЕЙЧАС" : "ПОВЕСТКА"}</small><strong>${escapeHtml(activeAgenda?.title ?? "Текущий вопрос не выбран")}</strong></div><div class="conference-agenda-actions">${agendaAction}${pauseAction}${closeAction}</div></header>
     ${state.profile.role === "secretary" ? secretaryDashboard : standardDashboard}
     ${canViewMetrics && !workspaceDashboard ? `<div style="height:16px"></div><div class="grid grid-3">
@@ -1182,13 +1226,15 @@ function streamsHtml() {
 }
 
 function localAvDevicesHtml() {
-  return `<article class="panel panel-pad media-device-panel settings-media-devices">
-      <div class="list-item-head"><div><h4 class="panel-title">Локальные устройства AV</h4><p>Выбор сохраняется для этого браузера.</p></div><button class="button button-quiet" data-action="refresh-media-devices">Обновить список</button></div>
+  const published = Boolean(hasLocalVideo() && state.publishedStream);
+  return `<article id="camera-setup" class="panel panel-pad media-device-panel settings-media-devices">
+      <div class="list-item-head"><div><h4 class="panel-title">Камера и звук</h4><p>Устройства сохраняются для этого браузера</p></div><button class="button button-quiet" data-action="refresh-media-devices">Обновить список</button></div>
       <div class="device-selector-grid">
         <label class="field"><span>Камера</span><select id="videoInputSelect" data-media-device="videoinput">${mediaDeviceOptions(state.mediaDevices.videoInputs, state.selectedVideoInputId, "Системная камера по умолчанию")}</select></label>
         <label class="field"><span>Микрофон</span><select id="audioInputSelect" data-media-device="audioinput">${mediaDeviceOptions(state.mediaDevices.audioInputs, state.selectedAudioInputId, "Системный микрофон по умолчанию")}</select></label>
         <label class="field"><span>Вывод аудио</span><select id="audioOutputSelect" data-media-device="audiooutput" ${state.mediaDevices.audioOutputs.length ? "" : "disabled"}>${mediaDeviceOptions(state.mediaDevices.audioOutputs, state.selectedAudioOutputId, "Системный выход по умолчанию")}</select></label>
       </div>
+      <div class="camera-setup-actions"><button class="button button-secondary" type="button" data-action="publish-local-camera" ${published ? "disabled" : ""}>${published ? "Камера подключена" : "Включить камеру"}</button><p>Если доступ заблокирован, разрешите камеру для этого сайта в настройках браузера</p></div>
       ${state.mediaDevices.audioOutputs.length ? "" : `<p class="device-hint">Выбор аудиовыхода требует Chrome/Edge и HTTPS; на неподдерживаемых устройствах используется системный выход.</p>`}
     </article>`;
 }
@@ -1672,14 +1718,24 @@ function canManageContent() {
   return can("presentations.control");
 }
 
+function documentFormatIcon(fileName) {
+  const extension = String(fileName ?? "").match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() ?? "file";
+  const format = /^(doc|docx|odt)$/.test(extension) ? "DOC" :
+    /^(xls|xlsx|ods)$/.test(extension) ? "XLS" :
+    /^(ppt|pptx|odp)$/.test(extension) ? "PPT" :
+    /^(jpg|jpeg|png|gif|webp|svg|tif|tiff)$/.test(extension) ? "IMG" :
+    extension === "pdf" ? "PDF" : "FILE";
+  return `<span class="document-format-icon document-format-${format.toLowerCase()}" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M5 2.5h9l5 5V21H5z"/><path d="M14 2.5V8h5"/></svg><span>${format}</span></span>`;
+}
+
 function contentHtml() {
   const accepted = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.png,.jpg,.jpeg,.gif,.webp,.svg,.tif,.tiff";
   const officialUpload = canUploadFiles() && can("documents.upload")
-    ? `<label class="button button-secondary">Прикрепить к повестке<input id="agendaDocumentUpload" class="file-input" type="file" accept="${accepted}"></label>` : "";
-  const personalUpload = canUploadFiles() ? `<label class="button button-quiet">Добавить в мои документы<input id="documentUpload" class="file-input" type="file" accept="${accepted}"></label>` : "";
+    ? `<label class="button button-secondary" title="Прикрепить файл к повестке">+ К повестке<input id="agendaDocumentUpload" class="file-input" type="file" accept="${accepted}"></label>` : "";
+  const personalUpload = canUploadFiles() ? `<label class="button button-quiet" title="Добавить файл в мои документы">+ Мой документ<input id="documentUpload" class="file-input" type="file" accept="${accepted}"></label>` : "";
   const archiveImport = can("conference.archive") && can("documents.upload")
-    ? '<button class="button button-secondary" data-action="import-archive-document">Из завершённой конференции</button>' : "";
-  const upload = `<div class="action-strip">${personalUpload}${officialUpload}${archiveImport}</div>`;
+    ? '<button class="button button-secondary" data-action="import-archive-document">Из архива</button>' : "";
+  const upload = `<div class="action-strip materials-upload-actions">${personalUpload}${officialUpload}${archiveImport}</div>`;
   const visibleDocuments = canViewFiles() ? state.documents :
     state.documents.filter((document) => document.uploadedBy === state.profile.userId);
   const ownerName = (document) => document.uploadedByName ??
@@ -1689,8 +1745,8 @@ function contentHtml() {
     (document.uploadedBy === state.profile.userId ? state.profile.displayName : "Владелец не указан");
   const documentRow = (document) => {
     const agenda = state.meeting.agenda?.find((item) => item.id === document.agendaItemId);
-    const mine = document.uploadedBy === state.profile.userId && !document.agendaItemId;
-    return `<div class="list-item"><div class="list-item-head"><div><h4>${escapeHtml(document.fileName)}</h4><p>Владелец: ${escapeHtml(ownerName(document))} · ${formatBytes(document.sizeBytes)} · ${escapeHtml(document.mediaType)}</p>${document.sourceMeetingId ? `<p>Копия из завершённой конференции ${escapeHtml(document.sourceMeetingId)}</p>` : ""}${document.agendaItemId ? `<p><strong>Из повестки:</strong> ${escapeHtml(agenda?.title ?? "Вопрос повестки")}</p>` : ""}</div><div class="action-strip"><button class="button button-quiet" data-action="download-document" data-document-id="${document.id}">Открыть</button>${canManageContent() ? `<button class="button button-secondary" data-action="create-presentation" data-document-id="${document.id}" data-file-name="${escapeHtml(document.fileName)}">В показ</button>` : ""}${mine ? `<button class="button button-danger" data-action="delete-own-document" data-document-id="${document.id}">Удалить</button>` : ""}</div></div></div>`;
+    const mine = document.uploadedBy === state.profile.userId;
+    return `<div id="materials-document-${escapeHtml(document.id)}" class="list-item document-list-row" data-material-document-id="${escapeHtml(document.id)}" tabindex="-1"><div class="list-item-head"><div class="document-row-main"><h4>${documentFormatIcon(document.fileName)}<span>${escapeHtml(document.fileName)}</span></h4><p>${escapeHtml(ownerName(document))} · ${formatBytes(document.sizeBytes)}</p>${document.sourceMeetingId ? `<p>Из завершённой конференции ${escapeHtml(document.sourceMeetingId)}</p>` : ""}${document.agendaItemId ? `<p><strong>Повестка:</strong> ${escapeHtml(agenda?.title ?? "Вопрос повестки")}</p>` : ""}</div><div class="action-strip"><button class="button button-quiet" data-action="download-document" data-document-id="${document.id}">Открыть</button>${canManageContent() ? `<button class="button button-secondary" data-action="create-presentation" data-document-id="${document.id}" data-file-name="${escapeHtml(document.fileName)}">В показ</button>` : ""}${mine ? `<button class="button button-danger" data-action="delete-own-document" data-document-id="${document.id}">Удалить</button>` : ""}</div></div></div>`;
   };
   const ownDocuments = visibleDocuments.filter((document) => document.uploadedBy === state.profile.userId);
   const sharedDocuments = visibleDocuments.filter((document) => document.uploadedBy !== state.profile.userId &&
@@ -1709,7 +1765,7 @@ function contentHtml() {
         : item.leaderAssigned ? false : item.startedByParticipantId
           ? item.startedByParticipantId === state.participantId : item.startedBy === state.profile.userId;
     const canTurnPage = !state.meeting?.quick || isLeader;
-    return `<div class="list-item"><div class="list-item-head"><div><h4>${escapeHtml(item.title)}</h4><p>${escapeHtml(item.status)} · страница ${item.currentPage ?? "—"} / ${item.pageCount ?? "—"}</p>${state.meeting?.quick && item.status === "active" ? `<p>Показ ведёт: ${escapeHtml(item.leaderName || (item.leaderAssigned ? "ведущий не назначен" : item.startedByName || "ведущий не назначен"))}</p>` : ""}</div><div class="action-strip">${item.status === "active" ? `<button class="button button-secondary" data-action="open-presentation-document" data-document-id="${item.documentId}" data-presentation-id="${item.id}">Открыть показ</button>` : ""}${canManageContent() ? item.status !== "active" ? `<button class="button button-secondary" data-action="start-presentation" data-presentation-id="${item.id}">Старт</button>` : `${canTurnPage ? `<button class="button button-quiet" data-action="next-page" data-presentation-id="${item.id}" data-page="${(item.currentPage || 1) + 1}">Следующая</button>` : ""}<button class="button button-danger" data-action="stop-presentation" data-presentation-id="${item.id}">Стоп</button>` : `<span class="chip">${escapeHtml(item.status)}</span>`}</div></div></div>`;
+    return `<div class="list-item document-list-row"><div class="list-item-head"><div class="document-row-main"><h4>${documentFormatIcon(item.title)}<span>${escapeHtml(item.title)}</span></h4><p>${escapeHtml(item.status)} · страница ${item.currentPage ?? "—"} / ${item.pageCount ?? "—"}</p>${state.meeting?.quick && item.status === "active" ? `<p>Показ ведёт: ${escapeHtml(item.leaderName || (item.leaderAssigned ? "ведущий не назначен" : item.startedByName || "ведущий не назначен"))}</p>` : ""}</div><div class="action-strip">${item.status === "active" ? `<button class="button button-secondary" data-action="open-presentation-document" data-document-id="${item.documentId}" data-presentation-id="${item.id}">Открыть показ</button>` : ""}${canManageContent() ? item.status !== "active" ? `<button class="button button-secondary" data-action="start-presentation" data-presentation-id="${item.id}">Старт</button>` : `${canTurnPage ? `<button class="button button-quiet" data-action="next-page" data-presentation-id="${item.id}" data-page="${(item.currentPage || 1) + 1}">Следующая</button>` : ""}<button class="button button-danger" data-action="stop-presentation" data-presentation-id="${item.id}">Стоп</button>` : `<span class="chip">${escapeHtml(item.status)}</span>`}</div></div></div>`;
   }).join("") : `<div class="empty">Презентации не созданы.</div>`;
   return `${pageHead("Материалы", "Документы конференции и управление показом", upload)}
     <div class="grid grid-2 materials-page"><article class="panel"><div class="panel-pad"><h4 class="panel-title">Документы</h4></div><div class="list">${docs}</div></article><article class="panel"><div class="panel-pad"><h4 class="panel-title">Презентации</h4></div><div class="list">${shows}</div></article></div>`;
@@ -1805,7 +1861,7 @@ function serviceCardHtml(extraClass = "") {
   const role = state.profile.role;
   const canService = can("service.requests");
   const requestButton = !["observer", "service"].includes(role) ? `<button class="button button-primary" data-action="service-request">Вызвать персонал</button>` : "";
-  const seatButton = ["delegate", "operator"].includes(role) ? `<button class="button button-secondary" data-action="change-room-seat">Изменить рабочее место</button>` : "";
+  const seatButton = ["delegate", "operator"].includes(role) ? `<button class="button button-secondary" data-action="change-room-seat">Изменить место</button>` : "";
   const requests = canService ? state.serviceRequests.map((request) => `<div class="list-item"><div class="list-item-head"><div><h4>${escapeHtml(request.participantName)} · ${escapeHtml(request.seatLabel)}</h4><p>${escapeHtml(requestItemsText(request))}${request.comment ? ` · ${escapeHtml(request.comment)}` : ""}</p></div><span class="chip ${["closed", "cancelled", "rejected"].includes(request.status) ? "offline" : ""}">${escapeHtml(serviceRequestStatusLabel(request.status, interfaceLocale()))}</span></div><div class="action-strip compact">${request.stationId ? `<a class="button button-quiet" href="/room-planner/?stationId=${encodeURIComponent(request.stationId)}&requestId=${encodeURIComponent(request.id)}" target="_blank" rel="noopener">На плане</a>` : ""}${request.status === "new" ? `<button class="button button-secondary" data-action="service-status" data-request-id="${request.id}" data-status="accepted">${uiText("service.accept")}</button>` : ""}${request.status === "accepted" ? `<button class="button button-secondary" data-action="service-status" data-request-id="${request.id}" data-status="in-progress">${uiText("service.start")}</button>` : ""}${request.status === "in-progress" ? `<button class="button button-secondary" data-action="service-status" data-request-id="${request.id}" data-status="delivered">${uiText("service.complete")}</button>` : ""}${request.status === "delivered" ? `<button class="button button-secondary" data-action="service-status" data-request-id="${request.id}" data-status="closed">${uiText("service.close")}</button>` : ""}</div></div>`).join("") : "";
   return `<article class="panel ${extraClass}"><div class="panel-pad"><div class="list-item-head"><div><h4 class="panel-title">${uiText("service.title")}</h4><p>${uiText("service.description")}</p></div><div class="action-strip compact">${seatButton}${requestButton}</div></div></div>${canService ? `<div class="list">${requests || `<div class="empty">${uiText("service.empty")}</div>`}</div>` : ""}</article>`;
 }

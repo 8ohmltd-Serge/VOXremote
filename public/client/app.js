@@ -263,7 +263,7 @@ export {
   formatAgendaTime, agendaTimeline, agendaStatusHtml, openAgendaDialog, confirmDialog, roomSeatScheme, offerRoomStation, maybeOfferRoomStation,
   connectWithProfile, consumeConferenceHandoff, autoPublishOwnCamera, queryCapturePermission, installLocalVideoTrack, isAppleMobile, scheduleVideoRecovery, recoverSuspendedVideo,
   enableLocalAv, toggleParticipantVideo, toggleLocalMediaPreference, hasLocalVideo, restoreActiveSession, startTimers, clearTimers, schedulePushRefresh,
-  refreshFloorState, updateSourceWallFloorState, applyAudioMeters, setEventConnectionStatus, startEventStream, refreshProgram, refreshAll, updateBuildLabels,
+  refreshFloorState, updateSourceWallFloorState, applyAudioMeters, updateTranslationMeters, setEventConnectionStatus, startEventStream, refreshProgram, refreshAll, updateBuildLabels,
   selectTab, activateStreamsPreview, syncSourceWall, budgetedThumbnailStreams, disconnect, exitClosedConference, handleMicrophoneAction, bootstrapClient,
   renderPage, updateNavigationVisibility, translationHtml, unreadChatCount, updateChatNotice, markChatRead, pageHead, VOTE_OUTCOME_LABELS,
   advancedBallot, voteOutcomeLabel, conferenceVoteCard, conferenceVoteStatusCard, closeVoteResultsModal, openVoteResultsModal, microphoneIcon, renderMicrophoneDock,
@@ -303,11 +303,12 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const SESSION_KEY = "edge-s-active-session-v0.6";
 const HANDOFF_KEY = "edge-conference-handoff-v1";
 const AUTH_TOKEN_KEY = "edge-s-account-token";
+const QUICK_RESUME_KEY = "edge-s-quick-device-session-v1";
 const CAMERA_AUTO_KEY = "edge-s-auto-camera";
 const MICROPHONE_AUTO_KEY = "edge-s-auto-microphone";
 const MEDIA_DEVICE_KEY = "edge-s-media-devices-v0.5";
 const TRANSLATION_VOLUME_KEY = "edge-s-translation-volume";
-const CLIENT_BUILD = "0.7.0.64";
+const CLIENT_BUILD = "0.7.0.65";
 const interfaceLocale = () => participantLanguage(state.profile?.userId);
 const uiText = (key) => participantText(key, interfaceLocale());
 const BUILD_RELOAD_KEY = "edge-s-client-build-reload";
@@ -423,6 +424,7 @@ const state = {
   audioContext: null,
   audioMixInputs: new Map(),
   audioMeters: new Map(),
+  translationAudioMeters: new Map(),
   serverAudioSubscriber: null,
   serverAudioMedia: null,
   serverAudioElement: null,
@@ -457,6 +459,7 @@ const state = {
   selectedAudioInputId: "",
   selectedAudioOutputId: "",
   mediaPermissionPending: false,
+  cameraSetupDismissed: false,
   pgmSlates: { selectedSlateId: null, items: [] },
   slatePreviewUrls: new Map(),
   lastOpenVoteId: null,
@@ -478,6 +481,13 @@ class EdgeApi {
   constructor(profile) {
     this.profile = profile;
     this.authToken = profile.authToken || sessionStorage.getItem(AUTH_TOKEN_KEY) || "";
+    if (!this.authToken) {
+      try {
+        const saved = JSON.parse(localStorage.getItem(QUICK_RESUME_KEY) || "null");
+        if (saved?.meetingId === profile.meetingId && saved.userId === profile.userId &&
+            saved.deviceId === profile.deviceId) this.authToken = saved.authToken || "";
+      } catch (_) {}
+    }
     if (!this.authToken) {
       try {
         this.authToken = JSON.parse(localStorage.getItem("edge-s-conference-identities-v1") || "{}")
@@ -683,6 +693,13 @@ function saveActiveSession() {
     tabId: TAB_ID,
     savedAt: new Date().toISOString()
   }));
+  try {
+    const saved = JSON.parse(localStorage.getItem(QUICK_RESUME_KEY) || "null");
+    if (saved?.meetingId === state.profile.meetingId && saved.userId === state.profile.userId &&
+        saved.deviceId === state.profile.deviceId) {
+      localStorage.setItem(QUICK_RESUME_KEY, JSON.stringify({ ...saved, role: state.profile.role }));
+    }
+  } catch (_) {}
 }
 
 function clearActiveSession() {
@@ -691,6 +708,7 @@ function clearActiveSession() {
 
 function enterApplication({ api, profile, leaseId, participantId }) {
   Object.assign(state, { api, profile, leaseId, participantId, roomSeatPromptOpen: false, roomSeatDismissed: false });
+  state.translationAudioMeters.clear();
   state.activeTab = /^(interpreter|translator)$/.test(profile.role) ? "translation" : "conference";
   applyParticipantLanguage(profile.userId);
   saveProfile(profile);
@@ -896,7 +914,17 @@ function openAgendaDialog({ editable = false } = {}) {
 
   const render = () => {
     const records = agendaTimeline();
-    const rows = records.map((record) => editable ? editorRow(record) : `<div class="agenda-view-row agenda-${record.phase}"><span class="agenda-order">${record.index + 1}</span><div><strong>${escapeHtml(record.item.title)}</strong>${agendaStatusHtml(record)}</div></div>`).join("") || `<div class="empty">Повестка пока не сформирована.</div>`;
+    const rows = records.map((record) => {
+      if (editable) return editorRow(record);
+      // Match the Materials visibility rules, including unpublished agenda
+      // attachments that privileged roles may otherwise receive from the API.
+      const documents = state.documents.filter((item) => item.agendaItemId === record.item.id &&
+        (canViewFiles() || item.uploadedBy === state.profile.userId) &&
+        (item.availableImmediately === true || item.agendaItemId === state.meeting.activeAgendaItemId ||
+          state.presentations.some((show) => show.documentId === item.id && show.status === "active")));
+      const materials = documents.length ? `<div class="agenda-document-links"><span>Материалы · ${documents.length}</span>${documents.map((item) => `<a href="#materials-document-${escapeHtml(item.id)}" data-agenda-dialog-action="view-material" data-document-id="${escapeHtml(item.id)}">${escapeHtml(item.fileName)}</a>`).join("")}</div>` : "";
+      return `<div class="agenda-view-row agenda-${record.phase}"><span class="agenda-order">${record.index + 1}</span><div><strong>${escapeHtml(record.item.title)}</strong>${agendaStatusHtml(record)}${materials}</div></div>`;
+    }).join("") || `<div class="empty">Повестка пока не сформирована.</div>`;
     dialog.innerHTML = `<div class="agenda-dialog-head"><div><p class="eyebrow">ПОВЕСТКА</p><h3>${editable ? "Управление повесткой" : "Вопросы заседания"}</h3></div><button type="button" class="dialog-icon-close" data-dialog-close data-agenda-dialog-action="close" aria-label="Закрыть">×</button></div>
       <div class="agenda-dialog-list">${rows}</div>
       <div class="actions">${editable ? `<button type="button" class="button button-quiet" data-agenda-dialog-action="add">+ Добавить вопрос</button><button type="button" class="button button-secondary" data-agenda-dialog-action="save">Сохранить</button>` : ""}<button type="button" data-agenda-dialog-action="close">Закрыть</button></div>`;
@@ -929,6 +957,19 @@ function openAgendaDialog({ editable = false } = {}) {
     if (!control) return;
     const action = control.dataset.agendaDialogAction;
     if (action === "close") { close(); return; }
+    if (action === "view-material") {
+      event.preventDefault();
+      const documentId = control.dataset.documentId;
+      close();
+      try {
+        await selectTab("content");
+        const row = [...document.querySelectorAll("[data-material-document-id]")].find((item) => item.dataset.materialDocumentId === documentId);
+        if (!row) { notify("Документ больше не доступен в материалах"); return; }
+        row?.scrollIntoView({ block: "center" });
+        row?.focus({ preventScroll: true });
+      } catch (error) { notify(error.message); }
+      return;
+    }
     if (action === "add") {
       const list = dialog.querySelector(".agenda-dialog-list");
       list.querySelector(".empty")?.remove();
@@ -1130,7 +1171,7 @@ async function offerRoomStation({ force = false } = {}) {
   state.roomSeatPromptOpen = true;
   const backdrop = document.createElement("div"); backdrop.className = "form-dialog-backdrop room-seat-backdrop";
   const dialog = document.createElement("div"); dialog.className = "form-dialog room-seat-dialog";
-  dialog.innerHTML = `<header class="room-seat-head"><div><h3>${selection.selectedStationId ? "Изменить рабочее место" : "Выберите рабочее место"}</h3><p>Нажмите свободное место на схеме или в списке. Текущее место можно выбрать повторно.</p></div><button type="button" class="dialog-icon-close" data-dialog-close data-seat-later aria-label="Закрыть">×</button></header>
+  dialog.innerHTML = `<header class="room-seat-head"><div><h3>${selection.selectedStationId ? "Изменить место" : "Выберите место"}</h3><p>Нажмите свободное место на схеме или в списке. Текущее место можно выбрать повторно.</p></div><button type="button" class="dialog-icon-close" data-dialog-close data-seat-later aria-label="Закрыть">×</button></header>
     <div class="room-seat-layout"><div class="room-seat-scheme">${roomSeatScheme(selection)}</div>
     <div class="room-seat-list">${selection.stations.map((item) => `<button type="button" data-seat-id="${escapeHtml(item.id)}" ${item.available ? "" : "disabled"}>${item.number}. ${escapeHtml(item.name)}${item.occupied ? " · занято" : item.hasCamera ? "" : " · нет камеры"}</button>`).join("")}</div></div>
     <div class="actions"><button type="button" data-seat-later>Выбрать позже</button></div>`;
@@ -1270,7 +1311,9 @@ async function recoverSuspendedVideo(reason) {
   // iPadOS can leave a nominally live track muted after backgrounding. A new
   // capture track plus a new video producer forces a fresh keyframe into the
   // persistent VideoCore input without restarting audio or the send transport.
-  if (current && !current.muted && reason !== "pageshow") return;
+  // Foregrounding an iPad is not evidence of a broken capture. Reopening a
+  // healthy track here triggers another browser permission sheet on Safari.
+  if (current && current.readyState === "live" && !current.muted) return;
   const media = await navigator.mediaDevices.getUserMedia({ audio: false, video: {
     ...deviceConstraint(state.selectedVideoInputId), facingMode: state.selectedVideoInputId ? undefined : { ideal: "user" },
     width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 }
@@ -1413,6 +1456,7 @@ function startTimers() {
   clearTimers();
   startEventStream();
   state.voteCountdownTimer = setInterval(updateVoteCountdowns, 1000);
+  state.translationMeterTimer = setInterval(updateTranslationMeters, 500);
   state.refreshTimer = setInterval(() => refreshAll(true), 30000);
   state.heartbeatTimer = setInterval(() => {
     state.api.post(`/meetings/${state.profile.meetingId}/participants/${state.participantId}/presence`, { presenceId: PRESENCE_ID })
@@ -1456,6 +1500,7 @@ function startTimers() {
 
 function clearTimers() {
   clearInterval(state.voteCountdownTimer);
+  clearInterval(state.translationMeterTimer);
   clearInterval(state.refreshTimer);
   clearInterval(state.heartbeatTimer);
   clearInterval(state.signalTimer);
@@ -1553,13 +1598,43 @@ function updateSourceWallFloorState() {
 }
 
 function applyAudioMeters(payload) {
-  if (!payload || payload.meetingId !== state.profile?.meetingId || payload.channel !== "program") return;
-  for (const meter of payload.meters ?? []) state.audioMeters.set(meter.sourceId, meter);
-  for (const element of $$('[data-audio-meter]')) {
-    const meter = state.audioMeters.get(element.dataset.audioMeter);
-    const db = Number(meter?.peakDbfs ?? meter?.rmsDbfs ?? meter?.levelDbfs ?? -127);
-    element.value = Math.max(-60, Math.min(0, db));
-    element.title = `${db.toFixed(1)} dBFS`;
+  if (!payload || payload.meetingId !== state.profile?.meetingId) return;
+  if (payload.channel === "program") {
+    for (const meter of payload.meters ?? []) state.audioMeters.set(meter.sourceId, meter);
+    for (const element of $$('[data-audio-meter]')) {
+      const meter = state.audioMeters.get(element.dataset.audioMeter);
+      const db = Number(meter?.peakDbfs ?? meter?.rmsDbfs ?? meter?.levelDbfs ?? -127);
+      element.value = Math.max(-60, Math.min(0, db));
+      element.title = `${db.toFixed(1)} dBFS`;
+    }
+  }
+  if (payload.channel !== "program" && !payload.channel?.startsWith("language:")) return;
+  const master = payload.meters?.find((meter) => meter.sourceId === "__mix_master__");
+  if (master) {
+    const receivedAt = Date.now();
+    const peak = Number(master.peakDbfs ?? master.rmsDbfs ?? master.levelDbfs);
+    const lastSignalAt = Number.isFinite(peak) && peak > -55 ? receivedAt
+      : state.translationAudioMeters.get(payload.channel)?.lastSignalAt ?? 0;
+    state.translationAudioMeters.set(payload.channel, { ...master, receivedAt, lastSignalAt });
+  }
+  updateTranslationMeters();
+}
+
+function updateTranslationMeters() {
+  for (const element of $$('[data-translation-signal]')) {
+    const reading = state.translationAudioMeters.get(element.dataset.translationSignal);
+    const fresh = Boolean(reading && Date.now() - reading.receivedAt < 2500);
+    const db = Number(reading?.peakDbfs ?? reading?.rmsDbfs ?? reading?.levelDbfs);
+    const hasSignal = fresh && ((Number.isFinite(db) && db > -55) ||
+      Date.now() - (reading.lastSignalAt ?? 0) < 1200);
+    const status = fresh ? (hasSignal ? "Онлайн" : "Офлайн") : "Нет данных";
+    element.dataset.signalState = fresh ? (hasSignal ? "online" : "offline") : "unknown";
+    const label = element.querySelector('[data-translation-status]');
+    if (label && label.textContent !== status) label.textContent = status;
+    const peak = element.querySelector('[data-translation-peak]');
+    if (peak) peak.value = fresh && Number.isFinite(db) ? Math.max(-60, Math.min(0, db)) : -60;
+    const display = element.querySelector('[data-translation-db]');
+    if (display) display.textContent = fresh && Number.isFinite(db) && db > -100 ? `${Math.round(db)} dBFS` : "−∞ dBFS";
   }
 }
 
@@ -1902,10 +1977,11 @@ async function disconnect() {
     activeChatId: null, claimedSeat: null, localMedia: null, publishedStream: null,
     contentMedia: null, contentPublishedStream: null, selectedStream: null, selectedSourceIdentity: null,
     watchingStreamId: null, remoteMedia: null, systemStatus: null, mcuHealth: null, voteSelections: new Map(),
-    mediaPermissionPending: false, secretaryLayout: structuredClone(SECRETARY_LAYOUT_DEFAULT),
+    mediaPermissionPending: false, cameraSetupDismissed: false, secretaryLayout: structuredClone(SECRETARY_LAYOUT_DEFAULT),
     secretaryLayoutDraft: null, secretaryLayoutLoaded: false
   });
   clearActiveSession();
+  localStorage.removeItem(QUICK_RESUME_KEY);
   sessionStorage.removeItem(AUTH_TOKEN_KEY);
   location.replace("/conference/?error=handoff-missing");
 }
@@ -1915,6 +1991,7 @@ async function exitClosedConference() {
   state.exitingConference = true;
   clearTimers();
   clearActiveSession();
+  localStorage.removeItem(QUICK_RESUME_KEY);
   sessionStorage.removeItem(AUTH_TOKEN_KEY);
   $("#appView").hidden = true;
   state.localMedia?.getTracks().forEach((track) => track.stop());
@@ -1997,12 +2074,6 @@ $("#pageContent").addEventListener("change", (event) => {
         { sourceGain: { streamId, value } });
     }, value === 0 ? "Линейный источник заглушён" : "Уровень линейного источника обновлён");
   }
-  if (event.target.id === "documentUpload") {
-    runAction(() => uploadDocument(event.target.files[0]), "Файл отправлен");
-  }
-  if (event.target.id === "agendaDocumentUpload") {
-    runAction(() => uploadAgendaDocument(event.target.files[0]), "Документ прикреплён к повестке");
-  }
   if (event.target.id === "operatorSlateUpload") {
     runAction(() => uploadPgmSlate(event.target.files[0]), "Заставка добавлена в библиотеку");
   }
@@ -2077,6 +2148,32 @@ async function handleMicrophoneAction(button) {
   } finally { button.disabled = false; }
 }
 
+function handlePresentationControlAction(target) {
+  if (!target || target.disabled) return false;
+  const id = target.dataset.presentationId;
+  if (target.dataset.action === "open-presentation-document") {
+    if (!id || !target.dataset.documentId) return true;
+    target.disabled = true;
+    void openDocument(target.dataset.documentId, id)
+      .catch((error) => notify(error.message))
+      .finally(() => { if (target.isConnected) target.disabled = false; });
+    return true;
+  }
+  if (target.dataset.action === "stop-presentation") {
+    if (!id) return true;
+    target.disabled = true;
+    void runAction(async () => {
+      await state.api.post(`/presentations/${encodeURIComponent(id)}/stop`);
+      state.presentations = state.presentations.map((item) =>
+        item.id === id ? { ...item, status: "stopped" } : item);
+      closePresentationViewer(id);
+      renderMicrophoneDock();
+    }).finally(() => { if (target.isConnected) target.disabled = false; });
+    return true;
+  }
+  return false;
+}
+
 $("#pageContent").addEventListener("click", (event) => {
   const micButton = event.target.closest("[data-mic-action]");
   if (micButton) {
@@ -2085,8 +2182,34 @@ $("#pageContent").addEventListener("click", (event) => {
   }
   const target = event.target.closest("[data-action]");
   if (!target) return;
+  if (handlePresentationControlAction(target)) return;
   const action = target.dataset.action;
   if (handleWorkspaceUiAction(action, target)) return;
+  if (action === "open-camera-setup") {
+    event.preventDefault();
+    void (async () => {
+      await refreshMediaDevices().catch(() => {});
+      await selectTab("settings");
+      const setup = $("#camera-setup");
+      setup?.scrollIntoView({ block: "start" });
+      setup?.querySelector("#videoInputSelect")?.focus({ preventScroll: true });
+    })().catch((error) => notify(error.message));
+    return;
+  }
+  if (action === "dismiss-camera-setup") {
+    state.cameraSetupDismissed = true;
+    renderPage();
+    return;
+  }
+  if (action === "publish-local-camera") {
+    void runAction(async () => {
+      await startPublishing();
+      localStorage.setItem(CAMERA_AUTO_KEY, "on");
+      state.cameraSetupDismissed = false;
+      renderPage();
+    }, "Камера опубликована");
+    return;
+  }
   if (action === "secretary-panel-before" || action === "secretary-panel-after") {
     moveSecretaryLayoutPanel(target.dataset.panelId, action === "secretary-panel-before" ? -1 : 1);
     return;
@@ -2244,8 +2367,11 @@ $("#pageContent").addEventListener("click", (event) => {
   if (action === "download-document") runAction(() => openDocument(target.dataset.documentId));
   if (action === "delete-own-document") void (async () => {
     const document = state.documents.find((item) => item.id === target.dataset.documentId);
-    if (!document || document.uploadedBy !== state.profile.userId || document.agendaItemId) return;
-    if (!await confirmDialog(`Удалить документ «${document.fileName}» и его черновые пометки?`, "Удалить", "Отмена")) return;
+    if (!document || document.uploadedBy !== state.profile.userId) return;
+    const question = document.agendaItemId
+      ? `Удалить документ «${document.fileName}» из «Моих документов» и повестки вместе с черновыми пометками?`
+      : `Удалить документ «${document.fileName}» и его черновые пометки?`;
+    if (!await confirmDialog(question, "Удалить", "Отмена")) return;
     await runAction(async () => {
       await state.api.delete(`/documents/${encodeURIComponent(document.id)}`);
       state.documents = state.documents.filter((item) => item.id !== document.id);
@@ -2255,12 +2381,7 @@ $("#pageContent").addEventListener("click", (event) => {
   if (action === "start-presentation") runAction(() => startPresentationBroadcast(target.dataset.presentationId));
   if (action === "share-screen") runAction(shareScreen);
   if (action === "stop-screen-share") runAction(stopScreenShare);
-  if (action === "open-presentation-document") void openDocument(target.dataset.documentId, target.dataset.presentationId).catch(e => notify(e.message));
   if (action === "next-page") runAction(() => state.api.post(`/presentations/${target.dataset.presentationId}/page`, { page: Number(target.dataset.page) }));
-  if (action === "stop-presentation") runAction(async () => {
-    await state.api.post(`/presentations/${target.dataset.presentationId}/stop`);
-    closePresentationViewer(target.dataset.presentationId);
-  });
   if (action === "open-chat") runAction(() => openChat(target.dataset.participantId));
   if (action === "select-chat") { state.activeChatId = target.dataset.sessionId; markChatRead(state.activeChatId); renderPage(); }
   if (action === "check-readiness") runAction(checkReadiness, "Проверка готовности завершена");
@@ -2332,6 +2453,7 @@ $("#mediaAccessBtn")?.addEventListener("click", async (event) => {
 });
 
 $("#microphoneDock").addEventListener("click", (event) => {
+  if (handlePresentationControlAction(event.target.closest("[data-action]"))) return;
   if (event.target.closest('[data-action="secretary-toggle-recording"]')) {
     runAction(() => state.api.put(`/meetings/${state.profile.meetingId}/recording`,
       { enabled: !state.recordingStatus?.enabled }), "Режим записи обновлён");

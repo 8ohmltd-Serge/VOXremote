@@ -123,7 +123,171 @@ const catalogs = Object.freeze({
     "service.complete": "Completato", "service.close": "Chiudi"
   })
 });
-export const BUILTIN_INTERFACE_CATALOGS = catalogs;
+// The service console uses the same database-owned catalog as the conference
+// client. Keep these keys semantic: user-entered room and meeting names are
+// never translated.
+const serviceCatalogs = Object.freeze({
+  ru: {
+    "console.language": "Язык интерфейса",
+    "console.signout": "Выйти",
+    "console.nav.meetings": "Конференции", "console.nav.archive": "Архив конференций",
+    "console.nav.accounts": "Участники и права", "console.nav.directory": "Постоянные участники",
+    "console.nav.vote": "Голосование", "console.nav.translation": "Перевод",
+    "console.nav.transcription": "Стенограмма", "console.nav.video": "Видео",
+    "console.nav.audio": "Звук", "console.nav.equipment": "Стороннее оборудование",
+    "console.nav.graph": "Схема сигналов", "console.nav.displays": "Экраны и табло",
+    "console.nav.system": "Система",
+    "console.meetings.new": "Новая конференция", "console.meetings.preparation": "Подготовка конференций",
+    "console.meetings.processing": "Обработка прошедших",
+    "console.meetings.active": "Активная конференция",
+    "console.meetings.planned": "Планируемые и подготавливаемые",
+    "console.meetings.closed": "Завершённые конференции",
+    "console.rooms.title": "Залы и места",
+    "console.rooms.description": "Каждый зал содержит одну конфигурацию мест. Камеру и пресет можно назначить без схемы зала.",
+    "console.rooms.selected": "Настраиваемый зал", "console.rooms.create": "Создать зал",
+    "console.rooms.name": "Название зала",
+    "console.rooms.auto_follow": "Наводить камеру при предоставлении слова",
+    "console.rooms.place_name": "Название места", "console.rooms.camera": "Камера",
+    "console.rooms.preset": "Пресет", "console.rooms.aim": "Навести",
+    "console.rooms.remove": "Удалить", "console.rooms.add_place": "Добавить место",
+    "console.rooms.save": "Сохранить", "console.rooms.saving": "Сохраняю зал…",
+    "console.rooms.saved": "Зал сохранён. Камерные пресеты сохраняются для каждого места отдельно.",
+    "console.rooms.name_required": "Укажите название зала, затем сохраните ещё раз"
+  },
+  en: {
+    "console.language": "Interface language", "console.signout": "Sign out",
+    "console.nav.meetings": "Conferences", "console.nav.archive": "Conference archive",
+    "console.nav.accounts": "Participants and permissions", "console.nav.directory": "Participant directory",
+    "console.nav.vote": "Voting", "console.nav.translation": "Interpretation",
+    "console.nav.transcription": "Transcript", "console.nav.video": "Video",
+    "console.nav.audio": "Audio", "console.nav.equipment": "External equipment",
+    "console.nav.graph": "Signal routing", "console.nav.displays": "Displays and boards",
+    "console.nav.system": "System",
+    "console.meetings.new": "New conference", "console.meetings.preparation": "Conference preparation",
+    "console.meetings.processing": "Past conferences",
+    "console.meetings.active": "Active conference",
+    "console.meetings.planned": "Planned and in preparation",
+    "console.meetings.closed": "Completed conferences",
+    "console.rooms.title": "Rooms and seats",
+    "console.rooms.description": "Each room has one seat layout. Assign cameras and presets without a floor plan.",
+    "console.rooms.selected": "Room to configure", "console.rooms.create": "Create room",
+    "console.rooms.name": "Room name",
+    "console.rooms.auto_follow": "Aim camera when the floor is granted",
+    "console.rooms.place_name": "Seat name", "console.rooms.camera": "Camera",
+    "console.rooms.preset": "Preset", "console.rooms.aim": "Aim",
+    "console.rooms.remove": "Remove", "console.rooms.add_place": "Add seat",
+    "console.rooms.save": "Save", "console.rooms.saving": "Saving room…",
+    "console.rooms.saved": "Room saved. Save camera presets separately for each seat.",
+    "console.rooms.name_required": "Enter a room name, then save again"
+  },
+  de: {
+    "console.language": "Sprache der Oberfläche", "console.signout": "Abmelden",
+    "console.nav.meetings": "Konferenzen", "console.nav.archive": "Konferenzarchiv",
+    "console.nav.accounts": "Teilnehmende und Rechte", "console.nav.directory": "Teilnehmerverzeichnis",
+    "console.nav.vote": "Abstimmung", "console.nav.translation": "Dolmetschen",
+    "console.nav.transcription": "Transkript", "console.nav.video": "Video",
+    "console.nav.audio": "Audio", "console.nav.equipment": "Externe Geräte",
+    "console.nav.graph": "Signalwege", "console.nav.displays": "Anzeigen und Tafeln",
+    "console.nav.system": "System",
+    "console.meetings.new": "Neue Konferenz", "console.meetings.preparation": "Konferenzen vorbereiten",
+    "console.meetings.processing": "Vergangene Konferenzen",
+    "console.meetings.active": "Aktive Konferenz",
+    "console.meetings.planned": "Geplant und in Vorbereitung",
+    "console.meetings.closed": "Abgeschlossene Konferenzen",
+    "console.rooms.title": "Räume und Plätze",
+    "console.rooms.description": "Jeder Raum hat eine Sitzordnung. Kameras und Presets lassen sich ohne Saalplan zuweisen.",
+    "console.rooms.selected": "Raum auswählen", "console.rooms.create": "Raum erstellen",
+    "console.rooms.name": "Raumname",
+    "console.rooms.auto_follow": "Kamera beim Erteilen des Wortes ausrichten",
+    "console.rooms.place_name": "Platzname", "console.rooms.camera": "Kamera",
+    "console.rooms.preset": "Preset", "console.rooms.aim": "Ausrichten",
+    "console.rooms.remove": "Entfernen", "console.rooms.add_place": "Platz hinzufügen",
+    "console.rooms.save": "Speichern", "console.rooms.saving": "Raum wird gespeichert…",
+    "console.rooms.saved": "Raum gespeichert. Kamerapresets je Platz separat speichern.",
+    "console.rooms.name_required": "Raumnamen eingeben und erneut speichern"
+  },
+  fr: {
+    "console.language": "Langue de l’interface", "console.signout": "Se déconnecter",
+    "console.nav.meetings": "Conférences", "console.nav.archive": "Archives des conférences",
+    "console.nav.accounts": "Participants et droits", "console.nav.directory": "Répertoire des participants",
+    "console.nav.vote": "Vote", "console.nav.translation": "Interprétation",
+    "console.nav.transcription": "Transcription", "console.nav.video": "Vidéo",
+    "console.nav.audio": "Audio", "console.nav.equipment": "Équipements externes",
+    "console.nav.graph": "Routage des signaux", "console.nav.displays": "Écrans et tableaux",
+    "console.nav.system": "Système",
+    "console.meetings.new": "Nouvelle conférence", "console.meetings.preparation": "Préparer les conférences",
+    "console.meetings.processing": "Conférences passées",
+    "console.meetings.active": "Conférence active",
+    "console.meetings.planned": "Planifiées et en préparation",
+    "console.meetings.closed": "Conférences terminées",
+    "console.rooms.title": "Salles et places",
+    "console.rooms.description": "Chaque salle a une disposition des places. Caméras et préréglages peuvent être affectés sans plan.",
+    "console.rooms.selected": "Salle à configurer", "console.rooms.create": "Créer une salle",
+    "console.rooms.name": "Nom de la salle",
+    "console.rooms.auto_follow": "Orienter la caméra quand la parole est donnée",
+    "console.rooms.place_name": "Nom de la place", "console.rooms.camera": "Caméra",
+    "console.rooms.preset": "Préréglage", "console.rooms.aim": "Orienter",
+    "console.rooms.remove": "Supprimer", "console.rooms.add_place": "Ajouter une place",
+    "console.rooms.save": "Enregistrer", "console.rooms.saving": "Enregistrement de la salle…",
+    "console.rooms.saved": "Salle enregistrée. Enregistrez les préréglages de chaque place séparément.",
+    "console.rooms.name_required": "Saisissez le nom de la salle, puis enregistrez à nouveau"
+  },
+  es: {
+    "console.language": "Idioma de la interfaz", "console.signout": "Cerrar sesión",
+    "console.nav.meetings": "Conferencias", "console.nav.archive": "Archivo de conferencias",
+    "console.nav.accounts": "Participantes y permisos", "console.nav.directory": "Directorio de participantes",
+    "console.nav.vote": "Votación", "console.nav.translation": "Interpretación",
+    "console.nav.transcription": "Transcripción", "console.nav.video": "Vídeo",
+    "console.nav.audio": "Audio", "console.nav.equipment": "Equipos externos",
+    "console.nav.graph": "Rutas de señal", "console.nav.displays": "Pantallas y paneles",
+    "console.nav.system": "Sistema",
+    "console.meetings.new": "Nueva conferencia", "console.meetings.preparation": "Preparación de conferencias",
+    "console.meetings.processing": "Conferencias pasadas",
+    "console.meetings.active": "Conferencia activa",
+    "console.meetings.planned": "Planificadas y en preparación",
+    "console.meetings.closed": "Conferencias finalizadas",
+    "console.rooms.title": "Salas y asientos",
+    "console.rooms.description": "Cada sala tiene una distribución de asientos. Asigne cámaras y posiciones sin plano.",
+    "console.rooms.selected": "Sala a configurar", "console.rooms.create": "Crear sala",
+    "console.rooms.name": "Nombre de la sala",
+    "console.rooms.auto_follow": "Orientar la cámara al conceder la palabra",
+    "console.rooms.place_name": "Nombre del asiento", "console.rooms.camera": "Cámara",
+    "console.rooms.preset": "Posición", "console.rooms.aim": "Orientar",
+    "console.rooms.remove": "Eliminar", "console.rooms.add_place": "Añadir asiento",
+    "console.rooms.save": "Guardar", "console.rooms.saving": "Guardando sala…",
+    "console.rooms.saved": "Sala guardada. Guarde las posiciones de cámara de cada asiento por separado.",
+    "console.rooms.name_required": "Introduzca el nombre de la sala y vuelva a guardar"
+  },
+  it: {
+    "console.language": "Lingua dell’interfaccia", "console.signout": "Esci",
+    "console.nav.meetings": "Conferenze", "console.nav.archive": "Archivio conferenze",
+    "console.nav.accounts": "Partecipanti e permessi", "console.nav.directory": "Elenco partecipanti",
+    "console.nav.vote": "Votazione", "console.nav.translation": "Interpretazione",
+    "console.nav.transcription": "Trascrizione", "console.nav.video": "Video",
+    "console.nav.audio": "Audio", "console.nav.equipment": "Dispositivi esterni",
+    "console.nav.graph": "Instradamento segnali", "console.nav.displays": "Schermi e tabelloni",
+    "console.nav.system": "Sistema",
+    "console.meetings.new": "Nuova conferenza", "console.meetings.preparation": "Preparazione conferenze",
+    "console.meetings.processing": "Conferenze passate",
+    "console.meetings.active": "Conferenza attiva",
+    "console.meetings.planned": "Pianificate e in preparazione",
+    "console.meetings.closed": "Conferenze concluse",
+    "console.rooms.title": "Sale e posti",
+    "console.rooms.description": "Ogni sala ha una disposizione dei posti. Assegna telecamere e preset senza planimetria.",
+    "console.rooms.selected": "Sala da configurare", "console.rooms.create": "Crea sala",
+    "console.rooms.name": "Nome della sala",
+    "console.rooms.auto_follow": "Orientare la telecamera quando viene data la parola",
+    "console.rooms.place_name": "Nome del posto", "console.rooms.camera": "Telecamera",
+    "console.rooms.preset": "Preset", "console.rooms.aim": "Inquadra",
+    "console.rooms.remove": "Rimuovi", "console.rooms.add_place": "Aggiungi posto",
+    "console.rooms.save": "Salva", "console.rooms.saving": "Salvataggio sala…",
+    "console.rooms.saved": "Sala salvata. Salva i preset della telecamera separatamente per ogni posto.",
+    "console.rooms.name_required": "Inserisci il nome della sala e salva di nuovo"
+  }
+});
+export const BUILTIN_INTERFACE_CATALOGS = Object.freeze(Object.fromEntries(
+  Object.entries(catalogs).map(([code, messages]) =>
+    [code, Object.freeze({ ...messages, ...serviceCatalogs[code] })])));
 
 export const PARTICIPANT_LANGUAGES = Object.freeze([
   { code: "ru", label: "Русский" }, { code: "en", label: "English" },
@@ -209,10 +373,10 @@ export function setParticipantLanguage(userId, language) {
 export function participantText(key, language = "ru") {
   const code = normalizeParticipantLanguage(language);
   if (Object.hasOwn(runtimeCatalogs[code] ?? {}, key)) return runtimeCatalogs[code][key];
-  const selected = catalogs[code] ?? customCatalogs[code]?.messages;
+  const selected = BUILTIN_INTERFACE_CATALOGS[code] ?? customCatalogs[code]?.messages;
   if (selected && Object.hasOwn(selected, key)) return selected[key];
   if (Object.hasOwn(runtimeCatalogs.ru ?? {}, key)) return runtimeCatalogs.ru[key];
-  return Object.hasOwn(catalogs.ru, key) ? catalogs.ru[key] : key;
+  return Object.hasOwn(BUILTIN_INTERFACE_CATALOGS.ru, key) ? BUILTIN_INTERFACE_CATALOGS.ru[key] : key;
 }
 
 export function participantFormatTime(value, language = "ru", options = { hour: "2-digit", minute: "2-digit" }) {
