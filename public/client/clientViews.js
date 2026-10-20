@@ -1,3 +1,4 @@
+import { controlColorInk, validControlColor } from "./controlColor.js";
 import {
   $, $$, sleep, SESSION_KEY, HANDOFF_KEY, AUTH_TOKEN_KEY, CAMERA_AUTO_KEY, MICROPHONE_AUTO_KEY,
   MEDIA_DEVICE_KEY, TRANSLATION_VOLUME_KEY, CLIENT_BUILD, interfaceLocale, uiText, BUILD_RELOAD_KEY,
@@ -12,7 +13,7 @@ import {
   queryCapturePermission, installLocalVideoTrack, isAppleMobile, scheduleVideoRecovery, recoverSuspendedVideo,
   enableLocalAv, toggleParticipantVideo, toggleLocalMediaPreference, hasLocalVideo, restoreActiveSession,
   startTimers, clearTimers, schedulePushRefresh, refreshFloorState, updateSourceWallFloorState,
-  applyAudioMeters, setEventConnectionStatus, startEventStream, refreshProgram, refreshAll, updateBuildLabels,
+  applyAudioMeters, updateTranslationMeters, setEventConnectionStatus, startEventStream, refreshProgram, refreshAll, updateBuildLabels,
   selectTab, activateStreamsPreview, syncSourceWall, budgetedThumbnailStreams, disconnect, exitClosedConference,
   handleMicrophoneAction, bootstrapClient, inMcu, runAction, requestFloor, applyLocalFloorResult,
   runMicrophoneAction, activateChairMicrophone, grantFloor, releaseFloor, selfRelease, saveMicrophoneLimit,
@@ -37,17 +38,36 @@ import {
   castAdvancedVote, createNextVoteRound, uploadDocument, importArchivedDocument, uploadAgendaDocument,
   openDocument, startPresentationBroadcast, shareScreen, stopScreenShare, installPwa, toggleFullscreen,
   encodeIdentityHeader, observeBottomControls, serviceRequestCategoryLabel, serviceRequestStatusLabel,
-  serviceRequestCategoryOptions, eventRetryDelay, PARTICIPANT_LANGUAGES, participantLanguage,
-  setParticipantLanguage, participantText, openDocumentViewer, closeDocumentViewer, updateDocumentViewerRights,
-  updateDocumentViewerBadge, documentSceneEvent
+  serviceRequestCategoryOptions, eventRetryDelay, PARTICIPANT_LANGUAGES, participantLanguageOptions, participantLanguage,
+  setParticipantLanguage, participantText, participantFormatTime, openDocumentViewer, closeDocumentViewer, updateDocumentViewerRights,
+  documentSceneEvent
 } from "./app.js";
+
+function sizeConferenceProgram() {
+  const panel = document.querySelector("#pageContent .conference-program-panel");
+  if (!panel || !panel.clientWidth) return;
+  if (panel.closest(".workspace-grid")) return;
+  const viewportLimit = Math.max(100, Math.floor((window.innerHeight - 190) / 10) * 10);
+  const nearestTen = Math.max(100, Math.round(panel.clientWidth * 9 / 16 / 10) * 10);
+  panel.style.height = `${Math.min(nearestTen, viewportLimit)}px`;
+}
+window.addEventListener("resize", sizeConferenceProgram);
 
 function renderPage() {
   if (!state.meeting) return;
-  $$(".nav-item[data-tab]").forEach((button) => button.classList.toggle("active", button.dataset.tab === state.activeTab));
+  $$(".nav-item[data-tab]").forEach((button) => {
+    const tab = button.dataset.tab;
+    const title = uiText(`nav.${tab}`);
+    const label = button.closest("#mobileNav") ? uiText(`nav.mobile.${tab}`) : title;
+    button.classList.toggle("active", tab === state.activeTab);
+    const text = button.querySelector("span:last-child");
+    if (text) text.textContent = label;
+    button.title = title;
+    button.setAttribute("aria-label", title);
+  });
   const pageTitle = $("#currentPageTitle");
   if (pageTitle) pageTitle.textContent = state.activeTab === "translation" && ["interpreter", "translator"].includes(state.profile.role)
-    ? "Рабочее место переводчика" : TAB_TITLES[state.activeTab] ?? "";
+    ? uiText("nav.interpreter") : (Object.hasOwn(TAB_TITLES, state.activeTab) ? uiText(`nav.${state.activeTab}`) : "");
   $("#participantName").textContent = state.profile.displayName;
   $("#participantRole").textContent = CONFERENCE_ROLE_LABELS[state.profile.role] ?? state.profile.role;
   $("#appView").dataset.role = state.profile.role;
@@ -77,6 +97,11 @@ function renderPage() {
     }
   }
   const page = $("#pageContent");
+  for (const video of page.querySelectorAll("[data-room-control-viewer]")) video._controlHls?.destroy();
+  if (state.activeTab !== "roomcontrol") {
+    clearInterval(controlViewerRefreshTimer);
+    controlViewerRefreshTimer = null;
+  }
   const secretaryInput = $("#secretaryText");
   const secretaryFocus = secretaryInput && document.activeElement === secretaryInput
     ? { start: secretaryInput.selectionStart, end: secretaryInput.selectionEnd } : null;
@@ -91,14 +116,44 @@ function renderPage() {
   }
   if (state.activeTab === "streams") page.innerHTML = streamsHtml();
   if (state.activeTab === "voting") page.innerHTML = votingHtml();
-  if (state.activeTab === "content") page.innerHTML = contentHtml();
+  if (state.activeTab === "content") {
+    page.innerHTML = contentHtml();
+    // A push refresh can rerender Materials while the native file chooser is
+    // open. Keep each input's own listener so the chosen file still uploads
+    // even when that input has since been detached from #pageContent.
+    for (const [id, action, notice] of [
+      ["documentUpload", uploadDocument, "Файл отправлен"],
+      ["agendaDocumentUpload", uploadAgendaDocument, "Документ прикреплён к повестке"]
+    ]) {
+      page.querySelector(`#${id}`)?.addEventListener("change", (event) => {
+        const file = event.currentTarget.files?.[0];
+        if (file) void runAction(() => action(file), notice);
+      });
+    }
+  }
   if (state.activeTab === "translation") page.innerHTML = translationHtml();
   if (state.activeTab === "chat") page.innerHTML = chatHtml();
-  if (state.activeTab === "operations") page.innerHTML = operationsHtml();
+  if (state.activeTab === "operations") { page.innerHTML = operationsHtml(); updateSignagePreviews(); }
+  if (state.activeTab === "roomcontrol") {
+    page.innerHTML = roomControlHtml();
+    void mountRoomControlViewers();
+  }
   if (state.activeTab === "settings") page.innerHTML = settingsHtml();
+  const addMenu = $("#workspaceAddMenu");
+  if (addMenu) {
+    const draft = state.secretaryLayoutDraft;
+    addMenu.hidden = !draft || state.profile.role === "secretary" || !["conference", "translation"].includes(state.activeTab);
+    if (!addMenu.hidden) {
+      const addable = workspaceAddablePanels(draft);
+      addMenu.querySelector(".workspace-add-options").innerHTML = addable.length
+        ? addable.map((id) => `<button type="button" data-action="layout-add" data-panel-id="${id}">${escapeHtml(WORKSPACE_PANEL_LABELS[id])}</button>`).join("")
+        : `<small>Все блоки уже размещены</small>`;
+    }
+  }
   if (["conference", "translation"].includes(state.activeTab) && state.programStageNode) {
     $("#programStage")?.replaceWith(state.programStageNode);
   }
+  if (state.activeTab === "conference") requestAnimationFrame(sizeConferenceProgram);
   if (state.activeTab === "streams") {
     if (state.studioPreviewStageNode) $("#studioPreviewStage")?.replaceWith(state.studioPreviewStageNode);
     if (state.studioProgramStageNode) $("#studioProgramStage")?.replaceWith(state.studioProgramStageNode);
@@ -114,6 +169,13 @@ function renderPage() {
   }
   updateChatNotice();
   updateNavigationVisibility();
+  updateTranslationMeters();
+}
+
+function hasConferenceInterpreter() {
+  const assignedRole = (person) => ["interpreter", "translator"].includes(person?.role) && !person.excludedAt;
+  return (state.meeting?.preparedParticipants ?? []).some(assignedRole) ||
+    Object.values(state.meeting?.participants ?? {}).some(assignedRole);
 }
 
 function updateNavigationVisibility() {
@@ -122,7 +184,8 @@ function updateNavigationVisibility() {
     conference: !interpreterRole,
     streams: !interpreterRole,
     voting: !interpreterRole && (state.votes.length > 0 || can("votes.manage")),
-    translation: interpreterRole || Boolean(state.translateStatus?.licensed && (state.translateMeeting?.channels?.length || can("conference.participants"))),
+    translation: interpreterRole || Boolean(state.translateStatus?.licensed && hasConferenceInterpreter()),
+    roomcontrol: can("control.room.operate") && Boolean(state.roomControl),
     content: state.documents.length > 0 || state.presentations.length > 0 ||
       canUploadFiles() || can("documents.upload") || can("presentations.control")
   };
@@ -130,11 +193,76 @@ function updateNavigationVisibility() {
     $$(`.nav-item[data-tab="${tab}"]`).forEach((button) => { button.hidden = !shown; });
     if (!shown && state.activeTab === tab) selectTab(interpreterRole ? "translation" : "conference").catch(() => {});
   }
-  $$(".nav-item[data-tab='operations']").forEach((button) => { button.hidden = interpreterRole; });
+  const remoteParticipant = state.profile?.remote === true;
+  $$(".nav-item[data-tab='operations']").forEach((button) => { button.hidden = interpreterRole || remoteParticipant; });
   $$(".nav-item[data-tab='translation']").forEach((button) => {
     const label = button.querySelector("span:last-child");
     if (interpreterRole && label) label.textContent = button.closest("#mobileNav") ? "Пульт" : "Рабочее место";
   });
+}
+
+function roomControlHtml() {
+  const project = state.roomControl;
+  if (!project) return `${pageHead("Управление залом", "Для этого зала нет опубликованной панели")}`;
+  const pages = project.panel.pages ?? [{ id: "main", title: "Главная" }];
+  const selectedPage = pages.find((page) => page.id === state.roomControlPageId) ?? pages[0];
+  const controls = project.panel.controls.filter((item) => (item.pageId ?? "main") === selectedPage.id)
+    .map((item, index) => {
+    const value = project.state?.[item.stateKey];
+    const layout = item.layout ?? { x: 0, y: index, w: 6, h: 1 };
+    const columns = project.panel.grid?.columns ?? 12;
+    const rows = project.panel.grid?.rows ?? 64;
+    const border = validControlColor(item.borderColor) ? item.borderColor : "var(--vx-line,#d9d3cc)";
+    const radius = Number.isInteger(item.borderRadius) && item.borderRadius >= 0 && item.borderRadius <= 32
+      ? item.borderRadius : 8;
+    const geometry = [layout.x, layout.y, layout.w, layout.h].every(Number.isInteger) &&
+      layout.x >= 0 && layout.y >= 0 && layout.w > 0 && layout.h > 0 && layout.x + layout.w <= columns && layout.y + layout.h <= rows
+      ? ` style="grid-column:${layout.x + 1} / span ${layout.w};grid-row:${layout.y + 1} / span ${layout.h};z-index:${Number.isInteger(item.z) ? item.z : 0};--control-border:${border};--control-radius:${radius}px"` : "";
+    const selectedState = item.states?.find((entry) => entry.value === value ||
+      typeof value === "boolean" && typeof entry.value === "number" && entry.value === Number(value));
+    const iconSource = selectedState?.icon || item.icon;
+    const icon = /^data:image\/(png|webp);base64,[A-Za-z0-9+/]+=*$/.test(iconSource ?? "")
+      ? `<img class="room-control-icon" src="${escapeHtml(iconSource)}" alt="">` :
+      "";
+    const background = validControlColor(item.backgroundColor) ? ` style="background-color:${item.backgroundColor}"` : "";
+    if (item.type === "label") return `<div class="room-control-tile room-control-passive"${geometry}><div class="room-control-content"${background}>${escapeHtml(item.label)}</div></div>`;
+    if (item.type === "image") return `<div class="room-control-tile room-control-passive"${geometry}><div class="room-control-content"${background}>${icon || escapeHtml(item.label)}</div></div>`;
+    if (item.type === "viewer") return `<div class="room-control-tile room-control-viewer"${geometry}><video data-room-control-viewer="${escapeHtml(item.id)}" muted autoplay playsinline aria-label="${escapeHtml(item.label)}"></video><span>${escapeHtml(item.label)}</span></div>`;
+    if (item.type === "slider") return `<div class="room-control-tile"${geometry}><label class="room-control-slider">${icon}<span>${escapeHtml(item.label)}</span><input type="range" min="${item.min}" max="${item.max}" value="${Number.isFinite(value) ? value : item.min}" data-room-control-slider="${escapeHtml(item.id)}"><output>${Number.isFinite(value) ? value : item.min}</output></label></div>`;
+    const detail = !selectedState && item.type === "multistate" ? "Состояние неизвестно" : "";
+    const color = validControlColor(selectedState?.color)
+      ? ` style="background-color:${selectedState.color};color:${controlColorInk(selectedState.color)}"` : "";
+    return `<div class="room-control-tile"${geometry}><button type="button" data-room-control-button="${escapeHtml(item.id)}" data-hit="${escapeHtml(item.hit ?? "bounding-box")}" aria-pressed="${Boolean(value)}"${color}>${icon}<span>${escapeHtml(selectedState?.label ?? item.label)}</span>${detail ? `<small>${escapeHtml(detail)}</small>` : ""}</button></div>`;
+  }).join("");
+  return `${pageHead("Управление залом", `${escapeHtml(project.panel.title)} · версия ${project.version}`)}<article class="panel panel-pad"><h4 class="panel-title">${escapeHtml(selectedPage.title)}</h4><div class="room-control-actions is-layout" style="--control-columns:${project.panel.grid?.columns ?? 12}">${controls}</div><p class="room-control-feedback" role="status" aria-live="polite"></p></article>`;
+}
+
+let controlViewerRefreshTimer = null;
+async function mountRoomControlViewers() {
+  clearInterval(controlViewerRefreshTimer);
+  const refresh = async () => {
+    if (state.activeTab !== "roomcontrol" || !state.profile?.meetingId) return;
+    for (const video of document.querySelectorAll("[data-room-control-viewer]")) {
+      try {
+        const meetingId = encodeURIComponent(state.profile.meetingId);
+        const controlId = encodeURIComponent(video.dataset.roomControlViewer);
+        const stream = await state.api.post(`/control-core/meetings/${meetingId}/viewers/${controlId}`, {});
+        if (!video.isConnected || video.dataset.playlist === stream.playlistUrl) continue;
+        video.dataset.playlist = stream.playlistUrl;
+        if (globalThis.Hls?.isSupported()) {
+          const hls = new globalThis.Hls({ enableWorker: true, lowLatencyMode: true });
+          hls.loadSource(stream.playlistUrl);
+          hls.attachMedia(video);
+          video._controlHls = hls;
+        } else if (video.canPlayType("application/vnd.apple.mpegurl")) video.src = stream.playlistUrl;
+      } catch (error) {
+        const feedback = document.querySelector(".room-control-feedback");
+        if (feedback) feedback.textContent = `Видео: ${error.message}`;
+      }
+    }
+  };
+  await refresh();
+  controlViewerRefreshTimer = setInterval(refresh, 20_000);
 }
 
 function translationHtml() {
@@ -156,7 +284,7 @@ function translationHtml() {
   const microphoneReady = Boolean(state.localMedia?.getAudioTracks().some((track) => track.readyState === "live") &&
     state.publishedStream?.capabilities?.audio);
   const forward = assignment?.activeDirection !== "reverse";
-  const inputName = channelName(assignment?.sourceChannelId);
+  const inputName = channelName(forward ? assignment?.sourceChannelId : assignment?.channelId);
   const outputName = forward ? channelName(assignment?.channelId) : languageName(assignment?.sourceLanguageCode);
   const interpreterPanels = interpreterRole ? {
     program: `<article class="panel translation-program-panel"><h4 class="panel-title">Трансляция зала</h4><div id="programStage" class="preview-stage translation-program-stage"><div class="preview-empty">Ожидание изображения из зала.</div></div></article>`,
@@ -167,7 +295,8 @@ function translationHtml() {
       <div class="translation-microphone-status" role="status"><span>${microphoneReady ? "Микрофон устройства подключён" : "Микрофон устройства не подключён"}</span>${microphoneReady ? "" : `<button class="button button-secondary" data-action="translate-enable-microphone">Подключить микрофон</button>`}</div>
       <label class="translation-volume translation-monitor-volume">Громкость входящего звука <input type="range" min="0" max="100" value="${Math.round(state.translationVolume * 100)}" data-translation-volume><output>${Math.round(state.translationVolume * 100)}%</output></label>
       ${assignment.direction === "both" ? `<div class="translation-direction" role="group" aria-label="Направление перевода"><button class="button ${forward ? "button-primary" : "button-secondary"}" data-action="translate-direction" data-direction="forward" aria-pressed="${forward}" ${assignment.status === "on-air" ? "disabled" : ""}>${escapeHtml(languageName(assignment.sourceLanguageCode))} → ${escapeHtml(languageName(assignment.targetLanguageCode))}</button><button class="button ${!forward ? "button-primary" : "button-secondary"}" data-action="translate-direction" data-direction="reverse" aria-pressed="${!forward}" ${assignment.status === "on-air" ? "disabled" : ""}>${escapeHtml(languageName(assignment.targetLanguageCode))} → ${escapeHtml(languageName(assignment.sourceLanguageCode))}</button></div><small>Направление меняется только после выхода из эфира.</small>` : ""}
-      <div class="translation-console"><button class="button ${assignment.status === "on-air" ? "button-danger" : "button-primary"}" data-action="translate-state" data-on-air="${assignment.status !== "on-air"}" aria-pressed="${assignment.status === "on-air"}">${assignment.status === "on-air" ? "Завершить перевод" : "Выйти в эфир"}</button><button class="button ${assignment.cough ? "button-danger" : "button-secondary"}" data-action="translate-cough" data-cough="${!assignment.cough}" aria-pressed="${assignment.cough}">${assignment.cough ? "Включить микрофон" : "Заглушить микрофон"}</button>${state.translateStatus?.capabilities?.includes("talkback") && state.translateStatus?.settings?.talkbackEnabled ? `<button class="button ${assignment.talkback ? "button-primary" : "button-secondary"}" data-action="translate-talkback" data-talkback="${!assignment.talkback}" aria-pressed="${assignment.talkback}">Служебная связь</button>` : ""}</div></article>`
+      <div class="translation-console"><button class="button ${assignment.status === "on-air" ? "button-danger" : "button-primary"}" data-action="translate-state" data-on-air="${assignment.status !== "on-air"}" aria-pressed="${assignment.status === "on-air"}">${assignment.status === "on-air" ? "Завершить перевод" : "Выйти в эфир"}</button><button class="button ${assignment.cough ? "button-danger" : "button-secondary"}" data-action="translate-cough" data-cough="${!assignment.cough}" aria-pressed="${assignment.cough}">${assignment.cough ? "Включить микрофон" : "Заглушить микрофон"}</button>${state.translateStatus?.capabilities?.includes("talkback") && state.translateStatus?.settings?.talkbackEnabled ? `<button class="button ${assignment.talkback ? "button-primary" : "button-secondary"}" data-action="translate-talkback" data-talkback="${!assignment.talkback}" aria-pressed="${assignment.talkback}">Служебная связь</button>` : ""}</div>
+      ${translationMonitorHtml(forward ? assignment.sourceChannelId : assignment.channelId, inputName)}</article>`
       : `<article class="panel panel-pad translation-workplace-side"><h4 class="panel-title">Управление переводом</h4><p class="empty">Ожидание назначения языковой пары и входного канала оператором.</p></article>`
   } : null;
   let interpreter = "";
@@ -178,17 +307,15 @@ function translationHtml() {
     const fits = Array.isArray(current?.order) && current.order.includes("translation") && current.order.every((id) => allowed.includes(id));
     if (!fits) state.secretaryLayout = structuredClone(fallback);
     const layout = fits ? current : state.secretaryLayout;
-    const addable = state.secretaryLayoutDraft ? workspaceAddablePanels(layout) : [];
-    const addBar = state.secretaryLayoutDraft ? `<div class="workspace-add-bar"><span>Добавить блок</span>${addable.map((id) => `<button type="button" class="button button-secondary" data-action="layout-add" data-panel-id="${id}">+ ${WORKSPACE_PANEL_LABELS[id]}</button>`).join("") || "<small>Все блоки уже на экране</small>"}</div>` : "";
     interpreter = `<section class="translation-workplace"><div class="status-row"><h3 class="panel-title">Рабочее место переводчика</h3><span class="chip ${assignment?.status === "on-air" && !assignment.cough && !assignment.talkback ? "translation-live" : ""}" role="status">${assignment?.talkback ? "Служебная связь" : assignment?.cough ? "Микрофон заглушен" : assignment?.status === "on-air" ? "● В эфире" : assignment ? "Готов" : "Ожидание назначения"}</span></div>
       ${agendaTitle ? `<p class="translation-agenda"><span>Текущая тема</span><strong>${escapeHtml(agendaTitle)}</strong></p>` : ""}
-      <div class="workspace-area">${addBar}<div class="secretary-layout-grid workspace-grid translation-workplace-grid${state.secretaryLayoutDraft ? " is-editing" : ""}" style="grid-auto-rows:${WORKSPACE_ROW}px;column-gap:${WORKSPACE_GAP}px">${layout.order.map((id) => secretaryLayoutPanel(id, interpreterPanels[id])).join("")}</div></div></section>`;
+      <div class="workspace-area"><div class="secretary-layout-grid workspace-grid translation-workplace-grid${state.secretaryLayoutDraft ? " is-editing" : ""}" style="grid-auto-rows:${WORKSPACE_ROW}px;column-gap:${WORKSPACE_GAP}px">${layout.order.map((id) => secretaryLayoutPanel(id, interpreterPanels[id])).join("")}</div></div></section>`;
   }
   const operator = !interpreterRole && can("conference.participants") ? `<article class="panel panel-pad"><div class="status-row"><h4 class="panel-title">Назначения переводчиков</h4><button class="button button-secondary" data-action="translate-configure">Языки конференции</button></div>${Object.values(state.meeting.participants ?? {}).filter((item) => item.state === "joined" && ["interpreter", "translator"].includes(item.role)).map((item) => {
     const current = translation.assignments?.[item.id];
     return `<div class="translation-assignment" data-translation-participant="${escapeHtml(item.id)}"><strong>${escapeHtml(item.displayName)}</strong><label>Язык входа<select data-translation-source-language>${[state.meeting.protocolLanguage ?? "ru", ...channels.map((channel) => channel.languageCode)].filter((code, index, all) => all.indexOf(code) === index).map((code) => `<option value="${escapeHtml(code)}" ${current?.sourceLanguageCode === code ? "selected" : ""}>${escapeHtml(languageName(code))}</option>`).join("")}</select></label><label>Язык выхода<select data-translation-channel><option value="">Выберите язык</option>${channels.map((channel) => `<option value="${escapeHtml(channel.id)}" ${current?.channelId === channel.id ? "selected" : ""}>${escapeHtml(channel.name)}</option>`).join("")}</select></label><label>Источник звука<select data-translation-source><option value="floor">Оригинал</option>${state.translateStatus?.capabilities?.includes("relay") ? channels.map((channel) => `<option value="${escapeHtml(channel.id)}" ${current?.sourceChannelId === channel.id ? "selected" : ""}>Перевод с канала: ${escapeHtml(channel.name)}</option>`).join("") : ""}</select></label><label>Направление<select data-translation-direction><option value="forward">В одну сторону</option><option value="both" ${current?.direction === "both" ? "selected" : ""}>В обе стороны</option></select></label><label>Режим<select data-translation-priority><option value="primary" ${current?.priority !== "backup" ? "selected" : ""}>Основной</option><option value="backup" ${current?.priority === "backup" ? "selected" : ""}>Резервный</option></select></label><button class="button button-secondary" data-action="translate-assign" data-participant-id="${escapeHtml(item.id)}">Назначить</button></div>`;
   }).join("") || `<p class="empty">Подключённых переводчиков нет. Назначьте участнику роль «Переводчик».</p>`}</article>` : "";
-  return `${pageHead(interpreterRole ? "Рабочее место переводчика" : "Синхроперевод", interpreterRole ? "Звук выступающих и управление языковым каналом" : `TranslateCore ${state.translateStatus?.tier === "pro" ? "Pro" : "Basic"}`)}${interpreterRole ? "" : translationListenHtml()}${interpreter}${operator}`;
+  return `${cameraSetupNoticeHtml()}${pageHead(interpreterRole ? "Рабочее место переводчика" : "Синхроперевод", interpreterRole ? "Звук выступающих и языковой канал" : "Каналы перевода")}${interpreterRole ? "" : translationListenHtml()}${interpreter}${operator}`;
 }
 
 // "Язык прослушивания" card: on the Translation tab and as a block of the conference workspace.
@@ -196,9 +323,19 @@ function translationListenHtml(extraClass = "") {
   const translation = state.translateMeeting ?? { channels: [], selections: {} };
   const channels = translation.channels ?? [];
   const selected = translation.selections?.[state.participantId]?.channelId ?? "floor";
+  const selectedChannel = channels.find((item) => item.id === selected);
   const languageButtons = [{ id: "floor", name: "Оригинал" }, ...channels].map((item) =>
-    `<button class="button ${selected === item.id ? "button-primary" : "button-secondary"}" data-action="translate-select" data-channel-id="${escapeHtml(item.id)}" aria-pressed="${selected === item.id}">${escapeHtml(item.name)}${item.activeInterpreterId ? " · В ЭФИРЕ" : item.id === "floor" ? "" : " · оригинал при тишине"}</button>`).join("");
-  return `<article class="panel panel-pad ${extraClass}"><h4 class="panel-title">Язык прослушивания</h4><p>Если переводчик не в эфире, на выбранном канале звучит оригинал.</p><div class="action-strip">${languageButtons}</div><label class="translation-volume">Громкость канала <input type="range" min="0" max="100" value="${Math.round(state.translationVolume * 100)}" data-translation-volume><output>${Math.round(state.translationVolume * 100)}%</output></label></article>`;
+    `<button class="button ${selected === item.id ? "button-primary" : "button-secondary"} translation-channel-choice" data-action="translate-select" data-channel-id="${escapeHtml(item.id)}" aria-pressed="${selected === item.id}" title="${escapeHtml(item.name)}"><span>${escapeHtml(item.name)}</span><span class="translation-channel-status" data-translation-signal="${item.id === "floor" ? "program" : `language:${escapeHtml(item.id)}`}" data-signal-state="unknown"><span data-translation-status>Нет данных</span></span></button>`).join("");
+  return `<article class="panel panel-pad translation-listen ${extraClass}"><h4 class="panel-title">Язык прослушивания</h4>${translationMonitorHtml(selectedChannel?.id ?? "floor", selectedChannel?.name ?? "Оригинал")}<p class="translation-listen-note">Если переводчик не в эфире, звучит оригинал</p><div class="translation-channel-choices" role="group" aria-label="Язык прослушивания">${languageButtons}</div><label class="translation-volume">Громкость канала <input type="range" min="0" max="100" value="${Math.round(state.translationVolume * 100)}" data-translation-volume><output>${Math.round(state.translationVolume * 100)}%</output></label></article>`;
+}
+
+function translationMonitorHtml(channelId, channelName) {
+  const rows = channelId === "floor" ? [{ id: "floor", name: "Оригинал", kind: "Сейчас звучит" }]
+    : [{ id: channelId, name: channelName, kind: "Выбранный канал" }, { id: "floor", name: "Оригинал", kind: "Исходный звук" }];
+  return `<div class="translation-monitors" aria-label="Уровни звука">${rows.map((row) => {
+    const meterId = row.id === "floor" ? "program" : `language:${row.id}`;
+    return `<div class="translation-meter-row" data-translation-signal="${escapeHtml(meterId)}" data-signal-state="unknown"><div class="translation-meter-heading"><div><small>${row.kind}</small><strong>${escapeHtml(row.name)}</strong></div><span class="translation-signal-state" data-translation-status>Нет данных</span></div><div class="translation-meter-measure"><meter min="-60" max="0" value="-60" data-translation-peak aria-label="Пиковый уровень: ${escapeHtml(row.name)}"></meter><output data-translation-db>−∞ dBFS</output></div></div>`;
+  }).join("")}</div>`;
 }
 
 function unreadChatCount() {
@@ -233,12 +370,26 @@ function advancedBallot(vote) {
   if (vote.ballotType === "single") return "";
   const name = `ballot-${vote.id}`;
   const fields = vote.options.map((option, index) => {
-    if (vote.ballotType === "cumulative") return `<label class="option-row"><span>${escapeHtml(option.label)}</span><input type="number" min="0" max="${vote.ballotConfig?.points ?? 10}" value="0" data-ballot-allocation="${escapeHtml(option.id)}"></label>`;
-    if (vote.ballotType === "ranked") return `<label class="option-row"><span>${escapeHtml(option.label)}</span><input type="number" min="0" max="${vote.options.length}" value="${index + 1}" data-ballot-rank="${escapeHtml(option.id)}"></label>`;
+    if (vote.ballotType === "cumulative") return `<label class="option-row"><span>${escapeHtml(option.label)}</span><input type="number" min="0" max="${vote.ballotConfig?.points ?? 10}" value="0" data-ballot-allocation="${escapeHtml(option.id)}" aria-label="Баллы: ${escapeHtml(option.label)}"></label>`;
+    if (vote.ballotType === "ranked") return `<label class="option-row"><span>${escapeHtml(option.label)}</span><input type="number" min="0" max="${vote.options.length}" value="${index + 1}" data-ballot-rank="${escapeHtml(option.id)}" aria-label="Место в рейтинге: ${escapeHtml(option.label)}"></label>`;
     const attribute = vote.ballotType === "veto" ? "data-ballot-veto" : "data-ballot-approval";
     return `<label class="option-row"><span>${escapeHtml(option.label)}</span><input type="checkbox" ${attribute}="${escapeHtml(option.id)}"></label>`;
   }).join("");
-  return `<div class="advanced-ballot" data-ballot-vote="${escapeHtml(vote.id)}" aria-label="Бюллетень">${fields}<button class="button button-primary" data-action="cast-advanced-vote" data-vote-id="${escapeHtml(vote.id)}">Отправить бюллетень</button></div>`;
+  return `<div class="advanced-ballot" data-ballot-vote="${escapeHtml(vote.id)}" role="group" aria-label="Бюллетень"><p class="advanced-ballot-hint">${vote.ballotType === "ranked" ? "Укажите порядок предпочтения" : vote.ballotType === "cumulative" ? "Распределите баллы между вариантами" : "Отметьте подходящие варианты"}</p>${fields}<button class="button button-primary" data-action="cast-advanced-vote" data-vote-id="${escapeHtml(vote.id)}">Отправить бюллетень</button></div>`;
+}
+
+const VOTE_MODE_LABELS = { named: "Открытое", anonymous: "Тайное", secret: "Тайное" };
+const VOTE_STATUS_LABELS = { draft: "Подготовка", open: "Идёт голосование", closed: "Завершено" };
+const VOTE_RULE_LABELS = { "standard-majority": "Обычное большинство" };
+function voteTimer(vote, remaining) {
+  return remaining === null ? "" : `<strong class="vote-timer" role="timer" data-vote-countdown="${escapeHtml(vote.closesAt)}" aria-label="Осталось времени"><small>ОСТАЛОСЬ</small><span>${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}</span></strong>`;
+}
+function updateVoteCountdowns() {
+  document.querySelectorAll("[data-vote-countdown]").forEach((timer) => {
+    const seconds = Math.max(0, Math.ceil((Date.parse(timer.dataset.voteCountdown) - Date.now()) / 1000));
+    const label = timer.querySelector("span");
+    if (label) label.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  });
 }
 
 function voteOutcomeLabel(vote) {
@@ -249,17 +400,18 @@ function voteOutcomeLabel(vote) {
 function conferenceVoteCard(vote, heading) {
   if (!vote) return "";
   const selectedOptionId = state.voteSelections.get(vote.id) ?? vote.namedBallots?.find((ballot) => ballot.participantId === state.participantId)?.optionId;
+  const pendingOptionId = state.voteCastPending?.get(vote.id);
   const remaining = vote.status === "open" && vote.closesAt ? Math.max(0, Math.ceil((Date.parse(vote.closesAt) - Date.now()) / 1000)) : null;
   const options = vote.options.map((option) => {
     const voters = vote.mode === "named" ? (vote.namedBallots ?? []).filter((ballot) => ballot.optionId === option.id).map((ballot) => ballot.displayName).join(", ") : "";
     const canChoose = vote.ballotType === "single" && vote.status === "open" && isEligibleForVote(vote) && !selectedOptionId && !vote.hasVoted;
     const selected = selectedOptionId === option.id;
     const semantic = { "за": "vote-for", "против": "vote-against", "воздержался": "vote-abstain" }[String(option.label).trim().toLocaleLowerCase("ru-RU")] ?? "vote-other";
-    return `<div class="option-row ${semantic} ${selected ? "selected" : ""}"><span>${escapeHtml(option.label)}${selected ? '<small class="selected-vote-label">✓ Ваш выбор принят</small>' : ""}${voters ? `<small class="voter-names">${escapeHtml(voters)}</small>` : ""}</span><strong>${vote.results?.[option.id] ?? 0}</strong>${canChoose ? `<button class="button vote-choice ${semantic}" aria-pressed="${selected}" data-action="cast-vote" data-vote-id="${vote.id}" data-option-id="${option.id}">Выбрать</button>` : ""}</div>`;
+    return `<div class="option-row ${semantic} ${selected ? "selected" : ""}"><span>${escapeHtml(option.label)}${selected ? '<small class="selected-vote-label">✓ Ваш выбор принят</small>' : ""}${voters ? `<small class="voter-names">${escapeHtml(voters)}</small>` : ""}</span><strong>${vote.results?.[option.id] ?? 0}</strong>${canChoose && (!pendingOptionId || pendingOptionId === option.id) ? `<button class="button vote-choice ${semantic}" aria-pressed="${selected}" data-action="cast-vote" data-vote-id="${vote.id}" data-option-id="${option.id}" ${pendingOptionId ? "disabled" : ""}>${pendingOptionId ? "Отправляем…" : "Выбрать"}</button>` : ""}</div>`;
   }).join("");
   const summary = vote.electorateSummary ?? {};
   const ballot = vote.status === "open" && isEligibleForVote(vote) && !vote.hasVoted ? advancedBallot(vote) : "";
-  return `<article class="vote-detail ${vote.status === "open" ? "active-vote" : "vote-result"}"><h4 class="panel-title">${heading}</h4><h3 class="vote-question">${escapeHtml(vote.topic ?? vote.question)}</h3><p>${escapeHtml(vote.question)}</p>${vote.status === "closed" ? `<p class="vote-outcome"><strong>Результат:</strong> ${escapeHtml(voteOutcomeLabel(vote))}</p>` : ""}<p>Приглашены: ${summary.invitedEligible ?? "—"} · Подключены: ${summary.connectedNow ?? summary.connectedAtOpen ?? "—"} · Проголосовали: ${summary.ballotsCast ?? vote.ballotsCast ?? 0} · Не проголосовали: ${summary.notVoted ?? "—"}${remaining !== null ? ` · осталось ${remaining} сек.` : ""}</p>${vote.hasVoted ? '<p class="selected-vote-label">Ваш голос принят</p>' : ""}${options}${ballot}</article>`;
+  return `<article class="vote-detail ${vote.status === "open" ? "active-vote" : "vote-result"}"><div class="vote-card-top"><h4 class="panel-title">${heading}</h4>${voteTimer(vote, remaining)}</div><h3 class="vote-question">${escapeHtml(vote.topic ?? vote.question)}</h3><p>${escapeHtml(vote.question)}</p>${vote.status === "closed" ? `<p class="vote-outcome"><strong>Результат:</strong> ${escapeHtml(voteOutcomeLabel(vote))}</p>` : ""}<p>Приглашены: ${summary.invitedEligible ?? "—"} · Подключены: ${summary.connectedNow ?? summary.connectedAtOpen ?? "—"} · Проголосовали: ${summary.ballotsCast ?? vote.ballotsCast ?? 0} · Не проголосовали: ${summary.notVoted ?? "—"}</p>${vote.hasVoted ? '<p class="selected-vote-label">Ваш голос принят</p>' : ""}${ballot || options}</article>`;
 }
 
 // Compact action buttons: icon + label; the label hides in narrow blocks (container queries in refresh.css),
@@ -305,13 +457,25 @@ function microphoneIcon(kind) {
   return `<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${mic}${extra}</svg>`;
 }
 
+function recordingToggleHtml(meetingPaused) {
+  if (!can("conference.recording")) return "";
+  const recording = Boolean(state.recordingStatus?.enabled);
+  return `<button type="button" class="button secretary-record-toggle ${recording ? "is-recording" : "is-off"}" data-action="secretary-toggle-recording" ${meetingPaused ? "disabled" : ""} aria-pressed="${recording}">${meetingPaused ? "Запись на паузе" : recording ? "● Запись идёт" : "● Включить запись"}</button>`;
+}
+
+function presentationDockHtml() {
+  const active = state.presentations.find((item) => item.status === "active");
+  if (!active || (!canViewFiles() && !canManageContent())) return "";
+  return `<span id="activePresentationBadge" class="document-viewer-badge-group"><button type="button" class="button button-secondary document-viewer-badge" data-action="open-presentation-document" data-document-id="${escapeHtml(active.documentId)}" data-presentation-id="${escapeHtml(active.id)}" title="Открыть показ" aria-label="Открыть показ: ${escapeHtml(active.title || "Документ")}"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M14 3v5h4M9 13h6m-6 4h6"/></svg><span><small>В показе</small><strong>${escapeHtml(active.title || "Документ")}</strong></span></button>${canManageContent() ? `<button type="button" class="button button-secondary document-viewer-stop" data-action="stop-presentation" data-presentation-id="${escapeHtml(active.id)}" title="Убрать из показа" aria-label="Убрать из показа: ${escapeHtml(active.title || "Документ")}"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 12h8"/></svg></button>` : ""}</span>`;
+}
+
 function renderMicrophoneDock() {
   const dock = $("#microphoneDock");
   const participant = state.meeting?.participants?.[state.participantId];
   if (!participant || participant.permissions?.canSpeak === false || ["observer", "auditor", "interpreter", "translator", "service", "signage"].includes(participant.role)) {
-    dock.hidden = true;
-    dock.innerHTML = "";
-    updateDocumentViewerBadge();
+    const extra = `${participant && can("conference.recording") ? recordingToggleHtml(Boolean(state.meeting?.pausedAt)) : ""}${presentationDockHtml()}`;
+    dock.hidden = !extra;
+    dock.innerHTML = extra;
     return;
   }
   dock.hidden = false;
@@ -326,21 +490,18 @@ function renderMicrophoneDock() {
       state.localMedia?.getAudioTracks().some((track) => track.readyState === "live" && track.enabled);
     const color = physical === "on" ? "mic-green mic-live" : physical === "requested" ? "mic-yellow mic-queued" : "mic-red mic-idle";
     dock.innerHTML = `<div class="mic-button ${color}" role="status" aria-live="polite">${microphoneIcon(physical === "on" ? "on" : "off")}<span><b>${label}</b><small>${capture ? "Микрофон планшета готов к записи" : "Микрофон планшета недоступен — персональная запись невозможна"}</small></span></div>`;
-    if (state.profile.role === "secretary") {
-      const recording = Boolean(state.recordingStatus?.enabled);
-      dock.insertAdjacentHTML("beforeend", `<button type="button" class="button secretary-record-toggle ${recording ? "is-recording" : "is-off"}" data-action="secretary-toggle-recording" ${meetingPaused ? "disabled" : ""}>${meetingPaused ? "Запись на паузе" : recording ? "● Запись идёт" : "● Включить запись"}</button>`);
-    }
-    updateDocumentViewerBadge();
+    dock.insertAdjacentHTML("beforeend", recordingToggleHtml(meetingPaused));
+    dock.insertAdjacentHTML("beforeend", presentationDockHtml());
     return;
   }
   if (participant.role === "chair") {
-    const active = state.meeting.chairPriority?.mode;
-    // Colour states what happens on press: black = turn on, red = on air (press to turn off).
-    const color = speaking ? "mic-green mic-live" : "mic-red mic-idle";
-    const selected = state.chairSelectedMode ?? "normal";
-    const modeLabel = { normal: "Включиться в конференцию", hard: "Выключить всех", soft: "Приглушить всех" }[selected];
-    dock.innerHTML = `<button type="button" class="mic-button ${color}" data-mic-action="chair-microphone" ${meetingPaused ? "disabled" : ""} aria-label="${speaking ? "Выключить микрофон" : `Включить микрофон: ${modeLabel}`}">${microphoneIcon(speaking ? "on" : "off")}<span><b>${speaking ? "Выключить микрофон" : "Включить микрофон"}</b><small>${meetingPaused ? "Конференция на паузе" : `Режим: ${modeLabel}${active ? " · активен" : ""}`}</small></span></button>${speaking ? '<span class="on-air-tag" role="status">● В эфире</span>' : ""}`;
-    updateDocumentViewerBadge();
+    const nextId = state.meeting.audioSettings?.discussionMode === "managed"
+      ? state.meeting.floorQueue.find((id) => state.meeting.participants?.[id]?.state === "joined") : null;
+    const next = nextId ? state.meeting.participants[nextId] : null;
+    const nextIcon = `<span class="chair-next-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15m-6-6 6 6-6 6"/></svg><svg class="chair-next-attention" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15m-6-6 6 6-6 6"/></svg></span>`;
+    dock.innerHTML = `<button type="button" class="mic-button chair-mic-button mic-neutral" data-mic-action="chair-priority" ${meetingPaused ? "disabled" : ""} aria-label="Приоритет: выключить микрофоны остальных участников, кроме председателей, и взять слово">${microphoneIcon("on")}<span><b>Приоритет</b><small>Отключить остальных</small></span></button><button type="button" class="mic-button chair-mic-button mic-green ${speaking ? "mic-live" : "mic-idle"}" data-mic-action="chair-take-floor" ${meetingPaused ? "disabled" : ""} aria-label="${speaking ? "Выключить свой микрофон" : "Взять слово без отключения остальных"}">${microphoneIcon(speaking ? "on" : "off")}<span><b>${speaking ? "Выключить микрофон" : "Взять слово"}</b><small>${speaking ? "Вы в эфире" : "Без отключения других"}</small></span></button><button type="button" class="mic-button chair-mic-button mic-neutral chair-next ${next ? "has-queue" : ""}" data-mic-action="chair-next" ${!next || meetingPaused ? "disabled" : ""} aria-label="${next ? `Дать слово следующему: ${escapeHtml(next.displayName)}` : "Нет запросов слова в очереди"}" title="${next ? escapeHtml(next.displayName) : "Очередь пуста"}">${nextIcon}<span><b>Следующий</b><small>${next ? `В очереди: ${state.meeting.floorQueue.length}` : "Очередь пуста"}</small></span></button>${speaking ? '<span class="on-air-tag" role="status">● В эфире</span>' : ""}`;
+    dock.insertAdjacentHTML("beforeend", recordingToggleHtml(meetingPaused));
+    dock.insertAdjacentHTML("beforeend", presentationDockHtml());
     return;
   }
   const color = speaking ? "mic-green mic-live" : queued ? "mic-yellow mic-queued" : "mic-red mic-idle";
@@ -349,11 +510,8 @@ function renderMicrophoneDock() {
   const blocked = meetingPaused || (state.meeting.chairPriority?.mode === "hard" && !speaking && !queued);
   const blockedReason = meetingPaused ? "Конференция на паузе" : "Председатель использует приоритет; запрос временно недоступен";
   dock.innerHTML = `<button type="button" class="mic-button ${color}" data-mic-action="delegate" aria-label="${blocked ? blockedReason : label}" title="${blocked ? blockedReason : label}" ${blocked ? "disabled" : ""}>${microphoneIcon(speaking ? "on" : queued ? "wait" : "off")}<span><b>${meetingPaused ? "Микрофон на паузе" : speaking ? "Завершить выступление" : queued ? "Отменить запрос" : "Попросить слово"}</b><small>${meetingPaused ? "Заседание на паузе" : speaking ? "Вас слышит зал" : queued ? `Вы в очереди: №${queuePlace}` : blocked ? "Приоритет председателя" : "Нажмите, чтобы выступить"}</small></span></button>${speaking ? '<span class="on-air-tag" role="status">● В эфире</span>' : ""}`;
-  if (state.profile.role === "secretary") {
-    const recording = Boolean(state.recordingStatus?.enabled);
-    dock.insertAdjacentHTML("beforeend", `<button type="button" class="button secretary-record-toggle ${recording ? "is-recording" : "is-off"}" data-action="secretary-toggle-recording" ${meetingPaused ? "disabled" : ""}>${meetingPaused ? "Запись на паузе" : recording ? "● Запись идёт" : "● Включить запись"}</button>`);
-  }
-  updateDocumentViewerBadge();
+  dock.insertAdjacentHTML("beforeend", recordingToggleHtml(meetingPaused));
+  dock.insertAdjacentHTML("beforeend", presentationDockHtml());
 }
 
 function renderFixedControls() {
@@ -370,6 +528,15 @@ function renderFixedControls() {
     permissionButton.hidden = !state.mediaPermissionPending;
     permissionButton.title = "Разрешить камеру и микрофон одним действием";
   }
+}
+
+function cameraSetupNoticeHtml() {
+  if (state.cameraSetupDismissed || (hasLocalVideo() && state.publishedStream)) return "";
+  return `<aside class="camera-setup-notice" aria-label="Подключение камеры">
+    <div><strong>Камера не подключена</strong><span>Выберите камеру и разрешите доступ для этого сайта</span></div>
+    <a class="button button-secondary" href="#camera-setup" data-action="open-camera-setup">Настроить камеру</a>
+    <button class="camera-setup-dismiss" type="button" data-action="dismiss-camera-setup" aria-label="Скрыть напоминание о камере" title="Скрыть">×</button>
+  </aside>`;
 }
 
 function can(capability) {
@@ -394,7 +561,7 @@ function pgmModeHtml() {
       <label class="inline-check"><input id="pgmAgendaUseSlate" type="checkbox" ${chosen.agendaUseSlate ? "checked" : ""}> Использовать выбранную заставку как фон для голосования, времени и темы</label>
       <button class="button button-secondary" data-action="save-pgm-mode">Применить</button>
       ${pgm.override ? `<button class="button button-quiet" data-action="reset-pgm-mode">Вернуть режим администратора</button>` : ""}
-    </div><div class="slate-library"><div class="status-row"><div><b>Библиотека заставок</b><br><small>PNG/JPEG 16:9 · выбранная заставка используется в режиме «Заставка» и может служить фоном часов.</small></div><label class="button button-quiet slate-upload">＋ Загрузить<input id="operatorSlateUpload" type="file" accept="image/png,image/jpeg" hidden></label></div><div class="slate-grid">${slates || `<div class="empty">Заставки ещё не загружены.</div>`}</div></div></article>`;
+    </div><div class="slate-library"><div class="status-row"><div class="slate-library-copy"><b>Библиотека заставок</b><small>PNG/JPEG · 16:9 · фон заставки и часов</small></div><label class="button button-quiet slate-upload">＋ Загрузить<input id="operatorSlateUpload" type="file" accept="image/png,image/jpeg" hidden></label></div><div class="slate-grid">${slates || `<div class="empty">Заставки ещё не загружены.</div>`}</div></div></article>`;
 }
 
 async function hydrateSlatePreviews() {
@@ -538,10 +705,10 @@ async function clearSecretaryEditor() {
 const WORKSPACE_BASE_PANELS = ["program", "speakers", "queue", "materials", "vote"];
 const WORKSPACE_PANEL_SIZES = { program: { width: 7, height: 400 }, speakers: { width: 5, height: 140 },
   queue: { width: 5, height: 250 }, materials: { width: 5, height: 190 }, vote: { width: 5, height: 190 },
-  modes: { width: 7, height: 90 }, metrics: { width: 7, height: 100 },
+  metrics: { width: 7, height: 100 },
   service: { width: 4, height: 170 }, translation: { width: 4, height: 190 } };
-const WORKSPACE_PANEL_LABELS = { program: "Трансляция зала", speakers: "Сейчас выступают", queue: "Очередь запросов",
-  materials: "Материалы к пункту", vote: "Голосование", modes: "Режимы микрофона", metrics: "Показатели",
+const WORKSPACE_PANEL_LABELS = { program: "Трансляция зала", speakers: "Выступают", queue: "Очередь",
+  materials: "Материалы к пункту", vote: "Голосование", metrics: "Показатели",
   service: "Сервис", translation: "Перевод" };
 const WORKSPACE_PERSONAL_ROLES = ["operator", "av_operator", "technician", "admin"];
 // Blocks pack on 2 px rows with a 6 px gap between them.
@@ -554,16 +721,19 @@ function workspaceAllowedPanels(role = state.profile?.role) {
   return [...workspacePanelIds(role), ...(["observer", "auditor"].includes(role) ? [] : ["service"]), "translation"];
 }
 function workspaceAddablePanels(layout) {
-  return workspaceAllowedPanels().filter((id) => !layout.order.includes(id) && (id !== "translation" || state.translateStatus?.licensed));
+  return workspaceAllowedPanels().filter((id) => !layout.order.includes(id) &&
+    (id !== "translation" || ["interpreter", "translator"].includes(state.profile?.role) ||
+      (state.translateStatus?.licensed && hasConferenceInterpreter())));
 }
 
-// The Program tile takes its real width: header strip + exact 16:9 picture, measured after each render.
+// The Program tile follows its column width; its height rounds to 10 px.
 function fitProgramTiles() {
   for (const wrap of document.querySelectorAll('.workspace-grid > [data-layout-panel="program"]')) {
     const panel = wrap.querySelector(".conference-program-panel");
     if (!panel) continue;
-    const head = panel.querySelector(".program-panel-head")?.offsetHeight ?? 40;
-    const height = Math.ceil(head + panel.clientWidth * 9 / 16 + panel.offsetHeight - panel.clientHeight);
+    const head = panel.querySelector(".program-panel-head")?.offsetHeight ?? 0;
+    const height = Math.max(10, Math.round((head + panel.clientWidth * 9 / 16 +
+      panel.offsetHeight - panel.clientHeight) / 10) * 10);
     if (wrap.style.getPropertyValue("--layout-height") === `${height}px`) continue;
     wrap.style.setProperty("--layout-height", `${height}px`);
     wrap.style.gridRow = `span ${Math.ceil((height + WORKSPACE_GAP) / WORKSPACE_ROW)}`;
@@ -579,7 +749,7 @@ function watchProgramTiles() {
 
 function workspacePanelIds(role = state.profile?.role) {
   if (["interpreter", "translator"].includes(role)) return ["program", "translation", "speakers"];
-  if (role === "chair") return ["program", "speakers", "queue", "modes", "materials", "vote"];
+  if (role === "chair") return ["program", "speakers", "queue", "materials", "vote"];
   if (WORKSPACE_PERSONAL_ROLES.includes(role)) return [...WORKSPACE_BASE_PANELS, "metrics"];
   return [...WORKSPACE_BASE_PANELS];
 }
@@ -606,13 +776,13 @@ function roleWorkspaceLayout() {
   return structuredClone(state.workspaceRoleLayout ?? workspaceLayoutDefault());
 }
 
-// Height of a Program tile spanning `span` of 12 columns: header strip + exact 16:9 picture.
+// Height of a Program tile spanning `span` of 12 columns, rounded to 10 px.
 function programTileHeight(span) {
   const content = $("#pageContent");
   const style = content ? getComputedStyle(content) : null;
   const width = (content?.clientWidth ?? window.innerWidth) - (style ? parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) : 40);
   const column = (width - 11 * WORKSPACE_GAP) / 12;
-  return Math.round((span * column + (span - 1) * WORKSPACE_GAP) * 9 / 16 + 42);
+  return Math.round((span * column + (span - 1) * WORKSPACE_GAP) * 9 / 16 / 10) * 10;
 }
 
 // Width/height locks: the administrator's role locks bind participants; anyone may add their own.
@@ -642,7 +812,7 @@ function handleWorkspaceUiAction(action, target) {
     if (!draft || !workspaceAllowedPanels().includes(id)) return true;
     if (action === "layout-add" && !draft.order.includes(id)) {
       draft.order.push(id);
-      draft.panels[id] ??= { ...workspaceLayoutDefault().panels[id] };
+      draft.panels[id] ??= { ...(WORKSPACE_PANEL_SIZES[id] ?? workspaceLayoutDefault().panels[id]) };
     } else if (action === "layout-remove" && draft.order.length > 1 && !(id === "translation" && ["interpreter", "translator"].includes(state.profile.role))) {
       draft.order.splice(draft.order.indexOf(id), 1);
       delete draft.panels[id];
@@ -669,19 +839,20 @@ function applyWorkspaceLayout(saved, role) {
   state.secretaryLayout = structuredClone(saved.personal ?? saved.roleLayout ?? workspaceLayoutDefault(role));
   state.secretaryLayoutDraft = null;
   state.workspaceLayoutRole = role;
+  state.workspaceLayoutDevice = saved.device ?? "pc";
 }
 
 function secretaryLayoutPanel(id, content) {
   const layout = state.secretaryLayoutDraft ?? state.secretaryLayout;
-  const own = layout.panels[id] ?? workspaceLayoutDefault().panels[id] ?? { ...WORKSPACE_PANEL_SIZES[id] };
+  const own = layout.panels[id] ?? workspaceLayoutDefault().panels[id] ?? WORKSPACE_PANEL_SIZES[id];
   // Sizes the administrator fixed for the role always win over a participant's own copy.
   const roleSize = state.workspaceRoleLayout?.panels?.[id];
-  const size = { ...own,
+  const size = { ...WORKSPACE_PANEL_SIZES[id], ...own,
     ...(roleLock(id, "width") ? { width: roleSize.width } : {}),
     ...(roleLock(id, "height") ? { height: roleSize.height } : {}) };
   const order = layout.order.indexOf(id);
   const editing = Boolean(state.secretaryLayoutDraft);
-  // Workspace grids pack blocks densely on 10 px rows; the Program tile height follows its width (16:9).
+  // Workspace grids pack blocks on 2 px rows; the Program tile height follows its width (16:9).
   const masonry = state.profile.role !== "secretary";
   const height = masonry && id === "program" ? programTileHeight(size.width) : size.height;
   const rows = masonry ? `;grid-row:span ${Math.ceil((height + WORKSPACE_GAP) / WORKSPACE_ROW)}` : "";
@@ -703,9 +874,12 @@ function moveSecretaryLayoutPanel(id, offset) {
   renderPage();
 }
 
-function handleSecretaryLayoutAction(action) {
+function handleSecretaryLayoutAction(action, target) {
   if (!canEditWorkspaceLayout() || !["conference", "translation"].includes(state.activeTab) || !state.secretaryLayoutDraft) return;
-  if (action === "secretary-layout-cancel") {
+  if (action === "layout-add") {
+    $("#workspaceAddMenu").open = false;
+    handleWorkspaceUiAction(action, target);
+  } else if (action === "secretary-layout-cancel") {
     state.secretaryLayoutDraft = null;
     renderPage();
   } else if (action === "secretary-layout-reset") {
@@ -713,7 +887,7 @@ function handleSecretaryLayoutAction(action) {
     renderPage();
   } else if (action === "secretary-layout-save" && state.profile?.role !== "secretary") {
     void (async () => {
-      const path = `/me/workspace-layout?meetingId=${encodeURIComponent(state.profile.meetingId)}`;
+      const path = `/me/workspace-layout?meetingId=${encodeURIComponent(state.profile.meetingId)}&device=${state.workspaceLayoutDevice ?? "pc"}`;
       const draft = state.secretaryLayoutDraft;
       const sameAsRole = JSON.stringify({ order: draft.order, panels: draft.panels })
         === JSON.stringify({ order: roleWorkspaceLayout().order, panels: roleWorkspaceLayout().panels });
@@ -761,11 +935,14 @@ function moveSecretaryLayoutGesture(event) {
   const dy = event.clientY - gesture.startY;
   if (gesture.mode === "resize") {
     const grid = gesture.panel.closest(".secretary-layout-grid");
-    const column = grid.getBoundingClientRect().width / 12;
+    const gap = parseFloat(getComputedStyle(grid).columnGap) || 0;
+    const column = (grid.getBoundingClientRect().width - 11 * gap) / 12 + gap;
     const current = state.secretaryLayoutDraft.panels[gesture.id];
     const width = panelLocked(current, gesture.id, "width") ? gesture.width : Math.max(3, Math.min(12, gesture.width + Math.round(dx / column)));
+    const verticalStep = state.profile?.role === "secretary" ? 8 : 10;
     const height = panelLocked(current, gesture.id, "height") ? gesture.height
-      : Math.max(state.profile?.role === "secretary" ? 160 : 80, Math.min(900, gesture.height + Math.round(dy / 8) * 8));
+      : Math.max(state.profile?.role === "secretary" ? 160 : 80,
+        Math.min(900, gesture.height + Math.round(dy / verticalStep) * verticalStep));
     gesture.panel.style.setProperty("--layout-span", width);
     gesture.panel.style.setProperty("--layout-height", `${height}px`);
     gesture.nextSize = { width, height };
@@ -873,17 +1050,11 @@ function conferenceHtml() {
   const voteFocus = focusVote ? `<section class="panel panel-pad conference-focus focus-vote" aria-label="Голосование">${conferenceVoteCard(openVote, "Идёт голосование — ваш голос")}</section>` : "";
   const voteStatus = focusVote ? "" : conferenceVoteStatusCard(openVote, closedVote);
   const activePresentation = state.presentations.find((item) => item.status === "active");
-  const presentationOffer = activePresentation ? `<article class="panel panel-pad material-offer"><h4 class="panel-title">Материал отправлен в показ</h4><h3>${escapeHtml(activePresentation.title)}</h3><div class="action-strip"><button class="button button-secondary" data-action="open-presentation-document" data-document-id="${activePresentation.documentId}" data-presentation-id="${activePresentation.id}">Открыть показ</button>${canManageContent() ? `<button class="button button-danger" data-action="stop-presentation" data-presentation-id="${activePresentation.id}">Убрать из показа</button>` : ""}</div></article>` : "";
-  const chairPriority = state.profile.role === "chair" ? `<div class="chair-priority-grid">${[
-    ["normal", "Включиться в конференцию", "Без отключения остальных"],
-    ["hard", "Выключить всех", "Очередь будет сброшена"],
-    ["soft", "Приглушить всех", "Очередь будет сохранена"]
-  ].map(([mode, label, hint]) => `<button type="button" class="chair-priority-card ${state.chairSelectedMode === mode ? "is-selected" : ""} ${state.meeting.chairPriority?.mode === mode ? "is-active" : ""}" data-mic-action="chair-mode" data-chair-mode="${mode}" aria-pressed="${state.chairSelectedMode === mode}"><span class="priority-icon">${microphoneIcon(mode === "normal" ? "off" : mode)}</span><span><b>${label}</b><small>${hint}${state.chairSelectedMode === mode ? " · нажмите ещё раз для включения" : ""}</small></span></button>`).join("")}</div>` : "";
-  const programSource = streamLabel(state.routing?.buses?.program?.sourceId);
-  const programPanel = `<article class="panel conference-program-panel"><div class="program-panel-head"><div><span class="on-air-dot"></span><b>Трансляция зала</b><small>PGM</small></div><span class="program-source-name">${escapeHtml(programSource)}</span></div><div id="programStage" class="preview-stage program-stage-large"><div class="preview-empty">В Program пока не назначен источник.</div></div></article>`;
+  const presentationOffer = activePresentation ? `<article class="panel panel-pad material-offer active-material-offer"><h4 class="panel-title">Материал отправлен в показ</h4><p class="active-material-name" title="${escapeHtml(activePresentation.title)}">${escapeHtml(activePresentation.title)}</p><div class="action-strip"><button class="button button-secondary" data-action="open-presentation-document" data-document-id="${activePresentation.documentId}" data-presentation-id="${activePresentation.id}">Открыть показ</button>${canManageContent() ? `<button class="button button-danger" data-action="stop-presentation" data-presentation-id="${activePresentation.id}">Убрать из показа</button>` : ""}</div></article>` : "";
+  const programPanel = `<article class="panel conference-program-panel"><div id="programStage" class="preview-stage program-stage-large"><div class="preview-empty">В Program пока не назначен источник.</div></div></article>`;
   const channelsPanel = `<article class="panel panel-pad secretary-open-channels"><h4 class="panel-title">Открытые каналы</h4><div class="secretary-speakers">${secretarySpeakersHtml()}</div></article>`;
-  const queuePanel = `<article class="panel panel-pad conference-queue-panel"><div class="section-title-row"><h4 class="panel-title">Очередь запросов</h4><span class="count-badge">${state.meeting.floorQueue.length}</span></div>${queue}</article>`;
-  const speakersPanel = `<article class="panel panel-pad conference-speakers-panel"><div class="section-title-row"><h4 class="panel-title">Сейчас выступают</h4><span class="live-badge">● В эфире ${state.meeting.activeSpeakerIds.length}</span></div>${activeSpeakers}${presenterSchedule}</article>`;
+  const queuePanel = `<article class="panel panel-pad conference-queue-panel"><div class="section-title-row"><h4 class="panel-title">Очередь</h4><span class="count-badge">${state.meeting.floorQueue.length}</span></div>${queue}${presenterSchedule}</article>`;
+  const speakersPanel = `<article class="panel panel-pad conference-speakers-panel"><div class="section-title-row"><h4 class="panel-title">Выступают</h4><span class="live-badge">● В эфире ${state.meeting.activeSpeakerIds.length}</span></div>${activeSpeakers}</article>`;
   const secretaryDashboard = state.profile.role !== "secretary" ? "" : `<div class="secretary-layout-grid">${secretaryLayoutPanel("program", programPanel)}${secretaryLayoutPanel("channels", channelsPanel)}${secretaryLayoutPanel("queue", queuePanel)}${secretaryLayoutPanel("speakers", speakersPanel)}${secretaryLayoutPanel("protocol", secretaryWorkspaceHtml())}</div><div class="secretary-extra-panels">${voteStatus}${presentationOffer}${materialOffer}</div>`;
   // Live floor state on the right; reference cards (materials, show, last vote) fill the space under the picture.
   const belowCards = `${presentationOffer}${materialOffer}${voteStatus}`;
@@ -899,9 +1070,9 @@ function conferenceHtml() {
       materials: presentationOffer || materialOffer ? `<div class="workspace-stack">${presentationOffer}${materialOffer}</div>`
         : emptyCard("Материалы к пункту", "К этому пункту материалов нет.", "material-offer"),
       vote: voteFocus || voteStatus || emptyCard("Голосование", "Голосований пока не было.", "conference-vote-status"),
-      modes: chairPriority, metrics,
+      metrics,
       service: serviceCardHtml("workspace-service"),
-      translation: !state.translateStatus?.licensed ? emptyCard("Перевод", "Синхроперевод не подключён.", "workspace-translation")
+      translation: !state.translateStatus?.licensed || !hasConferenceInterpreter() ? ""
         : (state.translateMeeting?.channels ?? []).length ? translationListenHtml("workspace-translation")
           : emptyCard("Перевод", "В этой конференции перевод не ведётся.", "workspace-translation") };
     // A layout made for another role (or none yet) falls back to this role's default blocks.
@@ -911,15 +1082,12 @@ function conferenceHtml() {
     if (!fits(state.secretaryLayout)) state.secretaryLayout = structuredClone(workspaceLayoutDefault());
     if (state.secretaryLayoutDraft && !fits(state.secretaryLayoutDraft)) state.secretaryLayoutDraft = structuredClone(state.secretaryLayout);
     const layout = state.secretaryLayoutDraft ?? state.secretaryLayout;
-    const addable = state.secretaryLayoutDraft ? workspaceAddablePanels(layout) : [];
-    const addBar = state.secretaryLayoutDraft ? `<div class="workspace-add-bar"><span>Добавить блок</span>${addable.map((id) =>
-      `<button type="button" class="button button-secondary" data-action="layout-add" data-panel-id="${id}">+ ${WORKSPACE_PANEL_LABELS[id]}</button>`).join("")
-      || "<small>Все доступные блоки уже на экране</small>"}</div>` : "";
-    workspaceDashboard = `<div class="workspace-area">${addBar}<div class="secretary-layout-grid workspace-grid${state.secretaryLayoutDraft ? " is-editing" : ""}" style="grid-auto-rows:${WORKSPACE_ROW}px;column-gap:${WORKSPACE_GAP}px">${layout.order.filter((id) => panels[id]).map((id) => secretaryLayoutPanel(id, panels[id])).join("")}</div></div>`;
+    workspaceDashboard = `<div class="workspace-area"><div class="secretary-layout-grid workspace-grid${state.secretaryLayoutDraft ? " is-editing" : ""}" style="grid-auto-rows:${WORKSPACE_ROW}px;column-gap:${WORKSPACE_GAP}px">${layout.order.filter((id) => panels[id]).map((id) => secretaryLayoutPanel(id, panels[id])).join("")}</div></div>`;
     watchProgramTiles();
   }
-  const standardDashboard = workspaceDashboard || `<div class="conference-dashboard ${focusVote ? "has-focus" : ""}"><div class="conference-main-column">${voteFocus}${programPanel}${chairPriority}${belowProgram}</div><div class="conference-side-stack">${speakersPanel}${queuePanel}</div></div>`;
+  const standardDashboard = workspaceDashboard || `<div class="conference-dashboard ${focusVote ? "has-focus" : ""}"><div class="conference-main-column">${voteFocus}${programPanel}${belowProgram}</div><div class="conference-side-stack">${speakersPanel}${queuePanel}</div></div>`;
   return `
+    ${cameraSetupNoticeHtml()}
     <header class="conference-agenda-bar"><span class="agenda-number">${activeAgendaIndex || "—"}</span><div><small>${state.meeting.pausedAt ? "КОНФЕРЕНЦИЯ НА ПАУЗЕ" : activeAgenda ? "ОБСУЖДАЕТСЯ СЕЙЧАС" : "ПОВЕСТКА"}</small><strong>${escapeHtml(activeAgenda?.title ?? "Текущий вопрос не выбран")}</strong></div><div class="conference-agenda-actions">${agendaAction}${pauseAction}${closeAction}</div></header>
     ${state.profile.role === "secretary" ? secretaryDashboard : standardDashboard}
     ${canViewMetrics && !workspaceDashboard ? `<div style="height:16px"></div><div class="grid grid-3">
@@ -1065,7 +1233,7 @@ function participantsAndSourcesHtml() {
   const systemGroup = systemStreamRows.length ? `<tr class="source-group-row"><td colspan="${columnCount}">Камеры и внешние источники</td></tr>${systemStreamRows.join("")}` : "";
   const rows = participantGroup + systemGroup || `<tr><td colspan="${columnCount}" class="empty">Участники и источники пока не зарегистрированы.</td></tr>`;
   const masterRow = showAudioControls ? `<tr class="mix-master"><td><span class="master-waveform">${actionIcon("waveform")}</span></td><td><strong>Mix-master</strong></td><td>PGM AudioCore</td><td>${streamStatusHtml("active")}</td><td><meter class="audio-meter" min="-60" max="0" low="-36" high="-12" optimum="-18" value="-60" data-audio-meter="__mix_master__"></meter></td><td><label class="participant-gain"><input type="range" min="0" max="200" step="1" value="${state.meeting.audioSettings?.masterGain ?? 100}" data-mix-master><output>${state.meeting.audioSettings?.masterGain ?? 100}%</output></label></td><td></td></tr>` : "";
-  return `<article class="panel panel-pad participant-media-console"><div class="participant-console-head"><div><h4 class="panel-title">Участники и источники</h4><p>${mayViewPersonalCameras ? "Персональные Preview и внешние источники доступны" : "Все участники показаны без чужих персональных Preview; своя камера доступна всегда"}</p></div></div><div class="source-wall-wrap"><table class="source-wall-table"><thead><tr><th>Превью</th><th>Участник / источник</th><th>Источник</th><th>Сеть</th><th>Микрофон / аудио</th>${showAudioControls ? "<th>Уровень</th>" : ""}<th>Действия</th></tr></thead><tbody>${rows}${masterRow}</tbody></table></div></article>`;
+  return `<article class="panel panel-pad participant-media-console"><div class="participant-console-head"><div><h4 class="panel-title">Участники и источники</h4><p>${mayViewPersonalCameras ? "Доступны персональные камеры и внешние источники" : "Чужие персональные камеры скрыты; своя доступна"}</p></div></div><div class="source-wall-wrap"><table class="source-wall-table"><thead><tr><th>Превью</th><th>Участник / источник</th><th>Источник</th><th>Сеть</th><th>Микрофон / аудио</th>${showAudioControls ? "<th>Уровень</th>" : ""}<th>Действия</th></tr></thead><tbody>${rows}${masterRow}</tbody></table></div></article>`;
 }
 
 function streamsHtml() {
@@ -1128,30 +1296,31 @@ function streamsHtml() {
       <div class="switcher-grid">
         <article class="studio-monitor bus-preview"><header><span>PREVIEW</span><strong>${escapeHtml(streamLabel(previewSource))}</strong></header><div id="studioPreviewStage" class="preview-stage studio-stage"><div class="preview-empty">Источник Preview не выбран</div></div></article>
         <article class="take-panel"><span class="auto-director-state ${autoDirectorEnabled ? "is-on" : "is-off"}">AUTO ${autoDirectorEnabled ? "ON" : "OFF"}</span><button class="take-button" data-action="take-program" ${manualDisabled} title="${manualTitle}">TAKE →</button><button class="button button-quiet" data-action="fade-program" ${manualDisabled} title="${manualTitle}">FADE 500 ms</button></article>
-        <article class="studio-monitor bus-program"><header><span>PROGRAM</span><strong>${escapeHtml(streamLabel(programSource))}</strong></header><div id="studioProgramStage" class="preview-stage studio-stage"><div class="preview-empty">PGM пока не сформирован</div></div></article>
+        <article class="studio-monitor bus-program" aria-label="PGM: ${escapeHtml(streamLabel(programSource))}"><div id="studioProgramStage" class="preview-stage studio-stage"><div class="preview-empty">PGM пока не сформирован</div></div></article>
       </div>
       ${autoDirectorStatus}
-      <p class="hint">Preview (PVW) — служебная шина оператора: зрители её не видят. TAKE или FADE переносит выбранный источник в PGM.</p>
       ${participantsAndSourcesHtml()}
       <div class="action-strip media-toolbar"><button class="button button-secondary" data-action="discover-onvif">Найти ONVIF-камеры</button><button class="button button-quiet" data-action="register-system-camera">Добавить RTSP/URL-поток</button><button class="button button-quiet" data-action="add-onvif-camera">Добавить ONVIF вручную</button><button class="button button-secondary" data-action="discover-ndi">Найти NDI</button></div>
       <div class="grid grid-2"><article><h4>Каталог камер</h4><div class="grid">${cameras}</div></article><article class="panel panel-pad ndi-output-panel"><h4 class="panel-title">NDI outputs</h4><div class="ndi-output-list">${ndiOutputs}</div></article></div>
       <div style="height:16px"></div><h4>Обнаруженные NDI-источники</h4><p class="hint">Обнаружение не подключает источник к конференции. Сначала сохраните его в каталог камер.</p><div class="grid grid-2">${ndiSources}</div>
     </section>` : "";
   return `
-    ${pageHead("Камеры и потоки", "Другие клиенты и системные источники")}
+    ${pageHead("Камеры и потоки", "Камеры и источники")}
     ${canOperateMedia() ? "" : participantsAndSourcesHtml()}
     ${can("pgm.operate") ? pgmModeHtml() : ""}
     ${advanced}`;
 }
 
 function localAvDevicesHtml() {
-  return `<article class="panel panel-pad media-device-panel settings-media-devices">
-      <div class="list-item-head"><div><h4 class="panel-title">Локальные устройства AV</h4><p>Выбор сохраняется для этого браузера.</p></div><button class="button button-quiet" data-action="refresh-media-devices">Обновить список</button></div>
+  const published = Boolean(hasLocalVideo() && state.publishedStream);
+  return `<article id="camera-setup" class="panel panel-pad media-device-panel settings-media-devices">
+      <div class="list-item-head"><div><h4 class="panel-title">Камера и звук</h4><p>Устройства сохраняются для этого браузера</p></div><button class="button button-quiet" data-action="refresh-media-devices">Обновить список</button></div>
       <div class="device-selector-grid">
         <label class="field"><span>Камера</span><select id="videoInputSelect" data-media-device="videoinput">${mediaDeviceOptions(state.mediaDevices.videoInputs, state.selectedVideoInputId, "Системная камера по умолчанию")}</select></label>
         <label class="field"><span>Микрофон</span><select id="audioInputSelect" data-media-device="audioinput">${mediaDeviceOptions(state.mediaDevices.audioInputs, state.selectedAudioInputId, "Системный микрофон по умолчанию")}</select></label>
         <label class="field"><span>Вывод аудио</span><select id="audioOutputSelect" data-media-device="audiooutput" ${state.mediaDevices.audioOutputs.length ? "" : "disabled"}>${mediaDeviceOptions(state.mediaDevices.audioOutputs, state.selectedAudioOutputId, "Системный выход по умолчанию")}</select></label>
       </div>
+      <div class="camera-setup-actions"><button class="button button-secondary" type="button" data-action="publish-local-camera" ${published ? "disabled" : ""}>${published ? "Камера подключена" : "Включить камеру"}</button><p>Если доступ заблокирован, разрешите камеру для этого сайта в настройках браузера</p></div>
       ${state.mediaDevices.audioOutputs.length ? "" : `<p class="device-hint">Выбор аудиовыхода требует Chrome/Edge и HTTPS; на неподдерживаемых устройствах используется системный выход.</p>`}
     </article>`;
 }
@@ -1282,7 +1451,13 @@ function mountMediaView(stageId, stream, media, { local = false, label = null, c
         if (current?.key !== key || current.node !== wrapper) { URL.revokeObjectURL(objectUrl); return; }
         current.imageObjectUrl = objectUrl; image.src = objectUrl;
       }).catch((error) => {
-        if (state.mediaViews.get(stageId)?.key === key) notify(`Preview: ${error.message}`, 2500);
+        if (state.mediaViews.get(stageId)?.node === wrapper) {
+          if (existing?.node?.isConnected) {
+            state.mediaViews.set(stageId, existing);
+            wrapper.remove();
+          }
+          notify(`Preview: ${error.message}`, 2500);
+        }
       });
     } else image.src = imageUrl;
   } else if (stream?.previewUrl && (stream.protocol === "hls" || stream.previewUrl.endsWith(".m3u8"))) {
@@ -1308,7 +1483,8 @@ function mountMediaView(stageId, stream, media, { local = false, label = null, c
   }
   setMediaCaptions(wrapper, label || stream?.label, captions, showCaption);
   state.mediaViews.set(stageId, { key, node: wrapper, hls, imageObjectUrl: null });
-  const isPersistentProgramStage = stageId === "programStage" || stageId === "studioProgramStage" || stageId === "studioPreviewStage";
+  const isPersistentProgramStage = stageId === "programStage" || stageId === "studioProgramStage" ||
+    stageId === "studioPreviewStage" || (stream?.syntheticKind === "document" && stageId.startsWith("source-thumb-"));
   if (isPersistentProgramStage && existing?.node?.isConnected) {
     // The transport is already make-before-break.  Keep the painted surface
     // make-before-break as well: Safari otherwise clears the stage while the
@@ -1346,7 +1522,9 @@ function mountMediaView(stageId, stream, media, { local = false, label = null, c
     } else {
       queueMicrotask(reveal);
     }
-    fallback = setTimeout(reveal, 1500);
+    // A still image is fetched with authenticated headers; never expose its
+    // empty replacement over the last good frame while that request is pending.
+    if (!(visual instanceof HTMLImageElement)) fallback = setTimeout(reveal, 1500);
     return;
   }
   existing?.hls?.destroy();
@@ -1608,6 +1786,7 @@ function votingHtml() {
   const items = state.votes.length ? state.votes.map((vote) => {
     const options = vote.options.map((option) => {
       const selectedOptionId = state.voteSelections.get(vote.id) ?? vote.namedBallots?.find((ballot) => ballot.participantId === state.participantId)?.optionId;
+      const pendingOptionId = state.voteCastPending?.get(vote.id);
       const selected = selectedOptionId === option.id;
       const namedVoters = vote.mode === "named" && vote.namedBallots
         ? vote.namedBallots.filter((ballot) => ballot.optionId === option.id).map((ballot) => ballot.displayName).join(", ")
@@ -1615,7 +1794,7 @@ function votingHtml() {
       const semantic = { "за": "vote-for", "против": "vote-against", "воздержался": "vote-abstain" }[String(option.label).trim().toLocaleLowerCase("ru-RU")] ?? "vote-other";
       return `<div class="option-row ${semantic} ${selected ? "selected" : ""}"><span>${escapeHtml(option.label)}${selected ? `<small class="selected-vote-label">✓ Ваш выбор принят</small>` : ""}${namedVoters ? `<small class="voter-names">${escapeHtml(namedVoters)}</small>` : ""}</span>${
       vote.status === "open" && isEligibleForVote(vote) && vote.ballotType === "single"
-        ? `<button class="button vote-choice ${semantic} ${selected ? "button-selected" : ""}" aria-pressed="${selected}" data-action="cast-vote" data-vote-id="${vote.id}" data-option-id="${option.id}" ${selectedOptionId || vote.hasVoted ? "disabled" : ""}>${selected ? "✓ Выбрано" : vote.hasVoted ? "Голос принят" : "Выбрать"}</button>`
+        ? `<button class="button vote-choice ${semantic} ${selected ? "button-selected" : ""}" aria-pressed="${selected}" data-action="cast-vote" data-vote-id="${vote.id}" data-option-id="${option.id}" ${selectedOptionId || vote.hasVoted || pendingOptionId ? "disabled" : ""}>${selected ? "✓ Выбрано" : vote.hasVoted ? "Голос принят" : pendingOptionId === option.id ? "Отправляем…" : "Выбрать"}</button>`
         : vote.results ? `<strong>${vote.results[option.id] || 0}</strong>` : ""
     }</div>`;
     }).join("");
@@ -1625,23 +1804,35 @@ function votingHtml() {
     }${vote.status === "open" ? `<button class="button button-danger" data-action="close-vote" data-vote-id="${vote.id}">Закрыть</button>` : ""}${vote.status === "closed" && vote.finalResult?.nextRoundAllowed ? `<button class="button button-secondary" data-action="next-vote-round" data-vote-id="${vote.id}">Следующий тур</button>` : ""}</div>` : "";
     const remaining = vote.status === "open" && vote.closesAt ? Math.max(0, Math.ceil((Date.parse(vote.closesAt) - Date.now()) / 1000)) : null;
     const summary = vote.electorateSummary ?? {};
-    return `<article class="panel list-item vote-card"><div class="list-item-head"><div><h3 class="vote-question">${escapeHtml(vote.topic ?? vote.question)}</h3><p>${escapeHtml(vote.question)}</p>${vote.status === "closed" ? `<p class="vote-outcome"><strong>Результат:</strong> ${escapeHtml(voteOutcomeLabel(vote))}</p>` : ""}<p>${escapeHtml(vote.mode)} · ${escapeHtml(vote.ruleSetId ?? "standard-majority")} · тур ${vote.round ?? 1} · приглашены ${summary.invitedEligible ?? "—"} · подключены ${summary.connectedNow ?? summary.connectedAtOpen ?? "—"} · проголосовали ${summary.ballotsCast ?? vote.ballotsCast ?? 0} · не проголосовали ${summary.notVoted ?? "—"}${remaining !== null ? ` · осталось ${remaining} сек.` : ""}</p></div><span class="chip">${escapeHtml(vote.status)}</span></div>${options}${ballot}${controls}</article>`;
+    const outcome = vote.outcome ?? vote.finalResult?.outcome;
+    const outcomeClass = outcome === "accepted" ? "is-accepted" : ["rejected", "vetoed"].includes(outcome) ? "is-rejected" : "is-undetermined";
+    return `<article class="panel list-item vote-card"><div class="list-item-head"><div><h3 class="vote-question">${escapeHtml(vote.topic ?? vote.question)}</h3><p>${escapeHtml(vote.question)}</p>${vote.status === "closed" ? `<p class="vote-outcome ${outcomeClass}"><strong>Результат:</strong> ${escapeHtml(voteOutcomeLabel(vote))}</p>` : ""}<p>${escapeHtml(VOTE_MODE_LABELS[vote.mode] ?? vote.mode)} · ${escapeHtml(VOTE_RULE_LABELS[vote.ruleSetId] ?? "Правило голосования")} · тур ${vote.round ?? 1} · приглашены ${summary.invitedEligible ?? "—"} · подключены ${summary.connectedNow ?? summary.connectedAtOpen ?? "—"} · проголосовали ${summary.ballotsCast ?? vote.ballotsCast ?? 0} · не проголосовали ${summary.notVoted ?? "—"}</p></div><div class="vote-card-status">${voteTimer(vote, remaining)}<span class="chip">${escapeHtml(VOTE_STATUS_LABELS[vote.status] ?? vote.status)}</span></div></div>${ballot || options}${controls}</article>`;
   }).join("") : `<article class="panel empty">Голосований нет.</article>`;
-  return `${pageHead("Голосование", "Самостоятельная подсистема с отдельными правами и данными", action)}<div class="grid">${items}</div>`;
+  return `${pageHead("Голосование", "Вопросы и результаты", action)}<div class="grid">${items}</div>`;
 }
 
 function canManageContent() {
   return can("presentations.control");
 }
 
+function documentFormatIcon(fileName) {
+  const extension = String(fileName ?? "").match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() ?? "file";
+  const format = /^(doc|docx|odt)$/.test(extension) ? "DOC" :
+    /^(xls|xlsx|ods)$/.test(extension) ? "XLS" :
+    /^(ppt|pptx|odp)$/.test(extension) ? "PPT" :
+    /^(jpg|jpeg|png|gif|webp|svg|tif|tiff)$/.test(extension) ? "IMG" :
+    extension === "pdf" ? "PDF" : "FILE";
+  return `<span class="document-format-icon document-format-${format.toLowerCase()}" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M5 2.5h9l5 5V21H5z"/><path d="M14 2.5V8h5"/></svg><span>${format}</span></span>`;
+}
+
 function contentHtml() {
   const accepted = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.png,.jpg,.jpeg,.gif,.webp,.svg,.tif,.tiff";
   const officialUpload = canUploadFiles() && can("documents.upload")
-    ? `<label class="button button-secondary">Прикрепить к повестке<input id="agendaDocumentUpload" class="file-input" type="file" accept="${accepted}"></label>` : "";
-  const personalUpload = canUploadFiles() ? `<label class="button button-quiet">Добавить в мои документы<input id="documentUpload" class="file-input" type="file" accept="${accepted}"></label>` : "";
+    ? `<label class="button button-secondary" title="Прикрепить файл к повестке">+ К повестке<input id="agendaDocumentUpload" class="file-input" type="file" accept="${accepted}"></label>` : "";
+  const personalUpload = canUploadFiles() ? `<label class="button button-quiet" title="Добавить файл в мои документы">+ Мой документ<input id="documentUpload" class="file-input" type="file" accept="${accepted}"></label>` : "";
   const archiveImport = can("conference.archive") && can("documents.upload")
-    ? '<button class="button button-secondary" data-action="import-archive-document">Из завершённой конференции</button>' : "";
-  const upload = `<div class="action-strip">${personalUpload}${officialUpload}${archiveImport}</div>`;
+    ? '<button class="button button-secondary" data-action="import-archive-document">Из архива</button>' : "";
+  const upload = `<div class="action-strip materials-upload-actions">${personalUpload}${officialUpload}${archiveImport}</div>`;
   const visibleDocuments = canViewFiles() ? state.documents :
     state.documents.filter((document) => document.uploadedBy === state.profile.userId);
   const ownerName = (document) => document.uploadedByName ??
@@ -1651,8 +1842,8 @@ function contentHtml() {
     (document.uploadedBy === state.profile.userId ? state.profile.displayName : "Владелец не указан");
   const documentRow = (document) => {
     const agenda = state.meeting.agenda?.find((item) => item.id === document.agendaItemId);
-    const mine = document.uploadedBy === state.profile.userId && !document.agendaItemId;
-    return `<div class="list-item"><div class="list-item-head"><div><h4>${escapeHtml(document.fileName)}</h4><p>Владелец: ${escapeHtml(ownerName(document))} · ${formatBytes(document.sizeBytes)} · ${escapeHtml(document.mediaType)}</p>${document.sourceMeetingId ? `<p>Копия из завершённой конференции ${escapeHtml(document.sourceMeetingId)}</p>` : ""}${document.agendaItemId ? `<p><strong>Из повестки:</strong> ${escapeHtml(agenda?.title ?? "Вопрос повестки")}</p>` : ""}</div><div class="action-strip"><button class="button button-quiet" data-action="download-document" data-document-id="${document.id}">Открыть</button>${canManageContent() ? `<button class="button button-secondary" data-action="create-presentation" data-document-id="${document.id}" data-file-name="${escapeHtml(document.fileName)}">В показ</button>` : ""}${mine ? `<button class="button button-danger" data-action="delete-own-document" data-document-id="${document.id}">Удалить</button>` : ""}</div></div></div>`;
+    const mine = document.uploadedBy === state.profile.userId;
+    return `<div id="materials-document-${escapeHtml(document.id)}" class="list-item document-list-row" data-material-document-id="${escapeHtml(document.id)}" tabindex="-1"><div class="list-item-head"><div class="document-row-main"><h4>${documentFormatIcon(document.fileName)}<span>${escapeHtml(document.fileName)}</span></h4><p>${escapeHtml(ownerName(document))} · ${formatBytes(document.sizeBytes)}</p>${document.sourceMeetingId ? `<p>Из завершённой конференции ${escapeHtml(document.sourceMeetingId)}</p>` : ""}${document.agendaItemId ? `<p><strong>Повестка:</strong> ${escapeHtml(agenda?.title ?? "Вопрос повестки")}</p>` : ""}</div><div class="action-strip"><button class="button button-quiet" data-action="download-document" data-document-id="${document.id}">Открыть</button>${canManageContent() ? `<button class="button button-secondary" data-action="create-presentation" data-document-id="${document.id}" data-file-name="${escapeHtml(document.fileName)}">В показ</button>` : ""}${mine ? `<button class="button button-danger" data-action="delete-own-document" data-document-id="${document.id}">Удалить</button>` : ""}</div></div></div>`;
   };
   const ownDocuments = visibleDocuments.filter((document) => document.uploadedBy === state.profile.userId);
   const sharedDocuments = visibleDocuments.filter((document) => document.uploadedBy !== state.profile.userId &&
@@ -1665,7 +1856,9 @@ function contentHtml() {
     documentGroup("Предоставлены другими участниками", sharedDocuments, "Другие участники пока не предоставили документы.") +
     (managedPrivateDocuments.length && canManageContent()
       ? documentGroup("Личные документы других участников · служебный доступ", managedPrivateDocuments, "") : "");
-  const shows = state.presentations.length ? state.presentations.map((item) => `<div class="list-item"><div class="list-item-head"><div><h4>${escapeHtml(item.title)}</h4><p>${escapeHtml(item.status)} · страница ${item.currentPage ?? "—"} / ${item.pageCount ?? "—"}</p></div><div class="action-strip">${item.status === "active" ? `<button class="button button-secondary" data-action="open-presentation-document" data-document-id="${item.documentId}" data-presentation-id="${item.id}">Открыть показ</button>` : ""}${canManageContent() ? item.status !== "active" ? `<button class="button button-secondary" data-action="start-presentation" data-presentation-id="${item.id}">Старт</button>` : `<button class="button button-quiet" data-action="next-page" data-presentation-id="${item.id}" data-page="${(item.currentPage || 1) + 1}">Следующая</button><button class="button button-danger" data-action="stop-presentation" data-presentation-id="${item.id}">Стоп</button>` : `<span class="chip">${escapeHtml(item.status)}</span>`}</div></div></div>`).join("") : `<div class="empty">Презентации не созданы.</div>`;
+  const shows = state.presentations.length ? state.presentations.map((item) => {
+    return `<div class="list-item document-list-row"><div class="document-row-main"><h4>${documentFormatIcon(item.title)}<span>${escapeHtml(item.title)}</span></h4>${state.meeting?.quick && item.status === "active" ? `<p>Показ ведёт: ${escapeHtml(item.leaderName || (item.leaderAssigned ? "ведущий не назначен" : item.startedByName || "ведущий не назначен"))}</p>` : ""}</div><div class="action-strip">${item.status === "active" ? `<button class="button button-secondary" data-action="open-presentation-document" data-document-id="${item.documentId}" data-presentation-id="${item.id}">Открыть показ</button>` : ""}${canManageContent() ? item.status !== "active" ? `<button class="button button-secondary" data-action="start-presentation" data-presentation-id="${item.id}">Старт</button>` : `<button class="button button-danger" data-action="stop-presentation" data-presentation-id="${item.id}">Стоп</button>` : `<span class="chip">${escapeHtml(item.status)}</span>`}</div></div>`;
+  }).join("") : `<div class="empty">Презентации не созданы.</div>`;
   return `${pageHead("Материалы", "Документы конференции и управление показом", upload)}
     <div class="grid grid-2 materials-page"><article class="panel"><div class="panel-pad"><h4 class="panel-title">Документы</h4></div><div class="list">${docs}</div></article><article class="panel"><div class="panel-pad"><h4 class="panel-title">Презентации</h4></div><div class="list">${shows}</div></article></div>`;
 }
@@ -1717,25 +1910,59 @@ function chatHtml() {
   const sessions = state.chatSessions.map((session) => {
     const partner = partnerFor(session);
     const channel = state.chatChannels.get(session.id);
-    const status = channel?.readyState === "open" ? "connected" : session.status;
+    const status = channel?.readyState === "open" ? "Прямой канал" : "Через сервер";
     const unread = state.chatUnread.get(session.id) ?? 0;
     return `<button class="chat-session ${state.activeChatId === session.id ? "active" : ""} ${unread ? "has-unread" : ""}" data-action="select-chat" data-session-id="${session.id}"><strong>${escapeHtml(partner.displayName)}</strong><span>${unread ? `<b class="unread-dot">${unread}</b>` : ""}${escapeHtml(status)}</span></button>`;
-  }).join("") || `<div class="empty">Активных P2P-диалогов нет.</div>`;
+  }).join("") || `<div class="empty">Диалогов пока нет</div>`;
   const active = state.chatSessions.find((item) => item.id === state.activeChatId);
-  const messages = active ? (state.chatMessages.get(active.id) ?? []).map((message) => `<div class="chat-message ${message.own ? "own" : "peer"}"><span>${escapeHtml(message.text)}</span><small>${new Date(message.at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</small></div>`).join("") : "";
+  const messages = active ? (state.chatMessages.get(active.id) ?? []).map((message) => `<div class="chat-message ${message.own ? "own" : "peer"}"><span>${escapeHtml(message.text)}</span><small>${participantFormatTime(message.at, interfaceLocale())}</small></div>`).join("") : "";
   const channelOpen = active && state.chatChannels.get(active.id)?.readyState === "open";
   const emptyChat = channelOpen
     ? `<div class="empty">Канал открыт. Сообщения передаются напрямую между участниками.</div>`
     : `<div class="empty">Канал готовится. Первое сообщение можно отправить после статуса open.</div>`;
   const dialog = active
-    ? `<article class="panel chat-dialog"><div class="chat-dialog-head"><div><h4>${escapeHtml(partnerFor(active).displayName)}</h4><p>WebRTC DataChannel · сообщения сервером не сохраняются</p></div><span class="chip ${channelOpen ? "" : "offline"}">${state.chatChannels.get(active.id)?.readyState ?? active.status}</span></div><div class="chat-log">${messages || emptyChat}</div><form id="chatForm" class="chat-compose"><input id="chatMessage" data-session-id="${escapeHtml(active.id)}" maxlength="1000" value="${escapeHtml(state.chatDrafts.get(active.id) ?? "")}" placeholder="Личное сообщение" autocomplete="off"><button class="button button-primary" type="submit">Отправить</button></form></article>`
+    ? `<article class="panel chat-dialog"><div class="chat-dialog-head"><div><h4>${escapeHtml(partnerFor(active).displayName)}</h4><p>Сообщения доступны участникам диалога и хранятся до завершения конференции</p></div><span class="chip">${channelOpen ? "Прямой канал" : "Через сервер"}</span></div><div class="chat-log">${messages || emptyChat}</div><form id="chatForm" class="chat-compose"><input id="chatMessage" data-session-id="${escapeHtml(active.id)}" maxlength="1000" value="${escapeHtml(state.chatDrafts.get(active.id) ?? "")}" placeholder="Личное сообщение" autocomplete="off"><button class="button button-primary" type="submit">Отправить</button></form></article>`
     : `<article class="panel empty">Выберите участника или существующий диалог.</article>`;
-  return `${pageHead("Личный P2P-чат", "Сервер передаёт только WebRTC signaling; текст идёт напрямую между планшетами")}
+  return `${pageHead("Личный чат", "Личные сообщения участников")}
     <div class="grid chat-layout"><article class="panel"><div class="panel-pad"><h4 class="panel-title">Участники</h4></div><div class="list">${participants}</div><div class="panel-pad"><h4 class="panel-title">Диалоги</h4><div class="chat-sessions">${sessions}</div></div></article>${dialog}</div>`;
 }
 
 function requestItemsText(request) {
   return request.items.map((item) => `${serviceRequestCategoryLabel(item, interfaceLocale())} × ${item.quantity}`).join(", ");
+}
+
+function updateSignagePreviews() {
+  const playerId = document.querySelector("#signageTargetPlayer")?.value;
+  const players = (state.signagePlayers ?? []).filter((item) => item.roomId === (state.meeting?.roomId ?? "default-room"));
+  const player = players.find((item) => item.id === playerId) ?? players[0];
+  const current = document.querySelector("#signageCurrentPreview");
+  const status = document.querySelector("#signageScreenStatus");
+  const draft = document.querySelector("#signageDraftPreview");
+  const paint = (target, scene) => {
+    if (!target) return;
+    const title = scene?.title || "Контент не опубликован";
+    const body = scene?.body || (scene?.type === "document" ? "Документ" : "");
+    target.replaceChildren();
+    const titleNode = document.createElement("strong");
+    titleNode.textContent = title;
+    target.append(titleNode);
+    if (body) {
+      const bodyNode = document.createElement("span");
+      bodyNode.textContent = body;
+      target.append(bodyNode);
+    }
+    target.dataset.sceneType = scene?.type || "empty";
+    target.dataset.roomStatus = scene?.roomStatus || "";
+  };
+  paint(current, player?.currentScene);
+  if (status) status.textContent = player ? `${player.name || player.id} · ${player.online ? "В сети" : "Не в сети"}` : "Экран не выбран";
+  if (draft) {
+    const type = document.querySelector("#signageSceneType")?.value;
+    const documentId = document.querySelector("#signageSceneDocument")?.value;
+    paint(draft, type === "document" ? { type, title: state.documents.find((item) => item.id === documentId)?.fileName || "Документ не выбран" } :
+      { type, title: document.querySelector("#signageSceneTitle")?.value.trim() || "Заголовок не введён",
+        body: document.querySelector("#signageSceneBody")?.value.trim() || "" });
+  }
 }
 
 function operationsHtml() {
@@ -1745,12 +1972,16 @@ function operationsHtml() {
   const canSignage = can("signage.manage");
   const canService = can("service.requests");
   const canAes67 = ["operator", "technician", "admin"].includes(role);
-  const readiness = canReadiness ? `<article class="panel panel-pad"><div class="list-item-head"><div><h4 class="panel-title">Готовность зала</h4><p>${state.readiness?.status === "unconfigured" ? "Проверка не настроена: обязательные устройства не зарегистрированы" : state.readiness ? `${state.readiness.onlineDevices}/${state.readiness.requiredDevices} обязательных устройств доступны` : "Проверка не выполнялась"}</p></div><span class="chip ${state.readiness?.status === "ready" ? "" : "offline"}">${escapeHtml(({ ready: "Готов", warning: "Предупреждение", "not-ready": "Не готов", unconfigured: "Не настроено" })[state.readiness?.status] ?? "Не проверено")}</span></div>${(state.readiness?.checks ?? []).map((check) => `<p class="readiness-check">${escapeHtml(state.devices.find((item) => item.id === check.deviceId)?.name ?? check.deviceId)} · ${escapeHtml(check.status)}${check.error ? ` · ${escapeHtml(check.error)}` : ""}</p>`).join("")}<div class="action-strip"><button class="button button-secondary" data-action="check-readiness">Проверить зал</button></div></article>` : "";
+  const readiness = canReadiness && (state.readiness?.status !== "unconfigured" || state.devices.length > 0) ? `<article class="panel panel-pad"><div class="list-item-head"><div><h4 class="panel-title">Готовность зала</h4><p>${state.readiness?.status === "unconfigured" ? "Проверка не настроена: обязательные устройства не зарегистрированы" : state.readiness ? `${state.readiness.onlineDevices}/${state.readiness.requiredDevices} обязательных устройств доступны` : "Проверка не выполнялась"}</p></div><span class="chip ${state.readiness?.status === "ready" ? "" : "offline"}">${escapeHtml(({ ready: "Готов", warning: "Предупреждение", "not-ready": "Не готов", unconfigured: "Не настроено" })[state.readiness?.status] ?? "Не проверено")}</span></div>${(state.readiness?.checks ?? []).map((check) => `<p class="readiness-check">${escapeHtml(check.label ?? state.devices.find((item) => item.id === check.deviceId)?.name ?? check.deviceId)} · ${escapeHtml(({ online: "В сети", offline: "Не в сети", warning: "Предупреждение", disabled: "Выключено" })[check.status] ?? check.status)}${check.error ? ` · ${escapeHtml(check.error)}` : ""}</p>`).join("")}<div class="action-strip"><button class="button button-secondary" data-action="check-readiness">Проверить зал</button></div></article>` : "";
   const devices = canDevices ? `<article class="panel"><div class="panel-pad"><h4 class="panel-title">Device Registry</h4></div><div class="list">${state.devices.map((device) => `<div class="list-item"><div class="list-item-head"><div><h4>${escapeHtml(device.name)}</h4><p>${escapeHtml(device.kind)} · ${escapeHtml(device.driverId)} · ${escapeHtml(device.id)}</p></div><span class="chip ${device.health?.status === "online" ? "" : "offline"}">${escapeHtml(device.health?.status ?? "unknown")}</span></div><div class="action-strip compact"><button class="button button-quiet" data-action="check-device" data-device-id="${device.id}">Health</button><button class="button button-quiet" data-action="device-command" data-device-id="${device.id}">Команда</button></div></div>`).join("") || `<div class="empty">Устройства не зарегистрированы.</div>`}</div></article>` : "";
-  const signage = canSignage ? `<article class="panel panel-pad"><h4 class="panel-title">Вывески</h4><p>Регистрация и состояние экранов — в SignageCore.</p><div class="action-strip"><button class="button button-quiet" data-action="publish-room-free">Зал свободен</button><button class="button button-quiet" data-action="publish-room-busy">Идёт заседание</button><button class="button button-secondary" data-action="call-participant">Вызвать участника</button><a class="button button-quiet" href="/service/?tab=signage-core" target="_blank" rel="noopener">SignageCore</a></div></article>` : "";
+  const roomPlayers = state.signagePlayers.filter((player) => player.roomId === (state.meeting.roomId ?? "default-room"));
+  const signageDocuments = state.documents.filter((item) => item.meetingId === state.profile.meetingId);
+  const selectedScreen = roomPlayers[0];
+  const signagePreviews = `<div class="signage-preview-grid"><div class="signage-preview"><strong>Сейчас на экране</strong><div class="signage-preview-surface" id="signageCurrentPreview"></div><small id="signageScreenStatus">${selectedScreen ? selectedScreen.online ? "В сети" : "Не в сети" : "Экран не выбран"}</small></div><div class="signage-preview"><strong>Готовится к отправке</strong><div class="signage-preview-surface" id="signageDraftPreview"></div></div></div>`;
+  const signage = canSignage ? `<article class="panel panel-pad signage-control"><h4 class="panel-title">Вывески</h4><p>${roomPlayers.length ? `Выберите один экран или отправьте сцену на все экраны зала.` : "Для этого зала ещё не зарегистрирован экран. Добавьте его в SignageCore."}</p><label class="signage-target-label">Куда отправить<select id="signageTargetPlayer"><option value="">Все экраны этого зала</option>${roomPlayers.map((player) => `<option value="${escapeHtml(player.id)}">${escapeHtml(player.name || player.id)}${player.online ? " · в сети" : " · не в сети"}</option>`).join("")}</select></label>${signagePreviews}<div class="action-strip compact"><button class="button button-quiet" data-action="publish-room-free" ${roomPlayers.length ? "" : "disabled"}>Зал свободен</button><button class="button button-quiet" data-action="publish-room-busy" ${roomPlayers.length ? "" : "disabled"}>Идёт заседание</button><button class="button button-secondary" data-action="call-participant" ${roomPlayers.length ? "" : "disabled"}>Вызвать участника</button></div><div class="signage-compose"><label>Контент<select id="signageSceneType"><option value="text">Текст</option><option value="schedule">Расписание</option><option value="document">Документ</option></select></label><label data-signage-text>Заголовок<input id="signageSceneTitle" maxlength="160" autocomplete="off" placeholder="Что показать на экране"></label><label data-signage-text>Текст<textarea id="signageSceneBody" rows="3" maxlength="2000" placeholder="Необязательно"></textarea></label><label data-signage-document hidden>Документ<select id="signageSceneDocument">${signageDocuments.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.fileName)}</option>`).join("")}</select></label><div class="action-strip compact"><button class="button button-secondary" data-action="publish-signage-scene" ${roomPlayers.length ? "" : "disabled"}>Отправить на экран</button><a class="button button-quiet" href="/service/?tab=signage-core" target="_blank" rel="noopener">Настроить экраны</a></div></div><p class="signage-feedback" id="signageFeedback" role="status" aria-live="polite">${escapeHtml(state.signageFeedback ?? "")}</p></article>` : "";
   const aes67Running = ["starting", "running"].includes(state.aes67?.state);
   const aes67 = canAes67 ? `<article class="panel panel-pad"><div class="list-item-head"><div><h4 class="panel-title">AES67 / RTP L24</h4><p>${escapeHtml(state.aes67?.settings?.name ?? "VOX-S Program Audio")} · ${escapeHtml(state.aes67?.settings?.bus ?? "program")} · автозапуск при старте конференции</p></div><span class="chip ${state.aes67?.state === "running" ? "" : "offline"}">${escapeHtml(state.aes67?.state ?? "stopped")}</span></div>${state.aes67?.error ? `<p class="form-error">${escapeHtml(state.aes67.error)}</p>` : ""}<div class="action-strip"><button class="button ${aes67Running ? "button-danger" : "button-secondary"}" data-action="${aes67Running ? "stop-aes67" : "start-aes67"}">${aes67Running ? "Выключить AES67" : "Включить AES67"}</button></div></article>` : "";
-  return `${pageHead("Операции", "Готовность зала, оборудование, аудиоконференция, вывески и сервис")}${audioConferenceHtml()}<div class="grid grid-2 operations-grid">${readiness}${signage}${aes67}${devices}${serviceCardHtml()}</div>`;
+  return `${pageHead("Операции", "Зал, вывески и сервис")}<div class="grid grid-2 operations-grid">${readiness}${signage}${devices}${serviceCardHtml()}</div>`;
 }
 
 // Service calls card: on the Service tab and as a block of the conference workspace.
@@ -1758,18 +1989,18 @@ function serviceCardHtml(extraClass = "") {
   const role = state.profile.role;
   const canService = can("service.requests");
   const requestButton = !["observer", "service"].includes(role) ? `<button class="button button-primary" data-action="service-request">Вызвать персонал</button>` : "";
-  const seatButton = ["delegate", "operator"].includes(role) ? `<button class="button button-secondary" data-action="change-room-seat">Изменить рабочее место</button>` : "";
-  const requests = canService ? state.serviceRequests.map((request) => `<div class="list-item"><div class="list-item-head"><div><h4>${escapeHtml(request.participantName)} · ${escapeHtml(request.seatLabel)}</h4><p>${escapeHtml(requestItemsText(request))}${request.comment ? ` · ${escapeHtml(request.comment)}` : ""}</p></div><span class="chip ${["closed", "cancelled", "rejected"].includes(request.status) ? "offline" : ""}">${escapeHtml(serviceRequestStatusLabel(request.status, interfaceLocale()))}</span></div><div class="action-strip compact">${request.stationId ? `<a class="button button-quiet" href="/room-planner/?stationId=${encodeURIComponent(request.stationId)}&requestId=${encodeURIComponent(request.id)}" target="_blank" rel="noopener">На плане</a>` : ""}${request.status === "new" ? `<button class="button button-secondary" data-action="service-status" data-request-id="${request.id}" data-status="accepted">${uiText("service.accept")}</button>` : ""}${request.status === "accepted" ? `<button class="button button-secondary" data-action="service-status" data-request-id="${request.id}" data-status="in-progress">${uiText("service.start")}</button>` : ""}${request.status === "in-progress" ? `<button class="button button-secondary" data-action="service-status" data-request-id="${request.id}" data-status="delivered">${uiText("service.complete")}</button>` : ""}${request.status === "delivered" ? `<button class="button button-secondary" data-action="service-status" data-request-id="${request.id}" data-status="closed">${uiText("service.close")}</button>` : ""}</div></div>`).join("") : "";
-  return `<article class="panel ${extraClass}"><div class="panel-pad"><div class="list-item-head"><div><h4 class="panel-title">${uiText("service.title")}</h4><p>${uiText("service.description")}</p></div><div class="action-strip compact">${seatButton}${requestButton}</div></div></div>${canService ? `<div class="list">${requests || `<div class="empty">${uiText("service.empty")}</div>`}</div>` : ""}</article>`;
+  const seatButton = ["delegate", "operator"].includes(role) ? `<button class="button button-secondary" data-action="change-room-seat">Изменить место</button>` : "";
+  const requests = state.serviceRequests.map((request) => `<div class="list-item"><div class="list-item-head"><div><h4>${escapeHtml(request.participantName)} · ${escapeHtml(request.seatLabel)}</h4><p>${escapeHtml(requestItemsText(request))}${request.comment ? ` · ${escapeHtml(request.comment)}` : ""}</p></div><span class="chip ${["closed", "cancelled", "rejected"].includes(request.status) ? "offline" : ""}">${escapeHtml(serviceRequestStatusLabel(request.status, interfaceLocale()))}</span></div>${canService ? `<div class="action-strip compact">${request.stationId ? `<a class="button button-quiet" href="/room-planner/?stationId=${encodeURIComponent(request.stationId)}&requestId=${encodeURIComponent(request.id)}" target="_blank" rel="noopener">На плане</a>` : ""}${request.status === "new" ? `<button class="button button-secondary" data-action="service-status" data-request-id="${request.id}" data-status="accepted">${uiText("service.accept")}</button>` : ""}${request.status === "accepted" ? `<button class="button button-secondary" data-action="service-status" data-request-id="${request.id}" data-status="in-progress">${uiText("service.start")}</button>` : ""}${request.status === "in-progress" ? `<button class="button button-secondary" data-action="service-status" data-request-id="${request.id}" data-status="delivered">${uiText("service.complete")}</button>` : ""}${request.status === "delivered" ? `<button class="button button-secondary" data-action="service-status" data-request-id="${request.id}" data-status="closed">${uiText("service.close")}</button>` : ""}</div>` : ""}</div>`).join("");
+  return `<article class="panel ${extraClass}"><div class="panel-pad"><div class="list-item-head"><div><h4 class="panel-title">${uiText("service.title")}</h4><p>${uiText("service.description")}</p></div><div class="action-strip compact">${seatButton}${requestButton}</div></div></div><div class="list">${requests || `<div class="empty">${uiText("service.empty")}</div>`}</div></article>`;
 }
 
 function settingsHtml() {
   const canConfigureAutoDirector = can("pgm.operate");
   const canManagePin = can("conference.pin");
-  const languageOptions = PARTICIPANT_LANGUAGES.map(({ code, label }) =>
+  const languageOptions = participantLanguageOptions().map(({ code, label }) =>
     `<option value="${code}"${interfaceLocale() === code ? " selected" : ""}>${escapeHtml(label)}</option>`).join("");
   const pinPanel = canManagePin ? `<article class="panel panel-pad settings-block"><h4 class="panel-title">ПИН конференции</h4><div class="status-row"><span>Текущий ПИН</span><code>${state.accessPin ? escapeHtml(state.accessPin) : "скрыт"}</code></div><div class="action-strip">${state.accessPin ? "" : `<button class="button button-quiet" data-action="reveal-access-pin">Показать</button>`}<button class="button button-secondary" data-action="edit-access-pin">Изменить</button></div></article>` : "";
-  return `${pageHead("Настройки", "Параметры стенда и подготовка браузера")}
+  return `${pageHead("Настройки", "Конференция и браузер")}
     ${localAvDevicesHtml()}
     <div class="grid grid-2">
       <article class="panel panel-pad settings-block"><h4 class="panel-title">${uiText("settings.language.title")}</h4><label>${uiText("settings.language.title")}<select id="participantLanguage" aria-label="${uiText("settings.language.title")}">${languageOptions}</select></label><p>${uiText("settings.language.note")}</p></article>
@@ -1778,11 +2009,12 @@ function settingsHtml() {
       <article class="panel panel-pad settings-block"><h4 class="panel-title">Подключение</h4><div class="status-row"><span>Сервер</span><code>${escapeHtml(state.profile.serverUrl)}</code></div><div class="status-row"><span>Заседание</span><code>${escapeHtml(state.profile.meetingId)}</code></div><div class="status-row"><span>Устройство</span><code>${escapeHtml(state.profile.deviceId)}</code></div></article>
       <article class="panel panel-pad"><h4 class="panel-title">Терминал</h4><div class="status-row"><div><strong>${escapeHtml(state.profile.displayName)}</strong><br><small>${escapeHtml(state.profile.deviceId)}</small></div><span class="chip">онлайн</span></div><div class="status-row"><div><strong>Seat Lease</strong><br><small>${escapeHtml(state.leaseId)}</small></div><span>${escapeHtml(state.profile.role)}</span></div></article>
       <article class="panel panel-pad settings-block"><h4 class="panel-title">Доверие HTTPS</h4><p>Если браузер показывает предупреждение сертификата, установите локальный корневой сертификат VOX-S на планшет.</p><a class="button button-secondary" href="/client/root-ca.cer" download>Скачать Root CA</a></article>
-      <article class="panel panel-pad settings-block"><h4 class="panel-title">Установка как приложение</h4><p>Android/Chrome: меню → «Установить приложение». iPadOS/Safari: «Поделиться» → «На экран Домой». Установленное приложение открывается без адресной строки браузера.</p><div class="action-strip"><button class="button button-quiet" data-action="install-pwa">Установить PWA</button></div></article>
-      <article class="panel panel-pad"><h4 class="panel-title">Камера и микрофон на этом устройстве</h4><p>VOX-S запоминает выбранное поведение только в этом браузере. Само разрешение хранит iOS/Android и браузер; сервер не может отменить системный запрос безопасности.</p><div class="action-strip"><button class="button button-secondary" data-action="toggle-auto-camera-pref">Камера при входе: ${localStorage.getItem(CAMERA_AUTO_KEY) === "off" ? "выкл" : "вкл"}</button><button class="button button-secondary" data-action="toggle-auto-microphone-pref">Микрофон в AudioCore при входе: ${localStorage.getItem(MICROPHONE_AUTO_KEY) === "off" ? "выкл" : "вкл"}</button></div></article>
+      <article class="panel panel-pad settings-block"><h4 class="panel-title">Установка как приложение</h4><p>Android: установите через меню Chrome. iPad: «Поделиться» → «На экран Домой».</p><div class="action-strip"><button class="button button-quiet" data-action="install-pwa">Установить PWA</button></div></article>
+      <article class="panel panel-pad"><h4 class="panel-title">Камера и микрофон на этом устройстве</h4><p>Выбор сохранится в браузере. Системное разрешение меняется в настройках устройства.</p><div class="action-strip"><button class="button button-secondary" data-action="toggle-auto-camera-pref">Камера при входе: ${localStorage.getItem(CAMERA_AUTO_KEY) === "off" ? "выкл" : "вкл"}</button><button class="button button-secondary" data-action="toggle-auto-microphone-pref">Микрофон в AudioCore при входе: ${localStorage.getItem(MICROPHONE_AUTO_KEY) === "off" ? "выкл" : "вкл"}</button></div></article>
       <article class="panel panel-pad"><h4 class="panel-title">Полноэкранный режим</h4><p>Убирает адресную строку браузера прямо во вкладке, без установки приложения.</p><button class="button button-quiet" data-action="toggle-fullscreen">${document.fullscreenElement ? "Выйти из полноэкранного" : "На весь экран"}</button></article>
-      ${canConfigureAutoDirector ? `<article class="panel panel-pad"><h4 class="panel-title">Автопереключение PGM</h4><p>Когда включено, PGM следует за словом по режиму, выбранному на странице «Конференция» (или режиму администратора). Когда выключено, PGM переключается только вручную.</p><button class="button button-secondary" data-action="toggle-auto-director">${state.routing?.autoDirector?.enabled ? "Выключить" : "Включить"} автопереключение</button></article>` : ""}
-      <article class="panel panel-pad"><h4 class="panel-title">Центральная медиаархитектура</h4><p>Камера, микрофон, демонстрация экрана и PGM завершают WebRTC на центральном MCU сервера. Прямых аудио- и видеосоединений между клиентами нет. Личный текстовый чат использует отдельный DataChannel.</p></article>
+      ${canConfigureAutoDirector ? `<article class="panel panel-pad"><h4 class="panel-title">Автопереключение PGM</h4><p>PGM следует за выступающим. При выключении источник выбирается вручную.</p><button class="button button-secondary" data-action="toggle-auto-director">${state.routing?.autoDirector?.enabled ? "Выключить" : "Включить"} автопереключение</button></article>` : ""}
+      ${audioConferenceHtml()}
+      ${["operator", "technician", "admin"].includes(state.profile.role) ? `<article class="panel panel-pad"><div class="list-item-head"><div><h4 class="panel-title">AES67 / RTP L24</h4><p>${escapeHtml(state.aes67?.settings?.name ?? "VOX-S Program Audio")} · ${escapeHtml(state.aes67?.settings?.bus ?? "program")}</p></div><span class="chip ${state.aes67?.state === "running" ? "" : "offline"}">${escapeHtml(state.aes67?.state ?? "stopped")}</span></div>${state.aes67?.error ? `<p class="form-error">${escapeHtml(state.aes67.error)}</p>` : ""}<div class="action-strip"><button class="button ${["starting", "running"].includes(state.aes67?.state) ? "button-danger" : "button-secondary"}" data-action="${["starting", "running"].includes(state.aes67?.state) ? "stop-aes67" : "start-aes67"}">${["starting", "running"].includes(state.aes67?.state) ? "Выключить AES67" : "Включить AES67"}</button></div></article>` : ""}
     </div>`;
 }
 
@@ -1793,7 +2025,7 @@ function settingsHtml() {
 // Multiview mosaic; anything else is shown as its own preview tile.
 
 export { canEditWorkspaceLayout, handleWorkspaceUiAction, applyWorkspaceLayout, renderPage, updateNavigationVisibility, translationHtml, unreadChatCount, updateChatNotice,
-  markChatRead, pageHead, VOTE_OUTCOME_LABELS, advancedBallot, voteOutcomeLabel, conferenceVoteCard,
+  markChatRead, pageHead, VOTE_OUTCOME_LABELS, advancedBallot, updateVoteCountdowns, voteOutcomeLabel, conferenceVoteCard,
   conferenceVoteStatusCard, closeVoteResultsModal, openVoteResultsModal, microphoneIcon, renderMicrophoneDock,
   renderFixedControls, can, pgmModeHtml, hydrateSlatePreviews, uploadPgmSlate, selectPgmSlate,
   deletePgmSlate, syncSecretaryTurn, secretarySpeakersHtml, secretaryWorkspaceHtml, saveSecretaryTranscript,
@@ -1806,4 +2038,4 @@ export { canEditWorkspaceLayout, handleWorkspaceUiAction, applyWorkspaceLayout, 
   openStreamPreviewModal, mountStreamPreviewModal, mountProgram, canManageVotes, canCastVotes,
   isEligibleForVote, canViewFiles, canUploadFiles, canShareScreen, canSpeak, votingHtml, canManageContent,
   contentHtml, partnerFor, chatPartnerId, isLiveChatSession, closeChatSessionLocally, reconcileChatSessions,
-  chatHtml, requestItemsText, operationsHtml, settingsHtml };
+  chatHtml, requestItemsText, operationsHtml, settingsHtml, updateSignagePreviews };

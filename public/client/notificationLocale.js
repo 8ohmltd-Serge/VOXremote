@@ -33,6 +33,12 @@
     "Проверка состояния конференции…": "Checking conference status…",
     "Проверка бейджа конференции…": "Checking the conference badge…",
     "Проверка…": "Checking…"
+    ,"Учётная запись AD не зарегистрирована администратором": "This AD account has not been registered by an administrator"
+    ,"Для учётной записи AD назначьте одну техническую роль": "Assign one technical role to this AD account"
+    ,"Выберите одну техническую роль": "Select one technical role"
+    ,"Выберите действующий профиль Active Directory": "Select an active Active Directory profile"
+    ,"Укажите AD-логин в формате имя@домен или имя из выбранного домена": "Enter an AD login as name@domain or a name from the selected domain"
+    ,"Укажите ФИО длиной не более 160 символов": "Enter a name no longer than 160 characters"
     ,"Файл отправлен": "File uploaded"
     ,"Документ прикреплён к повестке": "Document attached to the agenda"
     ,"Заставка добавлена в библиотеку": "Slate added to the library"
@@ -121,8 +127,15 @@
     ,"Документ отправлен в показ": "Document sent to presentation"
     ,"Доклад завершён": "Presentation finished"
     ,"Камера и микрофон готовы": "Camera and microphone are ready"
+    ,"Ваш голос уже принят": "Your vote has already been accepted"
   };
   const patterns = [
+    [/^AD-идентификатор «(.+)» уже привязан к технической учётной записи «(.+)»$/u,
+      (identity, account) => `AD identity “${identity}” is already linked to technical account “${account}”`],
+    [/^AD-идентификатор «(.+)» уже привязан к постоянному участнику «(.+)»$/u,
+      (identity, participant) => `AD identity “${identity}” is already linked to permanent participant “${participant}”`],
+    [/^AD-идентификатор «(.+)» уже привязан к другому участнику$/u,
+      (identity) => `AD identity “${identity}” is already linked to another participant`],
     [/^Лицензия: (.+)$/u, (part) => `Licence: ${part}`],
     [/^Не удалось открыть AV-устройства: (.+)$/u, (part) => `Could not open A/V devices: ${part}`],
     [/^Стенограмма не синхронизирована: (.+)$/u, (part) => `Transcript not synchronized: ${part}`],
@@ -176,8 +189,8 @@
   function language(userId = null) {
     let value = null;
     try {
-      value = (userId && localStorage.getItem(`edge-s-interface-language:${userId}`)) ||
-        localStorage.getItem("edge-s-interface-language");
+      value = localStorage.getItem("edge-s-interface-language") ||
+        (userId && localStorage.getItem(`edge-s-interface-language:${userId}`));
     } catch { /* Storage may be blocked on an entry device. */ }
     return String(value || root.document?.documentElement.lang || root.navigator?.language || "ru")
       .toLowerCase().startsWith("en") ? "en" : "ru";
@@ -206,13 +219,14 @@
   }
 
   function error(code, message, status, locale = language()) {
-    if (code === "security_lockout") return errorMessages[locale].security_lockout;
+    const supportedLocale = locale === "en" ? "en" : "ru";
+    if (code === "security_lockout") return errorMessages[supportedLocale].security_lockout;
     if (code === "conflict" && message === "Participant presence is no longer active") {
-      return errorMessages[locale].presence_inactive;
+      return errorMessages[supportedLocale].presence_inactive;
     }
-    if (code === "internal_error") return errorMessages[locale].internal_error;
+    if (code === "internal_error") return errorMessages[supportedLocale].internal_error;
     if (code === "unauthorized" && /^(?:Identity is required|Invalid username or password)$/u.test(message)) {
-      return errorMessages[locale].unauthorized;
+      return errorMessages[supportedLocale].unauthorized;
     }
     const translated = localize(message, locale);
     if (locale === "en" && translated === "Action update received.") {
@@ -226,13 +240,14 @@
   }
 
   function countdown(element, seconds, locale = language()) {
+    const supportedLocale = locale === "en" ? "en" : "ru";
     clearInterval(element._lockoutTimer);
     const deadline = Date.now() + Math.max(1, Number(seconds) || 30) * 1000;
     const update = () => {
       const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
       element.textContent = remaining
-        ? errorMessages[locale].security_lockout.replace("{seconds}", String(remaining))
-        : locale === "en" ? "You can try signing in again." : "Можно повторить вход.";
+        ? errorMessages[supportedLocale].security_lockout.replace("{seconds}", String(remaining))
+        : supportedLocale === "en" ? "You can try signing in again." : "Можно повторить вход.";
       if (!remaining) clearInterval(element._lockoutTimer);
     };
     update();

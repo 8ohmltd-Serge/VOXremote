@@ -3,13 +3,15 @@ import { observeBottomControls } from "./dockLayout.js";
 import { serviceRequestCategoryLabel, serviceRequestStatusLabel,
   serviceRequestCategoryOptions } from "./serviceRequestLocale.js";
 import { eventRetryDelay } from "./eventConnection.js";
-import { PARTICIPANT_LANGUAGES, participantLanguage, setParticipantLanguage,
-  setSystemInterfaceLanguage, applyParticipantLanguage,
-  participantText } from "./i18n.js";
-import { openDocumentViewer, closeDocumentViewer, updateDocumentViewerRights,
-  updateDocumentViewerBadge, documentSceneEvent } from "./documentViewer.js";
+import { clientBuildReady } from "./clientBuild.js";
+import { PARTICIPANT_LANGUAGES, participantLanguageOptions, configureParticipantLanguages,
+  participantLanguage, setParticipantLanguage, applyParticipantLanguage,
+  participantText, participantFormatTime } from "./i18n.js";
+import { openDocumentViewer, closeDocumentViewer, expandPresentationViewer, closePresentationViewer,
+  updateDocumentViewerRights, documentSceneEvent } from "./documentViewer.js";
+
 const VoxNoticeLocale = globalThis.VoxNoticeLocale;
-let canEditWorkspaceLayout, handleWorkspaceUiAction, applyWorkspaceLayout, renderPage, updateNavigationVisibility, translationHtml, unreadChatCount, updateChatNotice, markChatRead, pageHead, VOTE_OUTCOME_LABELS,
+let canEditWorkspaceLayout, handleWorkspaceUiAction, applyWorkspaceLayout, renderPage, updateNavigationVisibility, translationHtml, unreadChatCount, updateChatNotice, markChatRead, pageHead, VOTE_OUTCOME_LABELS, updateVoteCountdowns,
   advancedBallot, voteOutcomeLabel, conferenceVoteCard, conferenceVoteStatusCard, closeVoteResultsModal, openVoteResultsModal, microphoneIcon, renderMicrophoneDock,
   renderFixedControls, can, pgmModeHtml, hydrateSlatePreviews, uploadPgmSlate, selectPgmSlate, deletePgmSlate, syncSecretaryTurn,
   secretarySpeakersHtml, secretaryWorkspaceHtml, saveSecretaryTranscript, saveSecretaryEditor, clearSecretaryEditor, secretaryLayoutPanel, moveSecretaryLayoutPanel, handleSecretaryLayoutAction,
@@ -18,7 +20,7 @@ let canEditWorkspaceLayout, handleWorkspaceUiAction, applyWorkspaceLayout, rende
   normalizedCaption, setMediaCaptions, mountMediaView, mountStudioMonitors, stopThumbnailLoop, drawThumbnails, mountStreamThumbnails, handleStreamPreviewKeydown,
   closeStreamPreviewModal, openStreamPreviewModal, mountStreamPreviewModal, mountProgram, canManageVotes, canCastVotes, isEligibleForVote, canViewFiles,
   canUploadFiles, canShareScreen, canSpeak, votingHtml, canManageContent, contentHtml, partnerFor, chatPartnerId,
-  isLiveChatSession, closeChatSessionLocally, reconcileChatSessions, chatHtml, requestItemsText, operationsHtml, settingsHtml, inMcu,
+  isLiveChatSession, closeChatSessionLocally, reconcileChatSessions, chatHtml, requestItemsText, operationsHtml, settingsHtml, updateSignagePreviews, inMcu,
   runAction, requestFloor, applyLocalFloorResult, runMicrophoneAction, activateChairMicrophone, grantFloor, releaseFloor, selfRelease,
   saveMicrophoneLimit, toggleFifo, saveDiscussionMode, toggleChairPriority, muteAllMicrophones, activateAgenda, revealAccessPin, editAccessPin,
   changeParticipantRole, toggleIncomingAudio, removeParticipant, confirmRemoveParticipant, ensureMicrophone, syncLocalMicrophone, startCamera, stopCamera,
@@ -31,15 +33,45 @@ let canEditWorkspaceLayout, handleWorkspaceUiAction, applyWorkspaceLayout, rende
   closeMcuSubscriber, watchClientStream, reconcileSelectedStream, pollSignaling, closeViewerStream, pruneUnusedViewerPeers, ensureAudioContext, updateAudioUnlock,
   mobileAudioEndpoint, updateHeadphoneWarning, attachAudioMixInput, detachAudioMixInput, syncConferenceAudio, reconcileServerAudioMix, watchServerAudioMix, closeServerAudioSubscriber,
   closeAllPeers, bindChatChannel, newChatPeer, startChatOffer, openChat, pollChatSignaling, sendChatMessage, closeAllChats,
-  checkReadiness, checkDevice, deviceCommand, publishRoom, callParticipant, startAes67, stopAes67, createServiceRequest,
+  checkReadiness, checkDevice, deviceCommand, publishRoom, publishSignageScene, callParticipant, startAes67, stopAes67, createServiceRequest,
   serviceStatus, assignSeat, assignPresenterWorkplace, releaseSeat, claimSeat, createVote, castVote, castAdvancedVote,
   createNextVoteRound, uploadDocument, importArchivedDocument, uploadAgendaDocument, openDocument, startPresentationBroadcast, shareScreen, stopScreenShare,
   installPwa, toggleFullscreen;
 let featureModulesPromise = null;
+let roomControlEvents = null;
+let pushRoomControlState = null;
+let pushRoomControlPage = null;
+function meetingControlPanelId(meetingId) {
+  const key = `vox-control-panel:meeting:${meetingId}`;
+  const id = sessionStorage.getItem(key) ?? `panel_${crypto.randomUUID().replaceAll("-", "")}`;
+  sessionStorage.setItem(key, id);
+  return id;
+}
 async function loadFeatureModules() {
   if (!featureModulesPromise) featureModulesPromise = Promise.all([
-    import("./clientViews.js"), import("./clientOperations.js")
-  ]).then(([views, operations]) => {
+    import("./clientViews.js"), import("./clientOperations.js"), import("./roomControlEvents.js")
+  ]).then(([views, operations, controls]) => {
+    roomControlEvents = controls.createRoomControlEvents($("#pageContent"), () => state, notify, (pageId) => {
+      const project = state.roomControl;
+      if (!project?.panel.pages?.some((page) => page.id === pageId)) return;
+      state.roomControlPageId = pageId;
+      sessionStorage.setItem(`vox-control-page:${state.profile.meetingId}:${project.roomId}:${project.version}`, pageId);
+      if (state.activeTab === "roomcontrol") renderPage();
+    });
+    pushRoomControlState = (payload) => controls.applyRoomControlPush(state, payload);
+    pushRoomControlPage = (payload) => {
+      if (!state.roomControl || payload?.panelId !== state.roomControlPanelId ||
+          payload.roomId !== state.roomControl.roomId || payload.version !== state.roomControl.version ||
+          !payload.navigation?.id) return;
+      const key = `vox-control-navigation:${state.roomControlPanelId}`;
+      if (sessionStorage.getItem(key) === payload.navigation.id) return;
+      sessionStorage.setItem(key, payload.navigation.id);
+      if (!state.roomControl.panel.pages?.some((page) => page.id === payload.navigation.pageId)) return;
+      state.roomControlPageId = payload.navigation.pageId;
+      sessionStorage.setItem(`vox-control-page:${state.profile.meetingId}:${state.roomControl.roomId}:${state.roomControl.version}`,
+        state.roomControlPageId);
+      if (state.activeTab === "roomcontrol") renderPage();
+    };
     canEditWorkspaceLayout = views.canEditWorkspaceLayout;
     handleWorkspaceUiAction = views.handleWorkspaceUiAction;
     applyWorkspaceLayout = views.applyWorkspaceLayout;
@@ -51,6 +83,7 @@ async function loadFeatureModules() {
     markChatRead = views.markChatRead;
     pageHead = views.pageHead;
     VOTE_OUTCOME_LABELS = views.VOTE_OUTCOME_LABELS;
+    updateVoteCountdowns = views.updateVoteCountdowns;
     advancedBallot = views.advancedBallot;
     voteOutcomeLabel = views.voteOutcomeLabel;
     conferenceVoteCard = views.conferenceVoteCard;
@@ -122,6 +155,7 @@ async function loadFeatureModules() {
     requestItemsText = views.requestItemsText;
     operationsHtml = views.operationsHtml;
     settingsHtml = views.settingsHtml;
+    updateSignagePreviews = views.updateSignagePreviews;
     inMcu = operations.inMcu;
     runAction = operations.runAction;
     requestFloor = operations.requestFloor;
@@ -223,6 +257,7 @@ async function loadFeatureModules() {
     checkDevice = operations.checkDevice;
     deviceCommand = operations.deviceCommand;
     publishRoom = operations.publishRoom;
+    publishSignageScene = operations.publishSignageScene;
     callParticipant = operations.callParticipant;
     startAes67 = operations.startAes67;
     stopAes67 = operations.stopAes67;
@@ -259,7 +294,7 @@ export {
   formatAgendaTime, agendaTimeline, agendaStatusHtml, openAgendaDialog, confirmDialog, roomSeatScheme, offerRoomStation, maybeOfferRoomStation,
   connectWithProfile, consumeConferenceHandoff, autoPublishOwnCamera, queryCapturePermission, installLocalVideoTrack, isAppleMobile, scheduleVideoRecovery, recoverSuspendedVideo,
   enableLocalAv, toggleParticipantVideo, toggleLocalMediaPreference, hasLocalVideo, restoreActiveSession, startTimers, clearTimers, schedulePushRefresh,
-  refreshFloorState, updateSourceWallFloorState, applyAudioMeters, setEventConnectionStatus, startEventStream, refreshProgram, refreshAll, updateBuildLabels,
+  refreshFloorState, updateSourceWallFloorState, applyAudioMeters, updateTranslationMeters, setEventConnectionStatus, startEventStream, refreshProgram, refreshAll, updateBuildLabels,
   selectTab, activateStreamsPreview, syncSourceWall, budgetedThumbnailStreams, disconnect, exitClosedConference, handleMicrophoneAction, bootstrapClient,
   renderPage, updateNavigationVisibility, translationHtml, unreadChatCount, updateChatNotice, markChatRead, pageHead, VOTE_OUTCOME_LABELS,
   advancedBallot, voteOutcomeLabel, conferenceVoteCard, conferenceVoteStatusCard, closeVoteResultsModal, openVoteResultsModal, microphoneIcon, renderMicrophoneDock,
@@ -283,11 +318,11 @@ export {
   closeMcuSubscriber, watchClientStream, reconcileSelectedStream, pollSignaling, closeViewerStream, pruneUnusedViewerPeers, ensureAudioContext, updateAudioUnlock,
   mobileAudioEndpoint, updateHeadphoneWarning, attachAudioMixInput, detachAudioMixInput, syncConferenceAudio, reconcileServerAudioMix, watchServerAudioMix, closeServerAudioSubscriber,
   closeAllPeers, bindChatChannel, newChatPeer, startChatOffer, openChat, pollChatSignaling, sendChatMessage, closeAllChats,
-  checkReadiness, checkDevice, deviceCommand, publishRoom, callParticipant, startAes67, stopAes67, createServiceRequest,
+  checkReadiness, checkDevice, deviceCommand, publishRoom, publishSignageScene, callParticipant, startAes67, stopAes67, createServiceRequest,
   serviceStatus, assignSeat, assignPresenterWorkplace, releaseSeat, claimSeat, createVote, castVote, castAdvancedVote,
   createNextVoteRound, uploadDocument, importArchivedDocument, uploadAgendaDocument, openDocument, startPresentationBroadcast, shareScreen, stopScreenShare,
   installPwa, toggleFullscreen, encodeIdentityHeader, observeBottomControls, serviceRequestCategoryLabel, serviceRequestStatusLabel, serviceRequestCategoryOptions, eventRetryDelay,
-  PARTICIPANT_LANGUAGES, participantLanguage, setParticipantLanguage, participantText, openDocumentViewer, closeDocumentViewer, updateDocumentViewerRights, updateDocumentViewerBadge,
+  PARTICIPANT_LANGUAGES, participantLanguageOptions, participantLanguage, setParticipantLanguage, participantText, participantFormatTime, openDocumentViewer, closeDocumentViewer, expandPresentationViewer, closePresentationViewer, updateDocumentViewerRights,
   documentSceneEvent
 };
 
@@ -299,11 +334,12 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const SESSION_KEY = "edge-s-active-session-v0.6";
 const HANDOFF_KEY = "edge-conference-handoff-v1";
 const AUTH_TOKEN_KEY = "edge-s-account-token";
+const QUICK_RESUME_KEY = "edge-s-quick-device-session-v1";
 const CAMERA_AUTO_KEY = "edge-s-auto-camera";
 const MICROPHONE_AUTO_KEY = "edge-s-auto-microphone";
 const MEDIA_DEVICE_KEY = "edge-s-media-devices-v0.5";
 const TRANSLATION_VOLUME_KEY = "edge-s-translation-volume";
-const CLIENT_BUILD = "0.7.0.49";
+const CLIENT_BUILD = "0.7.77";
 const interfaceLocale = () => participantLanguage(state.profile?.userId);
 const uiText = (key) => participantText(key, interfaceLocale());
 const BUILD_RELOAD_KEY = "edge-s-client-build-reload";
@@ -315,7 +351,7 @@ const CONFERENCE_ROLE_LABELS = {
   observer: "Наблюдатель", auditor: "Наблюдатель", interpreter: "Переводчик",
   translator: "Переводчик", signage: "Дисплей"
 };
-const TAB_TITLES = { conference: "Конференция", streams: "Камеры и потоки", voting: "Голосование", content: "Материалы", translation: "Синхроперевод", chat: "Чат", operations: "Сервис", settings: "Настройки" };
+const TAB_TITLES = { conference: "Конференция", streams: "Камеры и потоки", voting: "Голосование", content: "Материалы", translation: "Синхроперевод", chat: "Чат", operations: "Сервис", roomcontrol: "Управление залом", settings: "Настройки" };
 const SECRETARY_LAYOUT_DEFAULT = Object.freeze({
   order: ["program", "channels", "queue", "speakers", "protocol"],
   panels: { program: { width: 7, height: 350 }, channels: { width: 5, height: 220 },
@@ -323,23 +359,14 @@ const SECRETARY_LAYOUT_DEFAULT = Object.freeze({
     protocol: { width: 4, height: 330 } }
 });
 const TAB_ID_KEY = "edge-s-tab-id";
-// One shared draw timer serves every "Камеры и потоки" thumbnail (not one
-// timer per row): each still-subscribed WebRTC track keeps decoding at its
-// native rate regardless, but the browser only has to composite/paint each
-// tile 6-12 times a second instead of continuously, which is what makes a
-// grid of many simultaneous tiles affordable to keep on screen.
+// Shared thumbnail paint timer; subscribed WebRTC tracks keep decoding.
 const THUMBNAIL_FPS = 8;
 const RESOURCE_CONSTRAINED_CLIENT = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
   (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const THUMBNAIL_DECODE_BUDGET = RESOURCE_CONSTRAINED_CLIENT ? 2 : 6;
 // Unique per loaded document: an old pagehide cannot disconnect its replacement.
 const PRESENCE_ID = crypto.randomUUID();
-// edge-s-active-session-v0.6 lives in localStorage (shared by every tab of
-// this origin) so a reload or a reopened tab can restore the same
-// participant. TAB_ID lives in sessionStorage (unique per tab, never shared
-// with a freshly opened one) purely to tell "this exact tab is switching
-// identity" apart from "a different, still-open tab owns that session" -
-// see consumeConferenceHandoff().
+// A per-tab ID prevents another tab's saved session from being disconnected.
 const TAB_ID = (() => {
   let id;
   try { id = sessionStorage.getItem(TAB_ID_KEY); } catch (_) { id = null; }
@@ -428,6 +455,7 @@ const state = {
   audioContext: null,
   audioMixInputs: new Map(),
   audioMeters: new Map(),
+  translationAudioMeters: new Map(),
   serverAudioSubscriber: null,
   serverAudioMedia: null,
   serverAudioElement: null,
@@ -462,10 +490,10 @@ const state = {
   selectedAudioInputId: "",
   selectedAudioOutputId: "",
   mediaPermissionPending: false,
+  cameraSetupDismissed: false,
   pgmSlates: { selectedSlateId: null, items: [] },
   slatePreviewUrls: new Map(),
   lastOpenVoteId: null,
-  chairSelectedMode: null,
   lastRenderKey: null
 };
 
@@ -484,6 +512,13 @@ class EdgeApi {
   constructor(profile) {
     this.profile = profile;
     this.authToken = profile.authToken || sessionStorage.getItem(AUTH_TOKEN_KEY) || "";
+    if (!this.authToken) {
+      try {
+        const saved = JSON.parse(localStorage.getItem(QUICK_RESUME_KEY) || "null");
+        if (saved?.meetingId === profile.meetingId && saved.userId === profile.userId &&
+            saved.deviceId === profile.deviceId) this.authToken = saved.authToken || "";
+      } catch (_) {}
+    }
     if (!this.authToken) {
       try {
         this.authToken = JSON.parse(localStorage.getItem("edge-s-conference-identities-v1") || "{}")
@@ -689,6 +724,13 @@ function saveActiveSession() {
     tabId: TAB_ID,
     savedAt: new Date().toISOString()
   }));
+  try {
+    const saved = JSON.parse(localStorage.getItem(QUICK_RESUME_KEY) || "null");
+    if (saved?.meetingId === state.profile.meetingId && saved.userId === state.profile.userId &&
+        saved.deviceId === state.profile.deviceId) {
+      localStorage.setItem(QUICK_RESUME_KEY, JSON.stringify({ ...saved, role: state.profile.role }));
+    }
+  } catch (_) {}
 }
 
 function clearActiveSession() {
@@ -697,6 +739,7 @@ function clearActiveSession() {
 
 function enterApplication({ api, profile, leaseId, participantId }) {
   Object.assign(state, { api, profile, leaseId, participantId, roomSeatPromptOpen: false, roomSeatDismissed: false });
+  state.translationAudioMeters.clear();
   state.activeTab = /^(interpreter|translator)$/.test(profile.role) ? "translation" : "conference";
   applyParticipantLanguage(profile.userId);
   saveProfile(profile);
@@ -859,7 +902,7 @@ function formatAgendaTime(value) {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return participantFormatTime(date, interfaceLocale(), { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 function agendaTimeline() {
@@ -902,7 +945,17 @@ function openAgendaDialog({ editable = false } = {}) {
 
   const render = () => {
     const records = agendaTimeline();
-    const rows = records.map((record) => editable ? editorRow(record) : `<div class="agenda-view-row agenda-${record.phase}"><span class="agenda-order">${record.index + 1}</span><div><strong>${escapeHtml(record.item.title)}</strong>${agendaStatusHtml(record)}</div></div>`).join("") || `<div class="empty">Повестка пока не сформирована.</div>`;
+    const rows = records.map((record) => {
+      if (editable) return editorRow(record);
+      // Match the Materials visibility rules, including unpublished agenda
+      // attachments that privileged roles may otherwise receive from the API.
+      const documents = state.documents.filter((item) => item.agendaItemId === record.item.id &&
+        (canViewFiles() || item.uploadedBy === state.profile.userId) &&
+        (item.availableImmediately === true || item.agendaItemId === state.meeting.activeAgendaItemId ||
+          state.presentations.some((show) => show.documentId === item.id && show.status === "active")));
+      const materials = documents.length ? `<div class="agenda-document-links"><span>Материалы · ${documents.length}</span>${documents.map((item) => `<a href="#materials-document-${escapeHtml(item.id)}" data-agenda-dialog-action="view-material" data-document-id="${escapeHtml(item.id)}">${escapeHtml(item.fileName)}</a>`).join("")}</div>` : "";
+      return `<div class="agenda-view-row agenda-${record.phase}"><span class="agenda-order">${record.index + 1}</span><div><strong>${escapeHtml(record.item.title)}</strong>${agendaStatusHtml(record)}${materials}</div></div>`;
+    }).join("") || `<div class="empty">Повестка пока не сформирована.</div>`;
     dialog.innerHTML = `<div class="agenda-dialog-head"><div><p class="eyebrow">ПОВЕСТКА</p><h3>${editable ? "Управление повесткой" : "Вопросы заседания"}</h3></div><button type="button" class="dialog-icon-close" data-dialog-close data-agenda-dialog-action="close" aria-label="Закрыть">×</button></div>
       <div class="agenda-dialog-list">${rows}</div>
       <div class="actions">${editable ? `<button type="button" class="button button-quiet" data-agenda-dialog-action="add">+ Добавить вопрос</button><button type="button" class="button button-secondary" data-agenda-dialog-action="save">Сохранить</button>` : ""}<button type="button" data-agenda-dialog-action="close">Закрыть</button></div>`;
@@ -935,6 +988,19 @@ function openAgendaDialog({ editable = false } = {}) {
     if (!control) return;
     const action = control.dataset.agendaDialogAction;
     if (action === "close") { close(); return; }
+    if (action === "view-material") {
+      event.preventDefault();
+      const documentId = control.dataset.documentId;
+      close();
+      try {
+        await selectTab("content");
+        const row = [...document.querySelectorAll("[data-material-document-id]")].find((item) => item.dataset.materialDocumentId === documentId);
+        if (!row) { notify("Документ больше не доступен в материалах"); return; }
+        row?.scrollIntoView({ block: "center" });
+        row?.focus({ preventScroll: true });
+      } catch (error) { notify(error.message); }
+      return;
+    }
     if (action === "add") {
       const list = dialog.querySelector(".agenda-dialog-list");
       list.querySelector(".empty")?.remove();
@@ -1121,6 +1187,10 @@ function roomSeatScheme(selection) {
 
 async function offerRoomStation({ force = false } = {}) {
   if (state.roomSeatPromptOpen || !state.meeting) return;
+  if (state.profile?.remote === true) {
+    state.roomSeatDismissed = true;
+    return;
+  }
   const quickCreatorNeedsSeat = state.meeting.quick === true && state.profile.role === "operator";
   if (TECHNICAL_CONFERENCE_ROLES.has(state.profile.role) && !quickCreatorNeedsSeat && !(force && state.profile.role === "operator")) return;
   if (!force && state.roomSeatDismissed) return;
@@ -1132,7 +1202,7 @@ async function offerRoomStation({ force = false } = {}) {
   state.roomSeatPromptOpen = true;
   const backdrop = document.createElement("div"); backdrop.className = "form-dialog-backdrop room-seat-backdrop";
   const dialog = document.createElement("div"); dialog.className = "form-dialog room-seat-dialog";
-  dialog.innerHTML = `<header class="room-seat-head"><div><h3>${selection.selectedStationId ? "Изменить рабочее место" : "Выберите рабочее место"}</h3><p>Нажмите свободное место на схеме или в списке. Текущее место можно выбрать повторно.</p></div><button type="button" class="dialog-icon-close" data-dialog-close data-seat-later aria-label="Закрыть">×</button></header>
+  dialog.innerHTML = `<header class="room-seat-head"><div><h3>${selection.selectedStationId ? "Изменить место" : "Выберите место"}</h3><p>Нажмите свободное место на схеме или в списке. Текущее место можно выбрать повторно.</p></div><button type="button" class="dialog-icon-close" data-dialog-close data-seat-later aria-label="Закрыть">×</button></header>
     <div class="room-seat-layout"><div class="room-seat-scheme">${roomSeatScheme(selection)}</div>
     <div class="room-seat-list">${selection.stations.map((item) => `<button type="button" data-seat-id="${escapeHtml(item.id)}" ${item.available ? "" : "disabled"}>${item.number}. ${escapeHtml(item.name)}${item.occupied ? " · занято" : item.hasCamera ? "" : " · нет камеры"}</button>`).join("")}</div></div>
     <div class="actions"><button type="button" data-seat-later>Выбрать позже</button></div>`;
@@ -1155,6 +1225,7 @@ async function connectWithProfile(profile) {
   const api = new EdgeApi(profile);
   let lease;
   try {
+    if (!await clientBuildReady(api, CLIENT_BUILD, BUILD_RELOAD_KEY)) return false;
     await api.get(`/meetings/${encodeURIComponent(profile.meetingId)}`);
     lease = await api.post("/licenses/leases", {
       entitlementId: profile.entitlementId, deviceId: profile.deviceId,
@@ -1181,16 +1252,10 @@ async function consumeConferenceHandoff() {
   try {
     profile = JSON.parse(sessionStorage.getItem(HANDOFF_KEY) || localStorage.getItem(HANDOFF_KEY) || "null");
   } catch (_) { profile = null; }
-  sessionStorage.removeItem(HANDOFF_KEY);
-  localStorage.removeItem(HANDOFF_KEY);
   if (!profile?.meetingId || !profile?.userId || !profile?.role) return false;
   let previous;
   try { previous = JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch (_) { previous = null; }
-  // edge-s-active-session-v0.6 is shared localStorage, so it may belong to a
-  // different, still-open tab (e.g. another participant joined from the same
-  // browser) rather than a stale identity this same tab is replacing. Only
-  // auto-leave/release it when this tab's own TAB_ID saved it - otherwise a
-  // second tab's handoff would silently disconnect a live session in tab one.
+  // Release only this tab's prior lease, never another tab's live participant.
   if (previous?.profile && previous?.participantId && previous?.leaseId && previous?.tabId === TAB_ID &&
       (previous.profile.userId !== profile.userId || previous.profile.meetingId !== profile.meetingId)) {
     const previousApi = new EdgeApi(previous.profile);
@@ -1201,7 +1266,9 @@ async function consumeConferenceHandoff() {
   }
   clearActiveSession();
   if (!profile.authToken) sessionStorage.removeItem(AUTH_TOKEN_KEY);
-  await connectWithProfile(profile);
+  if (!await connectWithProfile(profile)) return true;
+  sessionStorage.removeItem(HANDOFF_KEY);
+  localStorage.removeItem(HANDOFF_KEY);
   return true;
 }
 
@@ -1275,7 +1342,9 @@ async function recoverSuspendedVideo(reason) {
   // iPadOS can leave a nominally live track muted after backgrounding. A new
   // capture track plus a new video producer forces a fresh keyframe into the
   // persistent VideoCore input without restarting audio or the send transport.
-  if (current && !current.muted && reason !== "pageshow") return;
+  // Foregrounding an iPad is not evidence of a broken capture. Reopening a
+  // healthy track here triggers another browser permission sheet on Safari.
+  if (current && current.readyState === "live" && !current.muted) return;
   const media = await navigator.mediaDevices.getUserMedia({ audio: false, video: {
     ...deviceConstraint(state.selectedVideoInputId), facingMode: state.selectedVideoInputId ? undefined : { ideal: "user" },
     width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 }
@@ -1308,7 +1377,9 @@ async function enableLocalAv() {
     video: needVideo ? {
       ...deviceConstraint(state.selectedVideoInputId),
       facingMode: state.selectedVideoInputId ? undefined : { ideal: "user" },
-      width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 }
+      width: { ideal: state.profile?.remote ? 640 : 1280 },
+      height: { ideal: state.profile?.remote ? 360 : 720 },
+      frameRate: { ideal: state.profile?.remote ? 15 : 24, max: state.profile?.remote ? 20 : 30 }
     } : false
   });
   const audioTrack = media.getAudioTracks()[0];
@@ -1354,6 +1425,7 @@ async function restoreActiveSession() {
   if (!saved?.profile || !saved.leaseId || !saved.participantId) return false;
   const api = new EdgeApi(saved.profile);
   try {
+    if (!await clientBuildReady(api, CLIENT_BUILD, BUILD_RELOAD_KEY)) return true;
     const meeting = await api.get(`/meetings/${encodeURIComponent(saved.profile.meetingId)}`);
     await api.post(`/licenses/leases/${encodeURIComponent(saved.leaseId)}/heartbeat`, {
       deviceId: saved.profile.deviceId
@@ -1414,12 +1486,16 @@ async function restoreActiveSession() {
 function startTimers() {
   clearTimers();
   startEventStream();
-  // Push is primary. Polling remains a low-frequency safety net for proxy or
-  // browser environments that interrupt an authenticated streaming fetch.
+  state.voteCountdownTimer = setInterval(updateVoteCountdowns, 1000);
+  state.translationMeterTimer = setInterval(updateTranslationMeters, 500);
   state.refreshTimer = setInterval(() => refreshAll(true), 30000);
   state.heartbeatTimer = setInterval(() => {
     state.api.post(`/meetings/${state.profile.meetingId}/participants/${state.participantId}/presence`, { presenceId: PRESENCE_ID })
       .catch((error) => {
+        if (error.status === 401 || error.status === 403) {
+          void exitClosedConference();
+          return;
+        }
         if (error.status === 409 && error.serverMessage === "Participant presence is no longer active") {
           clearInterval(state.heartbeatTimer);
           state.heartbeatTimer = null;
@@ -1427,8 +1503,6 @@ function startTimers() {
         } else notify(`Присутствие: ${error.message}`);
       });
   }, 20000);
-  // Chat negotiation is woken by content-free chat.signal SSE events. This
-  // low-frequency poll is only a recovery path if an event was missed.
   state.signalTimer = setInterval(pollSignaling, 30000);
   void pollSignaling();
   state.programTimer = setInterval(refreshProgram, 10000);
@@ -1456,6 +1530,8 @@ function startTimers() {
 }
 
 function clearTimers() {
+  clearInterval(state.voteCountdownTimer);
+  clearInterval(state.translationMeterTimer);
   clearInterval(state.refreshTimer);
   clearInterval(state.heartbeatTimer);
   clearInterval(state.signalTimer);
@@ -1488,14 +1564,12 @@ function schedulePushRefresh(eventType) {
         type === "mcu.video-scene-visible" ||
       type === "mediaplane.video-scene-visible" ||
         type === "participant.updated")) refreshProgram();
-    // A floor change used to fetch every product module and rebuild the whole
-    // source page on every client. Besides being expensive on Safari, that
-    // temporarily detached thumbnail canvases and looked like a strobe. Floor
-    // events need only authoritative meeting state plus PGM metadata.
+    // Floor events update meeting state without detaching live video canvases.
     if (floorOnly) refreshFloorState();
     else refreshAll(true);
   }, 60);
 }
+
 
 async function refreshFloorState() {
   if (!state.api || !state.profile?.meetingId) return;
@@ -1534,13 +1608,20 @@ async function refreshFloorState() {
         field?.setSelectionRange(...selection);
       }
     }
-    // Never rebuild or temporarily detach the Conference DOM for a microphone
-    // event. WebKit/iPadOS can paint black when a live <video> is removed and
-    // reinserted even though its MediaStream and consumer never changed.
-    // The dock, fixed controls and PGM captions are updated independently.
+    // Keep video canvases mounted.
+    if (state.activeTab === "conference") {
+      const template = document.createElement("template");
+      template.innerHTML = conferenceHtml();
+      for (const selector of [".conference-speakers-panel", ".conference-queue-panel"]) {
+        const current = document.querySelector(`#pageContent ${selector}`);
+        const updated = template.content.querySelector(selector);
+        if (current && updated) current.replaceWith(updated);
+      }
+    }
     if (state.activeTab === "streams") updateSourceWallFloorState();
     syncConferenceAudio().catch(() => {});
   } catch (error) {
+    if (error.status === 401 || error.status === 403) return exitClosedConference();
     if (state.profile?.role === "secretary") notify(`Стенограмма не синхронизирована: ${error.message}`);
     // The normal low-frequency refresh remains the recovery path.
   } finally {
@@ -1558,13 +1639,43 @@ function updateSourceWallFloorState() {
 }
 
 function applyAudioMeters(payload) {
-  if (!payload || payload.meetingId !== state.profile?.meetingId || payload.channel !== "program") return;
-  for (const meter of payload.meters ?? []) state.audioMeters.set(meter.sourceId, meter);
-  for (const element of $$('[data-audio-meter]')) {
-    const meter = state.audioMeters.get(element.dataset.audioMeter);
-    const db = Number(meter?.peakDbfs ?? meter?.rmsDbfs ?? meter?.levelDbfs ?? -127);
-    element.value = Math.max(-60, Math.min(0, db));
-    element.title = `${db.toFixed(1)} dBFS`;
+  if (!payload || payload.meetingId !== state.profile?.meetingId) return;
+  if (payload.channel === "program") {
+    for (const meter of payload.meters ?? []) state.audioMeters.set(meter.sourceId, meter);
+    for (const element of $$('[data-audio-meter]')) {
+      const meter = state.audioMeters.get(element.dataset.audioMeter);
+      const db = Number(meter?.peakDbfs ?? meter?.rmsDbfs ?? meter?.levelDbfs ?? -127);
+      element.value = Math.max(-60, Math.min(0, db));
+      element.title = `${db.toFixed(1)} dBFS`;
+    }
+  }
+  if (payload.channel !== "program" && !payload.channel?.startsWith("language:")) return;
+  const master = payload.meters?.find((meter) => meter.sourceId === "__mix_master__");
+  if (master) {
+    const receivedAt = Date.now();
+    const peak = Number(master.peakDbfs ?? master.rmsDbfs ?? master.levelDbfs);
+    const lastSignalAt = Number.isFinite(peak) && peak > -55 ? receivedAt
+      : state.translationAudioMeters.get(payload.channel)?.lastSignalAt ?? 0;
+    state.translationAudioMeters.set(payload.channel, { ...master, receivedAt, lastSignalAt });
+  }
+  updateTranslationMeters();
+}
+
+function updateTranslationMeters() {
+  for (const element of $$('[data-translation-signal]')) {
+    const reading = state.translationAudioMeters.get(element.dataset.translationSignal);
+    const fresh = Boolean(reading && Date.now() - reading.receivedAt < 2500);
+    const db = Number(reading?.peakDbfs ?? reading?.rmsDbfs ?? reading?.levelDbfs);
+    const hasSignal = fresh && ((Number.isFinite(db) && db > -55) ||
+      Date.now() - (reading.lastSignalAt ?? 0) < 1200);
+    const status = fresh ? (hasSignal ? "Онлайн" : "Офлайн") : "Нет данных";
+    element.dataset.signalState = fresh ? (hasSignal ? "online" : "offline") : "unknown";
+    const label = element.querySelector('[data-translation-status]');
+    if (label && label.textContent !== status) label.textContent = status;
+    const peak = element.querySelector('[data-translation-peak]');
+    if (peak) peak.value = fresh && Number.isFinite(db) ? Math.max(-60, Math.min(0, db)) : -60;
+    const display = element.querySelector('[data-translation-db]');
+    if (display) display.textContent = fresh && Number.isFinite(db) && db > -100 ? `${Math.round(db)} dBFS` : "−∞ dBFS";
   }
 }
 
@@ -1584,6 +1695,7 @@ async function startEventStream() {
       headers: state.api.headers({ Accept: "text/event-stream" }),
       cache: "no-store", signal: controller.signal
     });
+    if (response.status === 401 || response.status === 403) return exitClosedConference();
     if (!response.ok || !response.body) throw new Error(`SSE HTTP ${response.status}`);
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -1605,7 +1717,13 @@ async function startEventStream() {
           setEventConnectionStatus(true);
           void pollSignaling();
         }
+        else if (eventType === "conference.ending" || eventType === "conference.closed") {
+          void exitClosedConference();
+          return;
+        }
         else if (eventType === "mediaplane.audio-input-meters") applyAudioMeters(eventPayload);
+        else if (eventType === "control.state-changed") pushRoomControlState?.(eventPayload);
+        else if (eventType === "control.page-command") pushRoomControlPage?.(eventPayload);
         else if (eventType === "chat.signal") void pollSignaling();
         else if (eventType?.startsWith("document-scene.")) documentSceneEvent(eventType, eventPayload);
         else if (eventType && eventType !== "connected" && eventType !== "mediaplane.audio-levels") schedulePushRefresh(eventType);
@@ -1678,9 +1796,9 @@ async function refreshAll(silent = false) {
         state.secretaryLayoutLoaded = true;
       }
     }
-    if (role !== "secretary" && state.workspaceLayoutRole !== role) {
-      // Role layout (participants, set by the administrator) or personal layout (technical roles).
-      applyWorkspaceLayout(await keep(state.api.get(`/me/workspace-layout?meetingId=${meetingId}`), null), role);
+    const layoutDevice = window.innerWidth >= 1600 ? "pc" : window.innerWidth >= 1180 ? "laptop" : "tablet";
+    if (role !== "secretary" && (state.workspaceLayoutRole !== role || state.workspaceLayoutDevice !== layoutDevice)) {
+      applyWorkspaceLayout(await keep(state.api.get(`/me/workspace-layout?meetingId=${meetingId}&device=${layoutDevice}`), null), role);
     }
     const deviceAccess = ["operator", "technician", "admin"].includes(role);
     const readinessAccess = ["chair", "secretary", "operator", "technician", "admin"].includes(role);
@@ -1689,20 +1807,22 @@ async function refreshAll(silent = false) {
     const sharedSeatAccess = ["secretary", "operator", "technician", "admin"].includes(role);
     const mediaAccess = can("media.devices");
     const aes67Access = ["operator", "technician", "admin"].includes(role);
-    const [meeting, streams, votes, documents, presentations, devices, readiness, signagePlayers, aes67, serviceRequests, sharedSeats, chatSessions, cameras, mediaRuntime, routing, programDescriptor, mediaWorkers, multicastJobs, ndiJobs, systemStatus, mcuHealth, pgmSlates, translateStatus, translateMeeting] = await Promise.all([
-      state.api.get(`/meetings/${meetingId}`),
+    const meeting = await state.api.get(`/meetings/${meetingId}`);
+    const roomId = meeting.roomId ?? "default-room";
+    const [streams, votes, documents, presentations, devices, readiness, signagePlayers, aes67, serviceRequests, sharedSeats, chatSessions, cameras, mediaRuntime, routing, programDescriptor, mediaWorkers, multicastJobs, ndiJobs, systemStatus, mcuHealth, pgmSlates, translateStatus, translateMeeting] = await Promise.all([
       state.api.get(`/meetings/${meetingId}/streams`),
       state.api.get(`/meetings/${meetingId}/votes`),
       state.api.get(`/meetings/${meetingId}/documents`),
       state.api.get(`/meetings/${meetingId}/presentations`),
-      deviceAccess ? keep(state.api.get(`/devices?roomId=default-room&meetingId=${meetingId}`), state.devices) : Promise.resolve(state.devices),
-      readinessAccess ? keep(state.api.get(`/rooms/default-room/readiness?meetingId=${meetingId}`), state.readiness) : Promise.resolve(state.readiness),
-      signageAccess ? keep(state.api.get(`/signage/players?roomId=default-room&meetingId=${meetingId}`), state.signagePlayers) : Promise.resolve(state.signagePlayers),
+      deviceAccess ? keep(state.api.get(`/devices?roomId=${encodeURIComponent(roomId)}&meetingId=${meetingId}`), state.devices) : Promise.resolve(state.devices),
+      readinessAccess ? keep(state.api.get(`/rooms/${encodeURIComponent(roomId)}/readiness?meetingId=${meetingId}`), state.readiness) : Promise.resolve(state.readiness),
+      signageAccess ? keep(state.api.get(`/signage/players?meetingId=${meetingId}`), state.signagePlayers) : Promise.resolve(state.signagePlayers),
       aes67Access ? keep(state.api.get(`/media/aes67?meetingId=${meetingId}`), state.aes67) : Promise.resolve(state.aes67),
-      serviceAccess ? keep(state.api.get(`/service/requests?meetingId=${meetingId}`), state.serviceRequests) : Promise.resolve(state.serviceRequests),
-      sharedSeatAccess ? keep(state.api.get("/shared-seats?roomId=default-room"), state.sharedSeats) : Promise.resolve(state.sharedSeats),
+      keep(state.api.get(serviceAccess ? `/service/requests?meetingId=${meetingId}` :
+        `/service/requests/mine?meetingId=${meetingId}&participantId=${encodeURIComponent(state.participantId)}`), state.serviceRequests),
+      sharedSeatAccess ? keep(state.api.get(`/shared-seats?roomId=${encodeURIComponent(roomId)}`), state.sharedSeats) : Promise.resolve(state.sharedSeats),
       keep(state.api.get(`/chat/sessions?meetingId=${meetingId}&participantId=${encodeURIComponent(state.participantId)}`), state.chatSessions),
-      mediaAccess ? keep(state.api.get("/cameras?roomId=default-room"), state.cameras) : Promise.resolve(state.cameras),
+      mediaAccess ? keep(state.api.get(`/cameras?roomId=${encodeURIComponent(roomId)}`), state.cameras) : Promise.resolve(state.cameras),
       mediaAccess ? keep(state.api.get("/media/runtime"), state.mediaRuntime) : Promise.resolve(state.mediaRuntime),
       keep(state.api.get(`/media/routing?meetingId=${meetingId}`), state.routing),
       keep(state.api.get(`/media/program?meetingId=${meetingId}`), state.programDescriptor),
@@ -1715,19 +1835,22 @@ async function refreshAll(silent = false) {
       keep(state.api.get("/translate-core/status"), state.translateStatus),
       keep(state.api.get(`/meetings/${meetingId}/translate-core`), state.translateMeeting)
     ]);
-    if (systemStatus?.build && systemStatus.build !== CLIENT_BUILD) {
-      // One cache-refresh attempt is enough. A stale hard-coded marker must
-      // never turn entry into an unbounded reload/join loop.
-      if (sessionStorage.getItem(BUILD_RELOAD_KEY) !== systemStatus.build) {
-        sessionStorage.setItem(BUILD_RELOAD_KEY, systemStatus.build);
-        location.reload();
-        return;
-      }
-      console.error(`Client build ${CLIENT_BUILD} does not match server ${systemStatus.build}`);
-    } else {
-      sessionStorage.removeItem(BUILD_RELOAD_KEY);
-    }
+    if (!await clientBuildReady(state.api, CLIENT_BUILD, BUILD_RELOAD_KEY, systemStatus)) return;
     Object.assign(state, { meeting, streams, votes, documents, presentations, devices, readiness, signagePlayers, aes67, serviceRequests, sharedSeats, cameras, mediaRuntime, routing, programDescriptor, mediaWorkers, multicastJobs, ndiJobs, systemStatus, mcuHealth, pgmSlates, translateStatus, translateMeeting });
+    state.roomControlPanelId = meetingControlPanelId(meetingId);
+    state.roomControl = state.capabilities.has("control.room.operate")
+      ? await keep(state.api.get(`/control-core/meetings/${meetingId}?panelId=${encodeURIComponent(state.roomControlPanelId)}`), null) : null;
+    if (state.roomControl) {
+      const key = `vox-control-page:${meetingId}:${state.roomControl.roomId}:${state.roomControl.version}`;
+      const stored = sessionStorage.getItem(key);
+      const navigation = state.roomControl.navigation;
+      const navKey = `vox-control-navigation:${state.roomControlPanelId}`;
+      const requested = navigation?.id && navigation.id !== sessionStorage.getItem(navKey)
+        ? navigation.pageId : stored;
+      if (navigation?.id && requested === navigation.pageId) sessionStorage.setItem(navKey, navigation.id);
+      state.roomControlPageId = state.roomControl.panel.pages?.some((page) => page.id === requested)
+        ? requested : state.roomControl.panel.pages?.[0]?.id ?? "main";
+    }
     if (role === "secretary") {
       const [protocol, recordingStatus] = await Promise.all([
         keep(state.api.get(`/meetings/${meetingId}/protocol`), state.protocol),
@@ -1736,6 +1859,8 @@ async function refreshAll(silent = false) {
       state.protocol = protocol;
       state.recordingStatus = recordingStatus;
       await syncSecretaryTurn();
+    } else if (can("conference.recording")) {
+      state.recordingStatus = await keep(state.api.get(`/meetings/${meetingId}/recording/status`), state.recordingStatus);
     }
     reconcileChatSessions(chatSessions, meeting);
     if (meeting.status === "closed" || meeting.status === "archived") {
@@ -1766,6 +1891,7 @@ async function refreshAll(silent = false) {
     document.body.dataset.role = state.profile.role ?? "";
     const renderKey = JSON.stringify({
       tab: state.activeTab,
+      roomControl: state.roomControl ? [state.roomControl.version, state.roomControl.state] : null,
       meeting: [meeting.status, meeting.activeAgendaItemId, meeting.activeSpeakerIds, meeting.floorQueue],
       participants: Object.values(meeting.participants ?? {}).map((item) => [item.id, item.state, item.role,
         item.permissions?.canSpeak, item.permissions?.canVote, item.permissions?.canUploadFiles,
@@ -1787,7 +1913,9 @@ async function refreshAll(silent = false) {
       presenterSeats: (sharedSeats ?? []).map((item) => [item.id, item.online, item.session?.status,
         item.session?.assignedUserId, item.session?.confirmedAt]),
       secretaryRecording: state.recordingStatus?.enabled,
-      translation: [translateMeeting?.revision, translateMeeting?.selections?.[state.participantId]?.channelId]
+      translation: [translateMeeting?.revision, translateMeeting?.selections?.[state.participantId]?.channelId],
+      signage: state.activeTab === "operations" ? signagePlayers.map((item) => [item.id, item.online,
+        item.currentScene?.id]) : null
     });
     if (!silent || renderKey !== state.lastRenderKey) {
       state.lastRenderKey = renderKey;
@@ -1795,6 +1923,7 @@ async function refreshAll(silent = false) {
     } else updateChatNotice();
     void maybeOfferRoomStation().catch((error) => notify(`Рассадка: ${error.message}`, 3500));
   } catch (error) {
+    if (error.status === 401 || error.status === 403) return exitClosedConference();
     if (error.status === 404 && state.profile?.meetingId) {
       clearTimers(); clearActiveSession();
       Object.assign(state, { api:null, meeting:null, participantId:null, leaseId:null });
@@ -1819,6 +1948,7 @@ function updateBuildLabels() {
 }
 
 async function selectTab(tab) {
+  if (tab === "operations" && state.profile?.remote === true) return;
   if (state.activeTab === "streams" && tab !== "streams") {
     state.streamsWarmUntil = Date.now() + 120_000;
     stopThumbnailLoop(); closeStreamPreviewModal();
@@ -1882,12 +2012,7 @@ async function disconnect() {
   await saveSecretaryTranscript().catch((error) => notify(`Стенограмма не сохранена: ${error.message}`));
   clearTimers();
   closeDocumentViewer();
-  // Local WebRTC/media teardown (closeAllPeers/closeAllChats, track.stop())
-  // can throw synchronously on some mobile browsers when a connection is
-  // already in an unstable state - an uncaught throw here used to abort the
-  // rest of disconnect() outright, so tapping "disconnect" silently did
-  // nothing (no server leave call, no redirect). Best-effort cleanup, but
-  // the server-side leave and the redirect below must always happen.
+  // Cleanup is best-effort; an unstable WebRTC peer must not abort server leave.
   try {
     for (const view of state.mediaViews.values()) view.hls?.destroy();
     state.mediaViews.clear();
@@ -1914,35 +2039,27 @@ async function disconnect() {
     activeChatId: null, claimedSeat: null, localMedia: null, publishedStream: null,
     contentMedia: null, contentPublishedStream: null, selectedStream: null, selectedSourceIdentity: null,
     watchingStreamId: null, remoteMedia: null, systemStatus: null, mcuHealth: null, voteSelections: new Map(),
-    mediaPermissionPending: false, secretaryLayout: structuredClone(SECRETARY_LAYOUT_DEFAULT),
+    mediaPermissionPending: false, cameraSetupDismissed: false, secretaryLayout: structuredClone(SECRETARY_LAYOUT_DEFAULT),
     secretaryLayoutDraft: null, secretaryLayoutLoaded: false
   });
   clearActiveSession();
+  localStorage.removeItem(QUICK_RESUME_KEY);
   sessionStorage.removeItem(AUTH_TOKEN_KEY);
   location.replace("/conference/?error=handoff-missing");
 }
 
 async function exitClosedConference() {
-  await saveSecretaryTranscript().catch((error) => notify(`Стенограмма не сохранена: ${error.message}`));
+  if (state.exitingConference) return;
+  state.exitingConference = true;
   clearTimers();
-  closeDocumentViewer();
-  try {
-    for (const view of state.mediaViews.values()) view.hls?.destroy();
-    state.mediaViews.clear();
-    state.programStageNode = null;
-    state.studioPreviewStageNode = null;
-    state.studioProgramStageNode = null;
-    state.thumbnailSinks.clear();
-    state.streamsWarmUntil = 0;
-    await closeAllPeers();
-    await closeAllChats();
-    state.localMedia?.getTracks().forEach((track) => track.stop());
-    state.contentMedia?.getTracks().forEach((track) => track.stop());
-  } catch (error) {
-    console.error("Media cleanup after conference close failed", error);
-  }
   clearActiveSession();
+  localStorage.removeItem(QUICK_RESUME_KEY);
   sessionStorage.removeItem(AUTH_TOKEN_KEY);
+  $("#appView").hidden = true;
+  state.localMedia?.getTracks().forEach((track) => track.stop());
+  state.contentMedia?.getTracks().forEach((track) => track.stop());
+  void closeAllPeers().catch(() => {});
+  void closeAllChats().catch(() => {});
   Object.assign(state, { api: null, meeting: null, participantId: null, leaseId: null });
   location.replace("/conference/?ended=1");
 }
@@ -1959,8 +2076,12 @@ $("#secretaryLayoutBtn")?.addEventListener("click", (event) => {
   renderPage();
 });
 $("#secretaryLayoutActions")?.addEventListener("click", (event) => {
-  const action = event.target.closest("[data-action]")?.dataset.action;
-  if (action) handleSecretaryLayoutAction(action);
+  const t = event.target.closest("[data-action]");
+  if (t) handleSecretaryLayoutAction(t.dataset.action, t);
+});
+$("#workspaceAddMenu")?.addEventListener("click", (event) => {
+  const target = event.target.closest('[data-action="layout-add"]');
+  if (target) handleSecretaryLayoutAction?.("layout-add", target);
 });
 $("#chatNoticeBtn")?.addEventListener("click", () => selectTab("chat").catch((error) => notify(error.message)));
 $$(".nav-item[data-tab]").forEach((button) => button.addEventListener("click", () => {
@@ -1974,6 +2095,20 @@ document.addEventListener("pointerup", (event) => finishSecretaryLayoutGesture?.
 document.addEventListener("pointercancel", (event) => finishSecretaryLayoutGesture?.(event));
 
 $("#pageContent").addEventListener("change", (event) => {
+  if (["signageTargetPlayer", "signageSceneDocument"].includes(event.target.id)) updateSignagePreviews();
+  if (event.target.matches("[data-room-control-slider]")) {
+    const controlId = event.target.dataset.roomControlSlider;
+    const value = Number(event.target.value);
+    void roomControlEvents?.send(controlId, "release", value);
+    return;
+  }
+  if (event.target.id === "signageSceneType") {
+    const isDocument = event.target.value === "document";
+    document.querySelectorAll("[data-signage-text]").forEach((field) => { field.hidden = isDocument; });
+    document.querySelector("[data-signage-document]").hidden = !isDocument;
+    updateSignagePreviews();
+    return;
+  }
   if (event.target.id === "participantLanguage") {
     setParticipantLanguage(state.profile?.userId, event.target.value);
     renderPage();
@@ -2009,12 +2144,6 @@ $("#pageContent").addEventListener("change", (event) => {
         { sourceGain: { streamId, value } });
     }, value === 0 ? "Линейный источник заглушён" : "Уровень линейного источника обновлён");
   }
-  if (event.target.id === "documentUpload") {
-    runAction(() => uploadDocument(event.target.files[0]), "Файл отправлен");
-  }
-  if (event.target.id === "agendaDocumentUpload") {
-    runAction(() => uploadAgendaDocument(event.target.files[0]), "Документ прикреплён к повестке");
-  }
   if (event.target.id === "operatorSlateUpload") {
     runAction(() => uploadPgmSlate(event.target.files[0]), "Заставка добавлена в библиотеку");
   }
@@ -2029,6 +2158,7 @@ $("#pageContent").addEventListener("change", (event) => {
 });
 
 $("#pageContent").addEventListener("input", (event) => {
+  if (["signageSceneTitle", "signageSceneBody"].includes(event.target.id)) updateSignagePreviews();
   if (event.target.id === "secretaryText") {
     if (state.secretaryMode === "transcript") {
       state.secretaryEditor.value = event.target.value;
@@ -2076,28 +2206,43 @@ async function handleMicrophoneAction(button) {
       const queued = state.meeting.floorQueue.includes(state.participantId);
       await runMicrophoneAction(active || queued ? selfRelease : requestFloor);
     }
-    if (action === "chair-hard" || action === "chair-soft") {
-      await runMicrophoneAction(() => toggleChairPriority(action === "chair-hard" ? "hard" : "soft"));
-    }
-    if (action === "chair-mode" || action === "chair-microphone") {
-      const mode = action === "chair-mode" ? button.dataset.chairMode : state.chairSelectedMode ?? "normal";
-      if (action === "chair-mode" && state.chairSelectedMode !== mode) {
-        state.chairSelectedMode = mode;
-        renderPage();
-        return;
-      }
+    if (action === "chair-priority") await runMicrophoneAction(() => activateChairMicrophone("priority"));
+    if (action === "chair-take-floor") {
       const speaking = state.meeting.activeSpeakerIds.includes(state.participantId);
-      const activePriority = state.meeting.chairPriority?.chairId === state.participantId
-        ? state.meeting.chairPriority.mode : null;
-      if (speaking && (mode === activePriority || mode === "normal" && !activePriority)) {
-        await runMicrophoneAction(activePriority ? () => toggleChairPriority(activePriority) : selfRelease);
-      } else if (mode === "normal") {
-        if (activePriority) await toggleChairPriority(activePriority);
-        await runMicrophoneAction(activateChairMicrophone);
-      } else await runMicrophoneAction(() => toggleChairPriority(mode));
-      renderPage();
+      await runMicrophoneAction(speaking ? selfRelease : () => activateChairMicrophone("normal"));
+    }
+    if (action === "chair-next") {
+      const nextId = state.meeting.audioSettings?.discussionMode === "managed"
+        ? state.meeting.floorQueue.find((id) => state.meeting.participants?.[id]?.state === "joined") : null;
+      if (nextId) await runAction(() => grantFloor(nextId), "Слово предоставлено следующему участнику");
     }
   } finally { button.disabled = false; }
+}
+
+function handlePresentationControlAction(target) {
+  if (!target || target.disabled) return false;
+  const id = target.dataset.presentationId;
+  if (target.dataset.action === "open-presentation-document") {
+    if (!id || !target.dataset.documentId) return true;
+    target.disabled = true;
+    void openDocument(target.dataset.documentId, id)
+      .catch((error) => notify(error.message))
+      .finally(() => { if (target.isConnected) target.disabled = false; });
+    return true;
+  }
+  if (target.dataset.action === "stop-presentation") {
+    if (!id) return true;
+    target.disabled = true;
+    void runAction(async () => {
+      await state.api.post(`/presentations/${encodeURIComponent(id)}/stop`);
+      state.presentations = state.presentations.map((item) =>
+        item.id === id ? { ...item, status: "stopped" } : item);
+      closePresentationViewer(id);
+      renderMicrophoneDock();
+    }).finally(() => { if (target.isConnected) target.disabled = false; });
+    return true;
+  }
+  return false;
 }
 
 $("#pageContent").addEventListener("click", (event) => {
@@ -2108,8 +2253,34 @@ $("#pageContent").addEventListener("click", (event) => {
   }
   const target = event.target.closest("[data-action]");
   if (!target) return;
+  if (handlePresentationControlAction(target)) return;
   const action = target.dataset.action;
   if (handleWorkspaceUiAction(action, target)) return;
+  if (action === "open-camera-setup") {
+    event.preventDefault();
+    void (async () => {
+      await refreshMediaDevices().catch(() => {});
+      await selectTab("settings");
+      const setup = $("#camera-setup");
+      setup?.scrollIntoView({ block: "start" });
+      setup?.querySelector("#videoInputSelect")?.focus({ preventScroll: true });
+    })().catch((error) => notify(error.message));
+    return;
+  }
+  if (action === "dismiss-camera-setup") {
+    state.cameraSetupDismissed = true;
+    renderPage();
+    return;
+  }
+  if (action === "publish-local-camera") {
+    void runAction(async () => {
+      await startPublishing();
+      localStorage.setItem(CAMERA_AUTO_KEY, "on");
+      state.cameraSetupDismissed = false;
+      renderPage();
+    }, "Камера опубликована");
+    return;
+  }
   if (action === "secretary-panel-before" || action === "secretary-panel-after") {
     moveSecretaryLayoutPanel(target.dataset.panelId, action === "secretary-panel-before" ? -1 : 1);
     return;
@@ -2267,8 +2438,11 @@ $("#pageContent").addEventListener("click", (event) => {
   if (action === "download-document") runAction(() => openDocument(target.dataset.documentId));
   if (action === "delete-own-document") void (async () => {
     const document = state.documents.find((item) => item.id === target.dataset.documentId);
-    if (!document || document.uploadedBy !== state.profile.userId || document.agendaItemId) return;
-    if (!await confirmDialog(`Удалить документ «${document.fileName}» и его черновые пометки?`, "Удалить", "Отмена")) return;
+    if (!document || document.uploadedBy !== state.profile.userId) return;
+    const question = document.agendaItemId
+      ? `Удалить документ «${document.fileName}» из «Моих документов» и повестки вместе с черновыми пометками?`
+      : `Удалить документ «${document.fileName}» и его черновые пометки?`;
+    if (!await confirmDialog(question, "Удалить", "Отмена")) return;
     await runAction(async () => {
       await state.api.delete(`/documents/${encodeURIComponent(document.id)}`);
       state.documents = state.documents.filter((item) => item.id !== document.id);
@@ -2278,9 +2452,7 @@ $("#pageContent").addEventListener("click", (event) => {
   if (action === "start-presentation") runAction(() => startPresentationBroadcast(target.dataset.presentationId));
   if (action === "share-screen") runAction(shareScreen);
   if (action === "stop-screen-share") runAction(stopScreenShare);
-  if (action === "open-presentation-document") runAction(() => openDocument(target.dataset.documentId, target.dataset.presentationId));
   if (action === "next-page") runAction(() => state.api.post(`/presentations/${target.dataset.presentationId}/page`, { page: Number(target.dataset.page) }));
-  if (action === "stop-presentation") runAction(() => state.api.post(`/presentations/${target.dataset.presentationId}/stop`));
   if (action === "open-chat") runAction(() => openChat(target.dataset.participantId));
   if (action === "select-chat") { state.activeChatId = target.dataset.sessionId; markChatRead(state.activeChatId); renderPage(); }
   if (action === "check-readiness") runAction(checkReadiness, "Проверка готовности завершена");
@@ -2288,6 +2460,16 @@ $("#pageContent").addEventListener("click", (event) => {
   if (action === "device-command") runAction(() => deviceCommand(target.dataset.deviceId), "Команда выполнена");
   if (action === "publish-room-free") runAction(() => publishRoom("free"), "Статус опубликован");
   if (action === "publish-room-busy") runAction(() => publishRoom("busy"), "Статус опубликован");
+  if (action === "publish-signage-scene") {
+    target.disabled = true;
+    void publishSignageScene().then(() => {
+      const status = document.querySelector("#signageFeedback");
+      if (status) status.textContent = state.signageFeedback;
+    }).catch((error) => {
+      const status = document.querySelector("#signageFeedback");
+      if (status) status.textContent = error.message;
+    }).finally(() => { target.disabled = false; });
+  }
   if (action === "call-participant") runAction(callParticipant, "Вызов отправлен на вывески");
   if (action === "edit-live-roster") runAction(editLiveRoster, "Состав обновлён");
   if (action === "report-up") runAction(() => moveLiveReport(target.dataset.presenterId, -1), "Очередь обновлена");
@@ -2342,6 +2524,7 @@ $("#mediaAccessBtn")?.addEventListener("click", async (event) => {
 });
 
 $("#microphoneDock").addEventListener("click", (event) => {
+  if (handlePresentationControlAction(event.target.closest("[data-action]"))) return;
   if (event.target.closest('[data-action="secretary-toggle-recording"]')) {
     runAction(() => state.api.put(`/meetings/${state.profile.meetingId}/recording`,
       { enabled: !state.recordingStatus?.enabled }), "Режим записи обновлён");
@@ -2420,7 +2603,7 @@ async function bootstrapClient() {
   }
   try {
     const languageResponse = await fetch("/api/v1/language-settings", { cache: "no-store" });
-    if (languageResponse.ok) setSystemInterfaceLanguage((await languageResponse.json()).interfaceLanguage);
+    if (languageResponse.ok) configureParticipantLanguages(await languageResponse.json());
     await loadFeatureModules();
     updateHeadphoneWarning();
     if (await consumeConferenceHandoff()) return;

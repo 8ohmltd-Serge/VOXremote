@@ -31,7 +31,7 @@ import {
   chatHtml, requestItemsText, operationsHtml, settingsHtml, encodeIdentityHeader, observeBottomControls,
   serviceRequestCategoryLabel, serviceRequestStatusLabel, serviceRequestCategoryOptions, eventRetryDelay,
   PARTICIPANT_LANGUAGES, participantLanguage, setParticipantLanguage, participantText, openDocumentViewer,
-  closeDocumentViewer, updateDocumentViewerRights, updateDocumentViewerBadge, documentSceneEvent
+  closeDocumentViewer, expandPresentationViewer, updateDocumentViewerRights, documentSceneEvent
 } from "./app.js";
 
 function inMcu(stream) {
@@ -96,10 +96,10 @@ async function runMicrophoneAction(action, success = null) {
   }
 }
 
-async function activateChairMicrophone() {
+async function activateChairMicrophone(mode = "normal") {
   await ensureMicrophone();
   await ensurePublishedMedia();
-  return state.api.post(`/meetings/${state.profile.meetingId}/floor/chair-activate`, { participantId: state.participantId, mode: "normal" });
+  return state.api.post(`/meetings/${state.profile.meetingId}/floor/chair-activate`, { participantId: state.participantId, mode });
 }
 
 async function grantFloor(participantId) {
@@ -258,12 +258,15 @@ async function startCamera() {
       video: {
         ...deviceConstraint(state.selectedVideoInputId),
         facingMode: state.selectedVideoInputId ? undefined : { ideal: "user" },
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        frameRate: { ideal: 24, max: 30 }
+        width: { ideal: state.profile?.remote ? 640 : 1280 },
+        height: { ideal: state.profile?.remote ? 360 : 720 },
+        frameRate: { ideal: state.profile?.remote ? 15 : 24, max: state.profile?.remote ? 20 : 30 }
       }
     });
   } catch (preferredError) {
+    if (["NotAllowedError", "SecurityError", "PermissionDeniedError"].includes(preferredError?.name)) {
+      throw new Error("Доступ к камере не разрешён в браузере. Разрешите камеру для этого сайта.");
+    }
     try {
       media = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
     } catch (fallbackError) {
@@ -352,9 +355,9 @@ async function registerSystemCamera() {
   }
   const camera = await state.api.post("/cameras", protocol === "ndi" ? {
     name:label, protocol:"ndi", ndiSourceName, ndiAddress,
-    roomId:"default-room", autoAttachToQuick:false, required:false
+    roomId:state.meeting?.roomId ?? "default-room", autoAttachToQuick:false, required:false
   } : {
-    name:label, protocol:"rtsp", rtspUrl, roomId:"default-room", probe:false,
+    name:label, protocol:"rtsp", rtspUrl, roomId:state.meeting?.roomId ?? "default-room", probe:false,
     autoAttachToQuick:false, required:false, cameraPosition
   });
   if (!state.cameras.some((item) => item.id === camera.id)) state.cameras.push(camera);
@@ -411,7 +414,7 @@ async function addOnvifCamera() {
   const suggested = state.onvifDiscoveries[0]?.xaddrs?.[0] ?? "http://192.168.1.100/onvif/device_service";
   const values = await httpForm("Добавить ONVIF-камеру", [{name:"serviceUrl",label:"Device Service URL",value:suggested},{name:"username",label:"Пользователь",value:"admin",required:false},{name:"password",label:"Пароль",type:"password",value:"",required:false},{name:"name",label:"Название",value:"Камера зала"}]);
   if (!values) return; const { serviceUrl, username, password, name } = values;
-  const camera = await state.api.post("/cameras", { serviceUrl, username, password, name, roomId: "default-room", probe: true });
+  const camera = await state.api.post("/cameras", { serviceUrl, username, password, name, roomId: state.meeting?.roomId ?? "default-room", probe: true });
   state.cameras.push(camera);
   await quickProbeCamera(camera.id);
 }
@@ -517,7 +520,7 @@ async function saveNdiCamera(id) {
   const ndiAddress = source.address && source.port ? `${source.address}:${source.port}` : (source.host && source.port ? `${source.host}:${source.port}` : "");
   const camera = await state.api.post("/cameras", {
     name: source.name, protocol: "ndi", ndiSourceName: source.name, ndiAddress,
-    roomId: "default-room", autoAttachToQuick: false, required: false
+    roomId: state.meeting?.roomId ?? "default-room", autoAttachToQuick: false, required: false
   });
   if (!state.cameras.some((item) => item.id === camera.id)) state.cameras.push(camera);
   notify("NDI-источник сохранён в каталоге. Проверьте его перед отправкой в зал.", 8000);
@@ -801,7 +804,9 @@ async function publishMediaToMcu(stream, media) {
       // full layer feeding VideoCore stopped for 12+ seconds, causing native
       // input retries and visible PGM freezes.  Publish one bounded 720p layer
       // on iOS; the server still produces every required Preview/PGM raster.
-      const simulcast = track.kind === "video" ? iosCamera
+      const simulcast = track.kind === "video" ? state.profile?.remote === true && stream.sourceType === "client_camera"
+        ? { encodings: [{ maxBitrate: 450_000, maxFramerate: 15 }], codecOptions: { videoGoogleStartBitrate: 250 } }
+        : iosCamera
         ? { encodings: [{ maxBitrate: 900_000, maxFramerate: 24 }], codecOptions: { videoGoogleStartBitrate: 600 } }
         : { encodings: [
           { rid: "q", scaleResolutionDownBy: 4, maxBitrate: 180_000, maxFramerate: 8 },
@@ -1063,7 +1068,7 @@ async function watchProgramStream(stream) {
   // is the only authoritative identity of a receiving subscription.
   const candidates = (await state.api.get(
     `/mcu/consumable-producers?meetingId=${encodeURIComponent(state.profile.meetingId)}` +
-    `&participantId=${encodeURIComponent(state.participantId)}&mode=program&includeAudio=false`
+    `&participantId=${encodeURIComponent(state.participantId)}&mode=${state.profile.remote === true ? "program-remote" : "program"}&includeAudio=false`
   )).filter((item) => item.kind === "video");
   if (!candidates.length) return;
   const key = candidates.map((item) => item.producerId).sort().join("|");
@@ -1583,7 +1588,10 @@ async function pollChatSignaling() {
           messages.push({ id: signal.id, text: String(signal.payload?.text ?? ""), at: signal.payload?.at ?? signal.createdAt, own: false });
           state.chatMessages.set(session.id, messages.slice(-200));
           if (state.activeTab === "chat" && state.activeChatId === session.id) markChatRead(session.id);
-          else state.chatUnread.set(session.id, (state.chatUnread.get(session.id) ?? 0) + 1);
+          else {
+            state.chatUnread.set(session.id, (state.chatUnread.get(session.id) ?? 0) + 1);
+            notify(`Новое личное сообщение от ${partnerFor(session).displayName}`);
+          }
           updateChatNotice();
         }
       }
@@ -1625,7 +1633,7 @@ async function closeAllChats() {
 }
 
 async function checkReadiness() {
-  state.readiness = await state.api.get(`/rooms/default-room/readiness?meetingId=${encodeURIComponent(state.profile.meetingId)}`);
+  state.readiness = await state.api.get(`/rooms/${encodeURIComponent(state.meeting?.roomId ?? "default-room")}/readiness?meetingId=${encodeURIComponent(state.profile.meetingId)}`);
 }
 
 async function checkDevice(deviceId) {
@@ -1642,16 +1650,49 @@ async function deviceCommand(deviceId) {
 }
 
 async function publishRoom(status) {
+  const roomId = state.meeting.roomId ?? "default-room";
+  const playerId = document.querySelector("#signageTargetPlayer")?.value;
+  const players = state.signagePlayers.filter((player) => player.roomId === roomId);
+  if (!players.length) throw new Error("В этом зале нет зарегистрированных информационных экранов");
+  if (playerId && !players.some((player) => player.id === playerId)) {
+    throw new Error("Выбранный экран больше не относится к этому залу. Обновите список экранов.");
+  }
   await state.api.post(`/signage/scenes?meetingId=${encodeURIComponent(state.profile.meetingId)}`, {
     type: "room-status",
     title: status === "free" ? "Зал свободен" : state.meeting.title,
     body: status === "free" ? "Следующее мероприятие — по расписанию" : "Идёт заседание · просьба не входить",
     roomStatus: status,
-    target: { roomId: "default-room" }
+    target: playerId ? { playerIds: [playerId] } : { roomId }
   });
+  state.signageFeedback = status === "free" ? "Статус «Зал свободен» отправлен" : "Статус «Идёт заседание» отправлен";
+}
+
+async function publishSignageScene() {
+  const type = document.querySelector("#signageSceneType")?.value;
+  if (!["text", "schedule", "document"].includes(type)) throw new Error("Выберите контент для вывески");
+  const roomId = state.meeting.roomId ?? "default-room";
+  const playerId = document.querySelector("#signageTargetPlayer")?.value;
+  const players = state.signagePlayers.filter((player) => player.roomId === roomId);
+  if (!players.length) throw new Error("В этом зале нет зарегистрированных информационных экранов");
+  if (playerId && !players.some((player) => player.id === playerId)) throw new Error("Выбранный экран больше не относится к этому залу");
+  const documentId = document.querySelector("#signageSceneDocument")?.value;
+  const item = type === "document" ? state.documents.find((entry) => entry.id === documentId) : null;
+  if (type === "document" && !item) throw new Error("Выберите доступный документ");
+  const title = type === "document" ? item.fileName : document.querySelector("#signageSceneTitle")?.value.trim();
+  const body = type === "document" ? "" : document.querySelector("#signageSceneBody")?.value.trim();
+  if (!title) throw new Error("Укажите заголовок");
+  const result = await state.api.post(`/signage/scenes?meetingId=${encodeURIComponent(state.profile.meetingId)}`, {
+    type, title, body, ...(item ? { documentId: item.id } : {}),
+    target: playerId ? { playerIds: [playerId] } : { roomId }
+  });
+  state.signageFeedback = `Контент отправлен на ${result.playerIds?.length ?? 0} экран(а)`;
 }
 
 async function callParticipant() {
+  const roomId = state.meeting?.roomId ?? "default-room";
+  const playerId = document.querySelector("#signageTargetPlayer")?.value;
+  const players = state.signagePlayers.filter((player) => player.roomId === roomId);
+  if (!players.length) throw new Error("В этом зале нет зарегистрированных информационных экранов");
   const source = state.meeting.quick ? Object.values(state.meeting.participants ?? {}).filter((item) => item.state === "joined") : [
     ...(state.meeting.preparedParticipants ?? []), ...Object.values(state.meeting.participants ?? {}).filter((item) => item.state === "joined")
   ];
@@ -1670,8 +1711,9 @@ async function callParticipant() {
   await state.api.post(`/signage/scenes?meetingId=${encodeURIComponent(state.profile.meetingId)}`, {
     type: "participant-call", title: name, body: values.room, roomStatus: "busy",
     participant: { ...(presenter ? { id: presenter.id } : {}), displayName: name }, sound: { enabled: true, tone: "chime", repeats: 2 },
-    durationSeconds: 30, target: { group: "foyer" }
+    durationSeconds: 30, target: playerId ? { playerIds: [playerId] } : { roomId }
   });
+  state.signageFeedback = "Вызов отправлен на вывеску";
 }
 
 async function startAes67() {
@@ -1683,17 +1725,34 @@ async function stopAes67() {
 }
 
 async function createServiceRequest() {
-  const values=await httpForm("Сервисный запрос",[{name:"category",label:"Категория",type:"select",value:"water",options:serviceRequestCategoryOptions(interfaceLocale())},{name:"quantity",label:"Количество",type:"number",value:"1"},{name:"comment",label:"Комментарий",type:"textarea",value:"",required:false},{name:"includeVideo",label:"Приложить видео (yes/no)",value:"no",required:false}]);if(!values)return;const category=values.category;
-  const quantity = Number(values.quantity || 1); const comment=values.comment||""; const includeVideo=Boolean(state.publishedStream&&/^y|да|1$/i.test(values.includeVideo));
+  const values=await httpForm("Сервисный запрос",[{name:"category",label:"Категория",type:"select",value:"water",options:serviceRequestCategoryOptions(interfaceLocale())},{name:"quantity",label:"Количество",type:"number",value:"1"},{name:"comment",label:"Комментарий",type:"textarea",value:"",required:false}]);if(!values)return false;const category=values.category;
+  const quantity = Number(values.quantity || 1); const comment=values.comment||"";
+  const cameraSnapshot = await captureServiceCameraSnapshot();
   const request = await state.api.post("/service/requests", {
     meetingId: state.profile.meetingId,
     participantId: state.participantId,
-    roomId: "default-room",
+    roomId: state.meeting?.roomId ?? "default-room",
     items: [{ category, label: serviceRequestCategoryLabel({ category }, "ru"), quantity }],
-    comment,
-    videoStreamId: includeVideo ? state.publishedStream.id : null
+    comment, cameraSnapshot
   });
   state.serviceRequests.unshift(request);
+}
+
+async function captureServiceCameraSnapshot() {
+  const track = state.localMedia?.getVideoTracks().find((item) => item.readyState === "live" && !item.muted);
+  if (!track) return null;
+  const video = document.createElement("video");
+  video.muted = true; video.playsInline = true; video.srcObject = new MediaStream([track]);
+  try {
+    await Promise.race([video.play(), new Promise((_, reject) => setTimeout(() => reject(new Error("camera timeout")), 1200))]);
+    if (!video.videoWidth || !video.videoHeight) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = 480; canvas.height = 270;
+    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+    const image = canvas.toDataURL("image/jpeg", 0.65);
+    return image.length <= 350_000 ? image : null;
+  } catch { return null; }
+  finally { video.pause(); video.srcObject = null; }
 }
 
 async function serviceStatus(requestId, status) {
@@ -1752,15 +1811,16 @@ async function createVote() {
     {name:"raw",label:"Варианты через ;",type:"textarea",value:(voteCore.defaults?.quickOptions ?? ["За","Против","Воздержался"]).join("; ")},
     {name:"mode",label:"Режим",type:"select",value:"named",options:[{value:"named",label:"Поимённое"},{value:"secret",label:"Тайное"}]},
     ...(pro ? [{name:"weightMode",label:"Подсчёт голоса участника",type:"select",
-      value:voteCore.defaults?.governance?.profile === "board" ? "one-person" : "weighted",
+      value:state.meeting?.quick ? "one-person" : voteCore.defaults?.governance?.profile === "board" ? "one-person" : "weighted",
       options:[{value:"one-person",label:"1 участник = 1 голос, даже при весе 0"},{value:"weighted",label:"По весу из состава совещания, включая 0"}]}] : []),
     {name:"durationSeconds",label:"Длительность, секунд",type:"number",value:voteCore.defaults?.durationSeconds ?? 60},
     {name:"ruleSetId",label:"Набор правил",type:"select",value:voteCore.defaults?.ruleSetId ?? "standard-majority",options:ruleOptions},
-    {name:"quorumKind",label:"Кворум",type:"select",value:voteCore.defaults?.quorumRule?.kind ?? "majority",options:[{value:"majority",label:"50% + 1"},{value:"percent",label:"Процент"},{value:"governance-percent-plus-one",label:"% + 1 от общего объёма голосов/мандатов"},{value:"fixed",label:"Фиксированное число"}]},
+    {name:"quorumKind",label:"Кворум",type:"select",value:state.meeting?.quick ? "majority" : voteCore.defaults?.quorumRule?.kind ?? "majority",options:[{value:"majority",label:"50% + 1"},{value:"percent",label:"Процент"},{value:"governance-percent-plus-one",label:"% + 1 от общего объёма голосов/мандатов"},{value:"fixed",label:"Фиксированное число"}]},
     {name:"quorumValue",label:"Значение кворума",type:"number",value:voteCore.defaults?.quorumRule?.value ?? 50,visibleWhen:{name:"quorumKind",values:["percent","governance-percent-plus-one","fixed"]}},
     {name:"quorumParticipation",label:"Источник участия",type:"select",value:voteCore.defaults?.quorumRule?.participation ?? "connected-at-open",options:[{value:"connected-at-open",label:"Подключённые при открытии"},{value:"ballots-cast",label:"Фактически проголосовавшие"}]}
   ];
   if (can("pgm.tiles")) fields.push(
+    {name:"autoTakePgm",label:"Показ хода голосования в PGM",type:"select",value:"false",options:[{value:"false",label:"Нет"},{value:"true",label:"Да"}]},
     {name:"resultTarget",label:"Итоги после закрытия",type:"select",value:"none",options:[{value:"none",label:"Не отправлять в PGM"},{value:"tiles",label:"Плиткой в PGM"},{value:"program",label:"Во весь PGM"}]},
     {name:"resultHoldSeconds",label:"Показывать итоги, сек.",type:"number",value:voteCore.defaults?.displayPolicy?.resultHoldSeconds ?? 30}
   );
@@ -1784,7 +1844,8 @@ async function createVote() {
     ruleSetId, durationSeconds:Number(values.durationSeconds),
     quorumRule:{ basis:"eligible", participation:values.quorumParticipation, kind:values.quorumKind,
       ...(values.quorumKind === "majority" ? {} : { value:Number(values.quorumValue) }) } };
-  if (can("pgm.tiles")) body.displayPolicy = { resultTarget: values.resultTarget, resultHoldSeconds: Number(values.resultHoldSeconds) };
+  if (can("pgm.tiles")) body.displayPolicy = { autoTakePgm: values.autoTakePgm === "true",
+    resultTarget: values.resultTarget, resultHoldSeconds: Number(values.resultHoldSeconds) };
   body.eligibleParticipantIds = values.electorate.map((item) => item.id);
   if (pro) {
     body.multiRound = { enabled:values.multiRound === "true", maxRounds:Number(values.maxRounds || 1), advanceCount:Number(values.advanceCount || 2) };
@@ -1801,12 +1862,31 @@ async function createVote() {
 }
 
 async function castVote(voteId, optionId) {
-  await state.api.post(`/votes/${voteId}/cast`, {
-    participantId: state.participantId,
-    optionIds: [optionId]
-  });
-  state.voteSelections.set(voteId, optionId);
-  saveVoteSelections();
+  state.voteCastPending ??= new Map();
+  if (state.voteCastPending.has(voteId)) return false;
+  if (state.voteSelections.has(voteId) || state.votes.find((vote) => vote.id === voteId)?.hasVoted) {
+    notify("Ваш голос уже принят");
+    return false;
+  }
+  state.voteCastPending.set(voteId, optionId);
+  renderPage();
+  try {
+    await state.api.post(`/votes/${voteId}/cast`, {
+      participantId: state.participantId,
+      optionIds: [optionId]
+    });
+    state.voteSelections.set(voteId, optionId);
+    saveVoteSelections();
+  } catch (error) {
+    if (error.status !== 409 || error.serverMessage !== "Participant has already voted") throw error;
+    const vote = state.votes.find((item) => item.id === voteId);
+    if (vote) vote.hasVoted = true;
+    notify("Ваш голос уже принят");
+    return false;
+  } finally {
+    state.voteCastPending.delete(voteId);
+    renderPage();
+  }
 }
 
 async function castAdvancedVote(voteId) {
@@ -1828,6 +1908,23 @@ async function createNextVoteRound(voteId) {
 
 async function uploadDocument(file, agendaItemId = null) {
   if (!file) return;
+  if (state.profile.remote === true) {
+    const meetingId = encodeURIComponent(state.profile.meetingId);
+    const base = `/meetings/${meetingId}/documents/upload-sessions`;
+    const { uploadId, chunkBytes } = await state.api.post(base, {
+      fileName: file.name, mediaType: file.type || "application/octet-stream",
+      sizeBytes: file.size, agendaItemId
+    });
+    let index = 0;
+    for (let offset = 0; offset < file.size; offset += chunkBytes) {
+      await state.api.request(`${base}/${encodeURIComponent(uploadId)}/chunks/${index++}`, {
+        method: "POST", headers: { "Content-Type": "application/octet-stream" },
+        body: file.slice(offset, offset + chunkBytes)
+      });
+    }
+    await state.api.post(`${base}/${encodeURIComponent(uploadId)}/finish`, {});
+    return;
+  }
   await state.api.request(`/meetings/${state.profile.meetingId}/documents`, {
     method: "POST",
     headers: { "Content-Type": file.type || "application/octet-stream", "X-File-Name": encodeIdentityHeader(file.name), ...(agendaItemId ? { "X-Agenda-Item-Id": agendaItemId } : {}) },
@@ -1854,6 +1951,7 @@ async function uploadAgendaDocument(file) {
 }
 
 async function openDocument(documentId, presentationId = null) {
+  if (presentationId && expandPresentationViewer(presentationId)) return;
   const item = state.documents.find((entry) => entry.id === documentId)
     ?? await state.api.get(`/documents/${encodeURIComponent(documentId)}`);
   const presentation = presentationId
@@ -1863,12 +1961,20 @@ async function openDocument(documentId, presentationId = null) {
   const me = state.meeting?.participants?.[state.participantId];
   await openDocumentViewer({
     api: state.api, document: item, presentation,
-    userId: state.profile.userId,
+    userId: state.profile.userId, participantId: state.participantId,
+    quickMeeting: state.meeting?.quick === true,
     draft: !presentation && item.uploadedBy === state.profile.userId,
     canAnnotate: Boolean(presentation && (canViewFiles() || canManageContent()) &&
       (me?.permissions?.canAnnotatePresentation === true || canManageContent())) ||
       (!presentation && item.uploadedBy === state.profile.userId),
     canControl: Boolean(presentation && canManageContent()),
+    onStopPresentation: async (id) => {
+      await state.api.post(`/presentations/${encodeURIComponent(id)}/stop`);
+      state.presentations = state.presentations.map((entry) =>
+        entry.id === id ? { ...entry, status: "stopped" } : entry);
+      notify("Показ документа завершён");
+      await refreshAll();
+    },
     onSendToHall: async (id, target) => {
       const route = { program: "send-to-program", multiview: "send-to-program-tile",
         "remove-program": "remove-from-program", "remove-multiview": "remove-from-program-tile" }[target];
@@ -1884,11 +1990,28 @@ async function openDocument(documentId, presentationId = null) {
 }
 
 async function startPresentationBroadcast(presentationId) {
+  const current = await state.api.get(`/meetings/${state.profile.meetingId}/presentations`);
+  const alreadyActive = current.find((item) => item.status === "active" && item.id === presentationId);
+  if (alreadyActive) {
+    const index = state.presentations.findIndex((item) => item.id === alreadyActive.id);
+    if (index >= 0) state.presentations[index] = alreadyActive;
+    else state.presentations.push(alreadyActive);
+    renderMicrophoneDock();
+    return;
+  }
+  const active = current.find((item) => item.status === "active" && item.id !== presentationId);
+  if (active) {
+    const replace = await confirmDialog(`Сейчас в показе «${active.title}». Завершить его показ и открыть новый документ?`,
+      "Транслировать новый", "Оставить текущий");
+    if (!replace) return false;
+    await state.api.post(`/presentations/${active.id}/stop`);
+    state.presentations = state.presentations.map((item) => item.id === active.id ? { ...item, status: "stopped" } : item);
+  }
   const presentation = await state.api.post(`/presentations/${presentationId}/start`);
   const index = state.presentations.findIndex((item) => item.id === presentation.id);
   if (index >= 0) state.presentations[index] = presentation;
   else state.presentations.push(presentation);
-  await openDocument(presentation.documentId, presentation.id);
+  renderMicrophoneDock();
   notify("Показ открыт участникам. PGM не переключён.", 6000);
 }
 
@@ -1971,7 +2094,7 @@ export { inMcu, runAction, requestFloor, applyLocalFloorResult, runMicrophoneAct
   updateHeadphoneWarning, attachAudioMixInput, detachAudioMixInput, syncConferenceAudio, reconcileServerAudioMix,
   watchServerAudioMix, closeServerAudioSubscriber, closeAllPeers, bindChatChannel, newChatPeer,
   startChatOffer, openChat, pollChatSignaling, sendChatMessage, closeAllChats, checkReadiness,
-  checkDevice, deviceCommand, publishRoom, callParticipant, startAes67, stopAes67, createServiceRequest,
+  checkDevice, deviceCommand, publishRoom, publishSignageScene, callParticipant, startAes67, stopAes67, createServiceRequest,
   serviceStatus, assignSeat, assignPresenterWorkplace, releaseSeat, claimSeat, createVote, castVote,
   castAdvancedVote, createNextVoteRound, uploadDocument, importArchivedDocument, uploadAgendaDocument,
   openDocument, startPresentationBroadcast, shareScreen, stopScreenShare, installPwa, toggleFullscreen };

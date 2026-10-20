@@ -1,4 +1,4 @@
-const CACHE = "vox-s-client-v0.7.0.49-interpreter-layout";
+const CACHE = "vox-s-client-v0.7.77-release1";
 const SHELL = [
   "/client/",
   "/client/styles.css",
@@ -6,8 +6,10 @@ const SHELL = [
   "/client/legibility.css",
   "/client/controls.css",
   "/client/app.js",
+  "/client/clientBuild.js",
   "/client/notificationLocale.js",
   "/client/clientViews.js",
+  "/client/roomControlEvents.js",
   "/client/clientOperations.js",
   "/client/eventConnection.js",
   "/client/documentViewer.js",
