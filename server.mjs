@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { WebSocketServer } from "ws";
 import { normalizeRemoteCode, validateTunnelHello } from "./protocol.mjs";
+import { codeTableForPurpose, sessionTableForPath } from "./codePurpose.mjs";
 
 const base = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT ?? 8080);
@@ -101,12 +102,13 @@ function handleConnectorFrame(socket, installationId, message) {
   }
   if (message.type === "code-sync") {
     const validDigest = /^[a-f0-9]{64}$/.test(message.codeDigest ?? "");
+    const table = codeTableForPurpose(message.purpose);
     const expires = Date.parse(message.expiresAt);
     const validExpiry = Number.isFinite(expires) && expires > Date.now() && expires < Date.now() + 48 * 60 * 60 * 1000;
-    const task = message.action === "revoke" && validDigest
-      ? pool.query("DELETE FROM remote_codes WHERE code_digest=$1 AND installation_id=$2", [message.codeDigest, installationId])
-      : message.action === "publish" && validDigest && validExpiry
-        ? pool.query(`INSERT INTO remote_codes(code_digest,installation_id,expires_at) VALUES($1,$2,$3)
+    const task = message.action === "revoke" && validDigest && table
+      ? pool.query(`DELETE FROM ${table} WHERE code_digest=$1 AND installation_id=$2`, [message.codeDigest, installationId])
+      : message.action === "publish" && validDigest && validExpiry && table
+        ? pool.query(`INSERT INTO ${table}(code_digest,installation_id,expires_at) VALUES($1,$2,$3)
           ON CONFLICT(code_digest) DO UPDATE SET installation_id=excluded.installation_id,
           expires_at=excluded.expires_at,updated_at=now()`, [message.codeDigest, installationId, message.expiresAt])
         : Promise.reject(new Error("invalid_code_sync"));
@@ -139,6 +141,43 @@ const handleHttp = async (request, response) => {
   const url = new URL(request.url, "https://connect.voxordia.com");
   if (request.method === "GET" && url.pathname === "/health") {
     return json(response, 200, { service: "voxordia-remote-gateway", ready: true });
+  }
+  if (request.method === "POST" && url.pathname === "/api/uc/claim") {
+    if (!rateAllowed(clientIp(request))) return json(response, 429, { error: "Слишком много попыток. Повторите позже." });
+    try {
+      const body = JSON.parse((await readBody(request, 4096)).toString("utf8"));
+      const code = normalizeRemoteCode(body.code);
+      if (!/^[2-9A-HJ-NP-Z]{12}$/.test(code)) return json(response, 401, { error: "Недействительный код организатора" });
+      const found = await pool.query("SELECT installation_id FROM uc_organizer_codes WHERE code_digest=$1 AND expires_at>now()", [sha256(code)]);
+      if (found.rowCount !== 1) return json(response, 401, { error: "Код организатора не найден или отозван" });
+      const installationId = found.rows[0].installation_id;
+      if (!live.has(installationId)) return json(response, 503, { error: "Сервер конференции временно недоступен" });
+      const proxyResponse = {
+        headers: {}, statusCode: 200, chunks: [], headersSent: false,
+        setHeader(name, value) { this.headers[name] = value; },
+        writeHead(status, headers = {}) { this.statusCode = status; this.headersSent = true; Object.assign(this.headers, headers); },
+        write(chunk) { this.chunks.push(Buffer.from(chunk)); },
+        async end(chunk) {
+          if (chunk) this.write(chunk);
+          let result;
+          try { result = JSON.parse(Buffer.concat(this.chunks).toString("utf8")); }
+          catch { result = { error: "Некорректный ответ сервера конференции" }; }
+          if (this.statusCode >= 200 && this.statusCode < 300 && typeof result.token === "string") {
+            const session = randomBytes(32).toString("base64url");
+            try {
+              await pool.query("INSERT INTO uc_organizer_sessions(session_digest,installation_id,expires_at) VALUES($1,$2,now()+interval '12 hours')",
+                [sha256(session), installationId]);
+            } catch { return json(response, 503, { error: "Не удалось создать защищённую сессию организатора" }); }
+            response.setHeader("set-cookie", `vox_uc_session=${session}; Path=/api/v1/uc-organizer/; HttpOnly; Secure; SameSite=Strict; Max-Age=43200`);
+          }
+          json(response, this.statusCode, result);
+        }, on() {}
+      };
+      sendRequest(installationId, { method: "POST", path: "/api/v1/uc-organizer/code-login",
+        headers: { "content-type": "application/json" },
+        bodyBase64: Buffer.from(JSON.stringify({ code })).toString("base64") }, proxyResponse);
+    } catch (error) { return json(response, error.status ?? 400, { error: "Не удалось обработать код организатора" }); }
+    return;
   }
   if (request.method === "POST" && url.pathname === "/api/remote/claim") {
     const ip = clientIp(request);
@@ -185,7 +224,27 @@ const handleHttp = async (request, response) => {
     } catch (error) { return json(response, error.status ?? 400, { error: "Не удалось обработать код" }); }
     return;
   }
+  if (url.pathname.startsWith("/api/v1/uc-organizer/")) {
+    if (sessionTableForPath(url.pathname) !== "uc_organizer_sessions") return json(response, 404, { error: "Некорректный путь панели" });
+    if (url.pathname === "/api/v1/uc-organizer/code-login") return json(response, 404, { error: "Используйте страницу приглашения" });
+    const session = cookie(request, "vox_uc_session");
+    if (!session) return json(response, 401, { error: "Требуется сессия организатора" });
+    const found = await pool.query("SELECT installation_id FROM uc_organizer_sessions WHERE session_digest=$1 AND expires_at>now()", [sha256(session)]);
+    if (found.rowCount !== 1) return json(response, 401, { error: "Сессия организатора истекла" });
+    try {
+      const body = await readBody(request, 8_192);
+      const token = request.headers["x-vox-uc-session"];
+      if (typeof token !== "string" || token.length < 32 || token.length > 256) {
+        return json(response, 401, { error: "Требуется токен организатора" });
+      }
+      sendRequest(found.rows[0].installation_id, { method: request.method, path: url.pathname,
+        headers: { "x-vox-uc-session": token, "content-type": "application/json" },
+        bodyBase64: body.toString("base64") }, response);
+    } catch (error) { json(response, error.status ?? 400, { error: error.message }); }
+    return;
+  }
   if (url.pathname.startsWith("/api/v1/")) {
+    if (sessionTableForPath(url.pathname) !== "remote_sessions") return json(response, 404, { error: "Некорректный удалённый путь" });
     const session = cookie(request, "vox_remote_session");
     if (!session) return json(response, 401, { error: "Требуется удалённая сессия" });
     const found = await pool.query("SELECT installation_id FROM remote_sessions WHERE session_digest=$1 AND expires_at>now()", [sha256(session)]);

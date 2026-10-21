@@ -31,3 +31,20 @@ CREATE TABLE IF NOT EXISTS remote_sessions (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS remote_sessions_expiry_idx ON remote_sessions(expires_at);
+
+-- UC organizer credentials are isolated from delegate codes and cookies.
+CREATE TABLE IF NOT EXISTS uc_organizer_codes (
+  code_digest char(64) PRIMARY KEY,
+  installation_id text NOT NULL REFERENCES remote_installations(installation_id) ON DELETE CASCADE,
+  expires_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS uc_organizer_codes_expiry_idx ON uc_organizer_codes(expires_at);
+
+CREATE TABLE IF NOT EXISTS uc_organizer_sessions (
+  session_digest char(64) PRIMARY KEY,
+  installation_id text NOT NULL REFERENCES remote_installations(installation_id) ON DELETE CASCADE,
+  expires_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS uc_organizer_sessions_expiry_idx ON uc_organizer_sessions(expires_at);
