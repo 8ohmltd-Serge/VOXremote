@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { WebSocketServer } from "ws";
-import { normalizeRemoteCode, validateTunnelHello } from "./protocol.mjs";
+import { GATEWAY_CAPABILITIES, normalizeRemoteCode, validateTunnelHello } from "./protocol.mjs";
 import { codeTableForPurpose, sessionTableForPath } from "./codePurpose.mjs";
 import { resolveStaticPath } from "./staticPath.mjs";
 
@@ -113,8 +113,8 @@ function handleConnectorFrame(socket, installationId, message) {
           ON CONFLICT(code_digest) DO UPDATE SET installation_id=excluded.installation_id,
           expires_at=excluded.expires_at,updated_at=now()`, [message.codeDigest, installationId, message.expiresAt])
         : Promise.reject(new Error("invalid_code_sync"));
-    task.then(() => socket.send(JSON.stringify({ type: "ack", id: message.id, ok: true })))
-      .catch(() => socket.send(JSON.stringify({ type: "ack", id: message.id, ok: false })));
+    task.then(() => socket.send(JSON.stringify({ type: "ack", id: message.id, purpose: message.purpose, ok: true })))
+      .catch(() => socket.send(JSON.stringify({ type: "ack", id: message.id, purpose: message.purpose, ok: false })));
     return;
   }
   if (!["response-start", "response-chunk", "response-end"].includes(message.type)) return;
@@ -317,7 +317,7 @@ wss.on("connection", (socket) => {
       const previous = live.get(installationId);
       if (previous && previous !== socket) previous.close(1012, "replaced");
       live.set(installationId, socket);
-      socket.send(JSON.stringify({ type: "welcome", installationId }));
+      socket.send(JSON.stringify({ type: "welcome", installationId, capabilities: GATEWAY_CAPABILITIES }));
       return;
     }
     handleConnectorFrame(socket, installationId, message);

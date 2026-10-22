@@ -2,6 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { codeTableForPurpose, sessionTableForPath } from "./codePurpose.mjs";
+import { GATEWAY_CAPABILITIES } from "./protocol.mjs";
+
+test("gateway advertises explicit remote and organizer capabilities", async () => {
+  assert.deepEqual(GATEWAY_CAPABILITIES, ["remote-participant.v1", "uc-organizer.v1"]);
+  const source = await readFile(new URL("./server.mjs", import.meta.url), "utf8");
+  assert.match(source, /type: "welcome", installationId, capabilities: GATEWAY_CAPABILITIES/);
+  assert.match(source, /type: "ack", id: message\.id, purpose: message\.purpose, ok: true/);
+});
 
 test("UC organizer and remote delegate codes use distinct allowlisted tables", () => {
   assert.equal(codeTableForPurpose(undefined), "remote_codes");

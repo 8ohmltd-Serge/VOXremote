@@ -14,6 +14,7 @@ export const unsignedDocument = (document) => Object.fromEntries(Object.entries(
 export const ENROLL_SCHEMA = "voxordia.remote-gateway-enrollment.v1";
 export const TUNNEL_HELLO_SCHEMA = "voxordia.remote-tunnel.hello.v1";
 export const PROOF_PURPOSE = "voxordia-remote-connector-proof";
+export const GATEWAY_CAPABILITIES = Object.freeze(["remote-participant.v1", "uc-organizer.v1"]);
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 const CYRILLIC_LOOKALIKES = Object.freeze({ А: "A", В: "B", С: "C", Е: "E", Н: "H",
