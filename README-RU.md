@@ -25,7 +25,7 @@
 
 ## Переменные среды
 
-Скопируйте `.env.example` в секреты площадки, а не в образ:
+Задайте переменные в секретах площадки, не добавляя их в репозиторий или образ:
 
 - `DATABASE_URL` — строка подключения PostgreSQL;
 - `VENDOR_PUBLIC_KEY_PATH` — путь к смонтированному публичному PEM издателя;
@@ -39,8 +39,10 @@
 
 ### Railway без локального Docker
 
-1. Подключите GitHub-репозиторий к Railway и укажите Root Directory
-   `/tools/remote-gateway`. Сборка и health check уже заданы в `railway.json`.
+1. Подключите отдельный GitHub-репозиторий `VOXremote` к существующему сервису
+   Railway. Для этого репозитория Root Directory — `/`; путь
+   `/tools/remote-gateway` относился к прежнему монорепозиторию и здесь неверен.
+   Сборка и health check уже заданы в `railway.json`.
 2. В том же Railway Project добавьте PostgreSQL.
 3. В сервисе шлюза задайте `DATABASE_URL` ссылкой на переменную PostgreSQL,
    `TRUST_PROXY=1` и `VENDOR_PUBLIC_KEY_BASE64` с публичным PEM издателя,

@@ -7,6 +7,7 @@ import pg from "pg";
 import { WebSocketServer } from "ws";
 import { normalizeRemoteCode, validateTunnelHello } from "./protocol.mjs";
 import { codeTableForPurpose, sessionTableForPath } from "./codePurpose.mjs";
+import { resolveStaticPath } from "./staticPath.mjs";
 
 const base = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT ?? 8080);
@@ -266,10 +267,8 @@ const handleHttp = async (request, response) => {
   const portalRoot = path.join(base, "public");
   const clientRoot = existsSync(path.join(portalRoot, "client")) ? path.join(portalRoot, "client") :
     path.resolve(base, "../../v0.7.0/public/client");
-  const root = url.pathname.startsWith("/client/") ? clientRoot : portalRoot;
-  const relative = url.pathname.startsWith("/client/") ? url.pathname.slice(8) : url.pathname === "/" ? "index.html" : url.pathname.slice(1);
-  const target = path.resolve(root, relative || "index.html");
-  if (!target.startsWith(path.resolve(root) + path.sep) || !existsSync(target) || !statSync(target).isFile()) {
+  const target = resolveStaticPath(url.pathname, portalRoot, clientRoot);
+  if (!target || !existsSync(target) || !statSync(target).isFile()) {
     response.writeHead(404); response.end("Not found"); return;
   }
   const type = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
@@ -337,7 +336,7 @@ wss.on("connection", (socket) => {
 });
 
 setInterval(() => {
-  pool.query("DELETE FROM remote_codes WHERE expires_at<=now(); DELETE FROM remote_sessions WHERE expires_at<=now()")
+  pool.query("DELETE FROM remote_codes WHERE expires_at<=now(); DELETE FROM remote_sessions WHERE expires_at<=now(); DELETE FROM uc_organizer_codes WHERE expires_at<=now(); DELETE FROM uc_organizer_sessions WHERE expires_at<=now()")
     .catch(() => {});
   const cutoff = Date.now() - 60_000;
   for (const [ip, values] of attempts) {
