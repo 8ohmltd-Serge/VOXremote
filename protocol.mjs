@@ -142,3 +142,4 @@ export function validateTunnelHello(document, vendorPublicKeys, now = Date.now()
     licenseRevision: Number(license.revision ?? 1), licenseExpiresAt: license.expiresAt ?? null,
     media: { publicIp, portMin, portMax }, issuedAt, nonce: document.nonce };
 }
+

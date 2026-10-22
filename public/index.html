@@ -1,29 +1,41 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f4f2ef">
-  <title>VOXORDIA · Удалённый вход</title>
+  <meta name="robots" content="noindex, nofollow">
+  <title>VOXORDIA</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/styles.css">
+  <script src="/theme.js"></script>
 </head>
 <body>
-  <main class="entry">
-    <section class="card">
-      <div class="brand"><span>V</span><i></i><span>XORDIA</span></div>
-      <p class="eyebrow">REMOTE ACCESS</p>
-      <h1>Удалённый вход</h1>
-      <p>Введите персональный код участника. Портал сам определит нужную конференцию и сервер — списки организаций и мероприятий не публикуются.</p>
-      <form id="codeForm" autocomplete="off">
-        <label>Персональный код
-          <input id="code" name="code" inputmode="text" maxlength="14" autocomplete="one-time-code" autofocus required>
-        </label>
-        <button type="submit">Войти в конференцию</button>
+  <header>
+    <div class="logo">
+      <img class="logo-light" src="/assets/logo.svg" alt="VOXORDIA" width="170" height="21">
+      <img class="logo-dark" src="/assets/logo-on-dark.svg" alt="" aria-hidden="true" width="170" height="21">
+      <button type="button" class="logo-o" id="logoO" lang="ru" aria-label="Русский язык"></button>
+    </div>
+  </header>
+  <main>
+    <div class="rings" aria-hidden="true"><i></i><i></i><i></i></div>
+    <section class="entry">
+      <h1 id="title">Enter your code</h1>
+      <p class="lead" id="lead"></p>
+      <form id="codeForm" autocomplete="off" novalidate>
+        <label for="code" id="label"></label>
+        <input id="code" name="code" inputmode="text" maxlength="14" autocomplete="one-time-code"
+               autocapitalize="characters" spellcheck="false" autofocus required aria-describedby="state">
+        <button type="submit" id="submit"></button>
         <p id="state" role="alert"></p>
       </form>
-      <small>Аудио и видео передаются напрямую между вашим устройством и сервером конференции.</small>
     </section>
   </main>
+  <footer>
+    <span id="note"></span>
+    <nav id="langs" aria-label="Language"></nav>
+  </footer>
   <script type="module" src="/app.js"></script>
 </body>
 </html>
