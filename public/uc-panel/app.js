@@ -1,6 +1,9 @@
 const $ = (selector) => document.querySelector(selector);
 const state = { token: sessionStorage.getItem("voxUcOrganizerToken"), busy: false, session: null,
-  kind: null, activeDocumentId: null, documentUrl: null, documentSignature: null };
+  kind: null, activeDocumentId: null, documentUrl: null, documentSignature: null,
+  refreshing: false, documentsCheckedAt: 0, popup: null };
+const compact = new URLSearchParams(location.search).get("window") === "1";
+document.body.classList.toggle("compact", compact);
 const error = (message = "") => { $("#error").textContent = message; $("#error").hidden = !message; };
 
 async function request(path, options = {}) {
@@ -13,7 +16,8 @@ async function request(path, options = {}) {
 }
 
 async function refresh() {
-  if (!state.token || state.busy) return;
+  if (!state.token || state.busy || state.refreshing) return;
+  state.refreshing = true;
   try {
     const body = await request("/api/v1/uc-organizer/session");
     state.session = body.session;
@@ -36,7 +40,10 @@ async function refresh() {
       ? "Управление относится только к вашему UC-подключению в VOX-S. Другие участники внешней встречи не получают эту панель."
       : "Управление относится только к звуку удалённого зала в VOX-S, а не к микрофонам других людей во внешней встрече.";
     $("#documents").hidden = body.kind !== "personal" || body.rights?.documentsView !== true;
-    if (!$("#documents").hidden) await refreshDocuments();
+    if (!$("#documents").hidden && Date.now() - state.documentsCheckedAt > 15000) {
+      await refreshDocuments();
+      state.documentsCheckedAt = Date.now();
+    }
     error();
   } catch (failure) {
     error(failure.message);
@@ -46,7 +53,7 @@ async function refresh() {
       $("#panel").hidden = true;
       $("#claim").hidden = false;
     }
-  }
+  } finally { state.refreshing = false; }
 }
 
 async function refreshDocuments() {
@@ -123,6 +130,16 @@ $("#claim").addEventListener("submit", async (event) => {
   try { await claim($("#code").value); } catch (failure) { error(failure.message); }
 });
 $("#refresh").addEventListener("click", refresh);
+$("#openWindow").addEventListener("click", () => {
+  // Open synchronously from the click so a popup blocker need not be disabled.
+  // The portal cookie is shared; sessionStorage is copied by the browser to a
+  // same-origin popup, and the popup severs its opener immediately on load.
+  const popup = window.open(`${location.pathname}?window=1`, "voxUcPanel",
+    "popup=yes,width=500,height=680,resizable=yes,scrollbars=yes");
+  if (!popup) { error("Браузер заблокировал отдельное окно. Панель остаётся доступной здесь."); return; }
+  state.popup = popup;
+  popup.focus();
+});
 $("#mute").addEventListener("click", async () => {
   if (!state.session || state.busy) return;
   state.busy = true;
@@ -150,6 +167,7 @@ $("#noteForm").addEventListener("submit", async (event) => {
 });
 
 const fragmentCode = new URLSearchParams(location.hash.slice(1)).get("code");
+if (compact && window.opener) window.opener = null;
 if (fragmentCode) claim(fragmentCode).catch((failure) => error(failure.message));
 else if (state.token) refresh();
 setInterval(refresh, 3000);
