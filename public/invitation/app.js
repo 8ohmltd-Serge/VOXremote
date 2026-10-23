@@ -22,9 +22,24 @@ function render(data) {
   document.querySelector("#meetingTime").textContent = new Date(data.scheduledAt).toLocaleString("ru-RU", {
     dateStyle: "long", timeStyle: "short"
   });
-  document.querySelector("#roomName").textContent = `Зал: ${data.roomName}`;
-  document.querySelector("#roomAddress").textContent = `Адрес: ${data.roomAddress || "не указан"}`;
-  document.querySelector("#participationFormat").textContent = `Участие: ${data.remote ? "дистанционно" : "очно"}`;
+  const roomName = document.querySelector("#roomName");
+  const roomAddress = document.querySelector("#roomAddress");
+  roomName.hidden = roomAddress.hidden = data.uc === true;
+  roomName.textContent = data.uc ? "" : `Зал: ${data.roomName}`;
+  roomAddress.textContent = data.uc ? "" : `Адрес: ${data.roomAddress || "не указан"}`;
+  document.querySelector("#participationFormat").textContent = data.uc
+    ? `Подключение через ${data.ucProvider || "UC-платформу"}`
+    : `Участие: ${data.remote ? "дистанционно" : "очно"}`;
+  const ucMeeting = document.querySelector("#ucMeeting");
+  ucMeeting.replaceChildren();
+  ucMeeting.hidden = !data.ucMeetingUrl;
+  if (data.ucMeetingUrl) {
+    const link = document.createElement("a");
+    link.href = data.ucMeetingUrl;
+    link.rel = "noopener noreferrer";
+    link.textContent = "Открыть UC-комнату";
+    ucMeeting.append(link);
+  }
   document.querySelector("#participantName").textContent = `Участник: ${data.participantName}`;
   details.hidden = false;
   actions.hidden = Boolean(data.response);
