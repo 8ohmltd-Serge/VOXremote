@@ -31,3 +31,10 @@ test("gateway migration contains separate credential and session tables", async 
     assert.match(schema, new RegExp(`CREATE TABLE IF NOT EXISTS ${name}\\b`));
   }
 });
+
+test("RSVP gateway exposes only a bounded invitation proxy without a customer listener", async () => {
+  const source = await readFile(new URL("./server.mjs", import.meta.url), "utf8");
+  assert.match(source, /\["\/api\/invitations\/lookup", "\/api\/invitations\/respond"\]/);
+  assert.match(source, /sendRequest\(installationId, \{ method: "POST", path: `\/api\/v1\/invitations\/\$\{action\}`/);
+  assert.doesNotMatch(source, /url\.pathname\.startsWith\("\/api\/invitations\/"\)/);
+});

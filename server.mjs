@@ -143,6 +143,27 @@ const handleHttp = async (request, response) => {
   if (request.method === "GET" && url.pathname === "/health") {
     return json(response, 200, { service: "voxordia-remote-gateway", ready: true });
   }
+  if (request.method === "POST" && ["/api/invitations/lookup", "/api/invitations/respond"].includes(url.pathname)) {
+    if (!rateAllowed(clientIp(request))) return json(response, 429, { error: "Слишком много попыток. Повторите позже." });
+    try {
+      const body = JSON.parse((await readBody(request, 4096)).toString("utf8"));
+      const installationId = String(body.installationId ?? "");
+      const token = String(body.token ?? "");
+      if (!/^[a-z0-9-]{3,64}$/.test(installationId) || !/^[A-Za-z0-9_-]{43}$/.test(token) ||
+          (url.pathname.endsWith("/respond") && !["accepted", "declined"].includes(body.response))) {
+        return json(response, 400, { error: "Ссылка приглашения недействительна" });
+      }
+      if (!live.has(installationId)) return json(response, 503, { error: "Сервер конференции временно недоступен" });
+      const action = url.pathname.endsWith("/respond") ? "respond" : "lookup";
+      sendRequest(installationId, { method: "POST", path: `/api/v1/invitations/${action}`,
+        headers: { "content-type": "application/json" },
+        bodyBase64: Buffer.from(JSON.stringify(action === "respond"
+          ? { token, response: body.response } : { token })).toString("base64") }, response);
+    } catch (error) {
+      return json(response, error.status ?? 400, { error: "Не удалось проверить приглашение" });
+    }
+    return;
+  }
   if (request.method === "POST" && url.pathname === "/api/uc/claim") {
     if (!rateAllowed(clientIp(request))) return json(response, 429, { error: "Слишком много попыток. Повторите позже." });
     try {

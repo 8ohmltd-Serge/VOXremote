@@ -11,6 +11,7 @@ test("the organizer URL serves its actual index in the gateway", () => {
   assert.equal(resolveStaticPath("/uc-panel/", portal, client), expected);
   assert.equal(resolveStaticPath("/uc-panel", portal, client), expected);
   assert.equal(resolveStaticPath("/", portal, client), path.join(portal, "index.html"));
+  assert.equal(resolveStaticPath("/invitation/", portal, client), path.join(portal, "invitation", "index.html"));
 });
 
 test("static routing keeps client assets in their own root", () => {

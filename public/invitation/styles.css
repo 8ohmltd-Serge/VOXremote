@@ -1,0 +1,12 @@
+.invitation{width:min(560px,100%);position:relative}
+.invitation [hidden]{display:none!important}
+.invitation h1{font-size:clamp(30px,5vw,46px)}
+.invitation #status{color:var(--muted);font-size:16px;line-height:1.5;margin:20px 0}
+.invitation #details{margin:28px 0;font-size:15px;line-height:1.5}
+.invitation #details p{margin:7px 0}
+.invitation .meeting-title{font-size:21px;font-weight:700;margin-bottom:16px!important}
+.invitation .actions{display:flex;flex-wrap:wrap;gap:10px}
+.invitation .actions button{min-height:48px}
+.invitation .actions .secondary{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.invitation .note{margin-top:28px;color:var(--muted);font-size:13px;line-height:1.5}
+@media(max-width:480px){.invitation .actions{display:grid}.invitation .actions button{width:100%}}
