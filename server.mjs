@@ -77,15 +77,24 @@ function sendRequest(installationId, input, response) {
     return;
   }
   const id = randomUUID();
-  const timer = setTimeout(() => {
-    const item = pending.get(id);
-    if (!item) return;
-    pending.delete(id);
-    json(response, 504, { error: "Сервер конференции не ответил вовремя" });
-    if (socket.readyState === 1) socket.send(JSON.stringify({ type: "cancel", id }));
-  }, 30_000);
-  timer.unref?.();
-  pending.set(id, { response, installationId, started: false, timer });
+  const timeoutMs = Math.min(60_000, Math.max(5_000, Number(input.timeoutMs) || 30_000));
+  const armTimeout = (item) => {
+    clearTimeout(item.timer);
+    item.timer = setTimeout(() => {
+      if (pending.get(id) !== item) return;
+      pending.delete(id);
+      if (item.started) {
+        // Headers may already have been sent. Destroy the stalled response
+        // instead of trying to write a second JSON response after commitment.
+        response.destroy(new Error("Сервер конференции не завершил ответ вовремя"));
+      } else json(response, 504, { error: "Сервер конференции не завершил ответ вовремя" });
+      if (socket.readyState === 1) socket.send(JSON.stringify({ type: "cancel", id }));
+    }, timeoutMs);
+    item.timer.unref?.();
+  };
+  const item = { response, installationId, started: false, timer: null, timeoutMs };
+  pending.set(id, item);
+  armTimeout(item);
   response.on("close", () => {
     const item = pending.get(id);
     if (!item) return;
@@ -121,7 +130,7 @@ function handleConnectorFrame(socket, installationId, message) {
   const item = pending.get(message.id);
   if (!item || item.installationId !== installationId) return;
   if (message.type === "response-start") {
-    clearTimeout(item.timer);
+    armTimeout(item);
     const headers = {};
     for (const [name, value] of Object.entries(message.headers ?? {})) {
       if (["content-type", "cache-control", "etag", "last-event-id"].includes(name.toLowerCase())) headers[name] = value;
@@ -129,6 +138,7 @@ function handleConnectorFrame(socket, installationId, message) {
     item.response.writeHead(Number(message.status) || 502, headers);
     item.started = true;
   } else if (message.type === "response-chunk") {
+    armTimeout(item);
     if (typeof message.data === "string") item.response.write(Buffer.from(message.data, "base64"));
   } else {
     pending.delete(message.id);

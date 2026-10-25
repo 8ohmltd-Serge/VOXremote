@@ -38,3 +38,11 @@ test("RSVP gateway exposes only a bounded invitation proxy without a customer li
   assert.match(source, /sendRequest\(installationId, \{ method: "POST", path: `\/api\/v1\/invitations\/\$\{action\}`/);
   assert.doesNotMatch(source, /url\.pathname\.startsWith\("\/api\/invitations\/"\)/);
 });
+
+test("RSVP proxy keeps its inactivity deadline through response headers and chunks", async () => {
+  const source = await readFile(new URL("./server.mjs", import.meta.url), "utf8");
+  assert.match(source, /if \(message\.type === "response-start"\)\s*\{\s*armTimeout\(item\)/);
+  assert.match(source, /else if \(message\.type === "response-chunk"\)\s*\{\s*armTimeout\(item\)/);
+  assert.match(source, /if \(item\.started\)\s*\{[\s\S]*?response\.destroy\(/);
+  assert.match(source, /clearTimeout\(item\.timer\);\s*item\.response\.end\(\);/);
+});

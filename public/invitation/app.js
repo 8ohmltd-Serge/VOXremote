@@ -5,19 +5,29 @@ const details = document.querySelector("#details");
 const actions = document.querySelector("#actions");
 const accept = document.querySelector("#accept");
 const decline = document.querySelector("#decline");
+const retryLookup = document.querySelector("#retryLookup");
 
 async function request(action, response) {
-  const result = await fetch(`/api/invitations/${action}`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ installationId: match[1], token: match[2], ...(response ? { response } : {}) }),
-    cache: "no-store", credentials: "omit"
-  });
-  const data = await result.json().catch(() => ({}));
-  if (!result.ok) throw new Error(data.error || data.message || "Не удалось проверить приглашение");
-  return data;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 35_000);
+  try {
+    const result = await fetch(`/api/invitations/${action}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ installationId: match[1], token: match[2], ...(response ? { response } : {}) }),
+      cache: "no-store", credentials: "omit", signal: controller.signal
+    });
+    const data = await result.json().catch(() => ({}));
+    if (!result.ok) throw new Error(data.error || data.message || "Не удалось проверить приглашение");
+    return data;
+  } catch (error) {
+    if (error.name === "AbortError") throw new Error("Ответ сервера задерживается. Проверьте соединение и попробуйте ещё раз.");
+    if (error instanceof TypeError) throw new Error("Нет соединения с сервером. Проверьте интернет и повторите попытку.");
+    throw error;
+  } finally { clearTimeout(timer); }
 }
 
 function render(data) {
+  retryLookup.hidden = true;
   document.querySelector("#meetingTitle").textContent = data.meetingTitle;
   document.querySelector("#meetingTime").textContent = new Date(data.scheduledAt).toLocaleString("ru-RU", {
     dateStyle: "long", timeStyle: "short"
@@ -58,5 +68,15 @@ async function answer(response) {
 
 accept.addEventListener("click", () => answer("accepted"));
 decline.addEventListener("click", () => answer("declined"));
-if (match) request("lookup").then(render).catch((error) => { status.textContent = error.message; });
+async function loadInvitation() {
+  retryLookup.disabled = true;
+  status.textContent = "Проверяем приглашение…";
+  try { render(await request("lookup")); }
+  catch (error) {
+    status.textContent = error.message;
+    retryLookup.hidden = false;
+  } finally { retryLookup.disabled = false; }
+}
+retryLookup.addEventListener("click", loadInvitation);
+if (match) loadInvitation();
 else status.textContent = "Ссылка приглашения неполная. Откройте её из сообщения организатора.";
