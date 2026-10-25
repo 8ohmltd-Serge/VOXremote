@@ -18,6 +18,12 @@ async function request(action, response) {
     });
     const data = await result.json().catch(() => ({}));
     if (!result.ok) throw new Error(data.error || data.message || "Не удалось проверить приглашение");
+    if (!data || typeof data !== "object" ||
+        typeof data.meetingTitle !== "string" || !data.meetingTitle.trim() ||
+        typeof data.participantName !== "string" || !data.participantName.trim() ||
+        !Number.isFinite(Date.parse(data.scheduledAt))) {
+      throw new Error("Сервер вернул неполные сведения о приглашении. Обновите страницу или попросите организатора проверить ссылку.");
+    }
     return data;
   } catch (error) {
     if (error.name === "AbortError") throw new Error("Ответ сервера задерживается. Проверьте соединение и попробуйте ещё раз.");
