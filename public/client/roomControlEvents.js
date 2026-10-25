@@ -1,5 +1,38 @@
 import { controlColorInk, validControlColor } from "./controlColor.js";
 
+function paintButton(button, item, value) {
+  const selected = item.states?.find((entry) => entry.value === value ||
+    typeof value === "boolean" && typeof entry.value === "number" && entry.value === Number(value));
+  const hover = button.matches(":hover") ? item.hover : null;
+  button.querySelector("span").textContent = hover?.label || selected?.label || item.label;
+  const detail = button.querySelector("small");
+  if (detail) detail.textContent = !selected && item.type === "multistate" ? "Состояние неизвестно" : "";
+  const source = hover?.icon || selected?.icon || item.icon;
+  let image = button.querySelector("img.room-control-icon");
+  if (!image && source) {
+    image = document.createElement("img");
+    image.className = "room-control-icon";
+    image.alt = "";
+    button.prepend(image);
+  }
+  if (image) {
+    image.hidden = !source;
+    if (source) image.src = source;
+  }
+  const color = validControlColor(hover?.color) ? hover.color : selected?.color;
+  const fontColor = hover?.fontColor || selected?.fontColor || item.fontColor;
+  const fontSize = hover?.fontSize || selected?.fontSize || item.fontSize;
+  if (validControlColor(color)) {
+    button.style.setProperty("--control-state-color", color);
+  } else {
+    button.style.removeProperty("--control-state-color");
+  }
+  if (validControlColor(fontColor)) button.style.setProperty("--control-state-ink", fontColor);
+  else if (validControlColor(color)) button.style.setProperty("--control-state-ink", controlColorInk(color));
+  else button.style.removeProperty("--control-state-ink");
+  button.style.fontSize = Number.isInteger(fontSize) ? `${fontSize}px` : "";
+}
+
 export function createRoomControlEvents(page, getState, notify, navigate) {
   const pressed = new Map();
   const queues = new Map();
@@ -78,6 +111,13 @@ export function createRoomControlEvents(page, getState, notify, navigate) {
     const button = event.target.closest("[data-room-control-button]");
     if (button) { event.preventDefault(); end(button.dataset.roomControlButton); }
   });
+  for (const name of ["pointerover", "pointerout"]) page.addEventListener(name, (event) => {
+    const button = event.target.closest?.("[data-room-control-button]");
+    if (!button || button.contains(event.relatedTarget)) return;
+    const context = getState();
+    const item = context.roomControl?.panel.controls.find((entry) => entry.id === button.dataset.roomControlButton);
+    if (item) paintButton(button, item, context.roomControl.state?.[item.stateKey]);
+  });
   return { send };
 }
 
@@ -95,28 +135,7 @@ export function applyRoomControlPush(state, payload) {
   const button = tile.querySelector("[data-room-control-button]");
   if (button) {
     button.setAttribute("aria-pressed", String(Boolean(payload.value)));
-    const detail = button.querySelector("small");
-    if (item.states) {
-      const selected = item.states.find((entry) => entry.value === payload.value ||
-        typeof payload.value === "boolean" && typeof entry.value === "number" &&
-        entry.value === Number(payload.value));
-      button.querySelector("span").textContent = selected?.label || item.label;
-      if (detail) detail.textContent = !selected && item.type === "multistate" ? "Состояние неизвестно" : "";
-      let image = button.querySelector("img.room-control-icon");
-      const source = selected?.icon || item.icon;
-      if (!image && source) {
-        image = document.createElement("img");
-        image.className = "room-control-icon";
-        image.alt = "";
-        button.prepend(image);
-      }
-      if (image) {
-        image.hidden = !source;
-        if (source) image.src = source;
-      }
-      button.style.backgroundColor = validControlColor(selected?.color) ? selected.color : "";
-      button.style.color = validControlColor(selected?.color) ? controlColorInk(selected.color) : "";
-    }
+    paintButton(button, item, payload.value);
   }
   const slider = tile.querySelector("[data-room-control-slider]");
   if (slider && document.activeElement !== slider) slider.value = payload.value;

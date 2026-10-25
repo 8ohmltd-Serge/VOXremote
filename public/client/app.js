@@ -3,12 +3,14 @@ import { observeBottomControls } from "./dockLayout.js";
 import { serviceRequestCategoryLabel, serviceRequestStatusLabel,
   serviceRequestCategoryOptions } from "./serviceRequestLocale.js";
 import { eventRetryDelay } from "./eventConnection.js";
+import { roomSeatScheme } from "./roomSeatScheme.js";
 import { clientBuildReady } from "./clientBuild.js";
 import { PARTICIPANT_LANGUAGES, participantLanguageOptions, configureParticipantLanguages,
   participantLanguage, setParticipantLanguage, applyParticipantLanguage,
   participantText, participantFormatTime } from "./i18n.js";
 import { openDocumentViewer, closeDocumentViewer, expandPresentationViewer, closePresentationViewer,
   updateDocumentViewerRights, documentSceneEvent } from "./documentViewer.js";
+import { createWaitingRoom } from "./waitingRoom.js";
 
 const VoxNoticeLocale = globalThis.VoxNoticeLocale;
 let canEditWorkspaceLayout, handleWorkspaceUiAction, applyWorkspaceLayout, renderPage, updateNavigationVisibility, translationHtml, unreadChatCount, updateChatNotice, markChatRead, pageHead, VOTE_OUTCOME_LABELS, updateVoteCountdowns,
@@ -21,7 +23,8 @@ let canEditWorkspaceLayout, handleWorkspaceUiAction, applyWorkspaceLayout, rende
   closeStreamPreviewModal, openStreamPreviewModal, mountStreamPreviewModal, mountProgram, canManageVotes, canCastVotes, isEligibleForVote, canViewFiles,
   canUploadFiles, canShareScreen, canSpeak, votingHtml, canManageContent, contentHtml, partnerFor, chatPartnerId,
   isLiveChatSession, closeChatSessionLocally, reconcileChatSessions, chatHtml, requestItemsText, operationsHtml, settingsHtml, updateSignagePreviews, inMcu,
-  runAction, requestFloor, applyLocalFloorResult, runMicrophoneAction, activateChairMicrophone, grantFloor, releaseFloor, selfRelease,
+  runAction, requestFloor, applyLocalFloorResult, runMicrophoneAction, activateChairMicrophone, grantFloor, releaseFloor, toggleUcMute,
+  connectPlannedUc, connectLiveUc, disconnectUc, startPreparedConference, selfRelease,
   saveMicrophoneLimit, toggleFifo, saveDiscussionMode, toggleChairPriority, muteAllMicrophones, activateAgenda, revealAccessPin, editAccessPin,
   changeParticipantRole, toggleIncomingAudio, removeParticipant, confirmRemoveParticipant, ensureMicrophone, syncLocalMicrophone, startCamera, stopCamera,
   startPublishing, ensurePublishedMedia, registerSystemCamera, editStream, deleteStream, deleteCamera, refreshMediaRuntime, discoverOnvifCameras,
@@ -164,6 +167,11 @@ async function loadFeatureModules() {
     activateChairMicrophone = operations.activateChairMicrophone;
     grantFloor = operations.grantFloor;
     releaseFloor = operations.releaseFloor;
+    toggleUcMute = operations.toggleUcMute;
+    connectPlannedUc = operations.connectPlannedUc;
+    connectLiveUc = operations.connectLiveUc;
+    disconnectUc = operations.disconnectUc;
+    startPreparedConference = operations.startPreparedConference;
     selfRelease = operations.selfRelease;
     saveMicrophoneLimit = operations.saveMicrophoneLimit;
     toggleFifo = operations.toggleFifo;
@@ -306,7 +314,7 @@ export {
   closeStreamPreviewModal, openStreamPreviewModal, mountStreamPreviewModal, mountProgram, canManageVotes, canCastVotes, isEligibleForVote, canViewFiles,
   canUploadFiles, canShareScreen, canSpeak, votingHtml, canManageContent, contentHtml, partnerFor, chatPartnerId,
   isLiveChatSession, closeChatSessionLocally, reconcileChatSessions, chatHtml, requestItemsText, operationsHtml, settingsHtml, inMcu,
-  runAction, requestFloor, applyLocalFloorResult, runMicrophoneAction, activateChairMicrophone, grantFloor, releaseFloor, selfRelease,
+  runAction, requestFloor, applyLocalFloorResult, runMicrophoneAction, activateChairMicrophone, grantFloor, releaseFloor, toggleUcMute, selfRelease,
   saveMicrophoneLimit, toggleFifo, saveDiscussionMode, toggleChairPriority, muteAllMicrophones, activateAgenda, revealAccessPin, editAccessPin,
   changeParticipantRole, toggleIncomingAudio, removeParticipant, confirmRemoveParticipant, ensureMicrophone, syncLocalMicrophone, startCamera, stopCamera,
   startPublishing, ensurePublishedMedia, registerSystemCamera, editStream, deleteStream, deleteCamera, refreshMediaRuntime, discoverOnvifCameras,
@@ -339,7 +347,7 @@ const CAMERA_AUTO_KEY = "edge-s-auto-camera";
 const MICROPHONE_AUTO_KEY = "edge-s-auto-microphone";
 const MEDIA_DEVICE_KEY = "edge-s-media-devices-v0.5";
 const TRANSLATION_VOLUME_KEY = "edge-s-translation-volume";
-const CLIENT_BUILD = "0.7.77";
+const CLIENT_BUILD = "0.7.96";
 const interfaceLocale = () => participantLanguage(state.profile?.userId);
 const uiText = (key) => participantText(key, interfaceLocale());
 const BUILD_RELOAD_KEY = "edge-s-client-build-reload";
@@ -388,6 +396,8 @@ const state = {
   roomSeatPromptOpen: false,
   roomSeatDismissed: false,
   streams: [],
+  ucSessions: [],
+  ucControl: null,
   cameras: [],
   mediaRuntime: null,
   routing: null,
@@ -884,7 +894,7 @@ function voteCreationForm(title, fields, candidates, pro, governance = {}, submi
     form.querySelector("[data-select-voters]").onclick = () => form.querySelectorAll("[data-voter-enabled]").forEach((item) => { item.checked = true; });
     form.querySelector("[data-clear-voters]").onclick = () => form.querySelectorAll("[data-voter-enabled]").forEach((item) => { item.checked = false; });
     const done = (value) => { backdrop.remove(); resolve(value); };
-    form.querySelector("[data-cancel]").onclick = () => done(null);
+    form.querySelectorAll("[data-cancel]").forEach((button) => { button.onclick = () => done(null); });
     form.onsubmit = (event) => {
       event.preventDefault();
       const electorate = [...form.querySelectorAll(".vote-elector-row")].filter((row) => row.querySelector("[data-voter-enabled]").checked).map((row) => ({
@@ -1163,28 +1173,6 @@ document.addEventListener("keydown", (event) => {
   dialogs.at(-1)?.querySelector("[data-dialog-close]")?.click();
 });
 
-function roomSeatScheme(selection) {
-  const room = selection.room;
-  const width = Math.max(1000, Number(room.widthMm) || 1000);
-  const height = Math.max(1000, Number(room.heightMm) || 1000);
-  const markerRadius = Math.max(90, Math.min(220, Math.min(width, height) * 0.032));
-  const fontSize = Math.max(80, markerRadius * 0.9);
-  const cameraSize = markerRadius * 0.8;
-  const rect = (item, className) => {
-    const rectWidth = Math.max(100, Number(item.widthMm) || 100);
-    const rectHeight = Math.max(100, Number(item.depthMm ?? item.heightMm) || 100);
-    const x = Number(item.xMm) || 0, y = Number(item.yMm) || 0;
-    return `<g transform="translate(${x} ${y}) rotate(${Number(item.rotationDeg) || 0})"><rect class="${className}" x="${-rectWidth / 2}" y="${-rectHeight / 2}" width="${rectWidth}" height="${rectHeight}" rx="${Math.min(80, rectWidth / 10, rectHeight / 10)}"/></g>`;
-  };
-  return `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" style="aspect-ratio:${width} / ${height}" role="img" aria-label="Схема зала ${escapeHtml(room.name)}">
-    <rect class="seat-room" x="1" y="1" width="${width - 2}" height="${height - 2}" rx="${Math.min(80, Math.min(width, height) / 20)}"/>
-    ${(room.tables ?? []).map((item) => rect(item, "seat-table")).join("")}
-    ${(room.obstacles ?? []).map((item) => rect(item, "seat-obstacle")).join("")}
-    ${(room.cameras ?? []).map((item) => `<g class="seat-camera" transform="translate(${Number(item.xMm) || 0} ${Number(item.yMm) || 0}) rotate(${Number(item.yawDeg) || 0})"><path d="M${-cameraSize},${-cameraSize * 0.7} h${cameraSize * 1.35} l${cameraSize * 0.8},${cameraSize * 0.7} -${cameraSize * 0.8},${cameraSize * 0.7} h${-cameraSize * 1.35}z"/></g>`).join("")}
-    ${selection.stations.map((item) => `<g class="seat-point ${item.available ? "available" : item.occupied ? "occupied" : "no-camera"}" data-seat-id="${escapeHtml(item.id)}" transform="translate(${Number(item.xMm) || 0} ${Number(item.yMm) || 0}) rotate(${Number(item.rotationDeg) || 0})"><circle r="${markerRadius}"/><text style="font-size:${fontSize}px" text-anchor="middle" dominant-baseline="central">${item.number}</text></g>`).join("")}
-  </svg>`;
-}
-
 async function offerRoomStation({ force = false } = {}) {
   if (state.roomSeatPromptOpen || !state.meeting) return;
   if (state.profile?.remote === true) {
@@ -1204,7 +1192,7 @@ async function offerRoomStation({ force = false } = {}) {
   const dialog = document.createElement("div"); dialog.className = "form-dialog room-seat-dialog";
   dialog.innerHTML = `<header class="room-seat-head"><div><h3>${selection.selectedStationId ? "Изменить место" : "Выберите место"}</h3><p>Нажмите свободное место на схеме или в списке. Текущее место можно выбрать повторно.</p></div><button type="button" class="dialog-icon-close" data-dialog-close data-seat-later aria-label="Закрыть">×</button></header>
     <div class="room-seat-layout"><div class="room-seat-scheme">${roomSeatScheme(selection)}</div>
-    <div class="room-seat-list">${selection.stations.map((item) => `<button type="button" data-seat-id="${escapeHtml(item.id)}" ${item.available ? "" : "disabled"}>${item.number}. ${escapeHtml(item.name)}${item.occupied ? " · занято" : item.hasCamera ? "" : " · нет камеры"}</button>`).join("")}</div></div>
+    <div class="room-seat-list">${selection.stations.map((item) => `<button type="button" class="${item.id === selection.selectedStationId ? "is-current" : ""}" data-seat-id="${escapeHtml(item.id)}" ${item.available ? "" : "disabled"}>${item.number}. ${escapeHtml(item.name)}${item.id === selection.selectedStationId ? " · текущее место" : item.occupied ? " · занято" : item.hasCamera ? "" : " · нет камеры"}</button>`).join("")}</div></div>
     <div class="actions"><button type="button" data-seat-later>Выбрать позже</button></div>`;
   backdrop.append(dialog); document.body.append(backdrop);
   const close = (dismissed = false) => { state.roomSeatPromptOpen = false; state.roomSeatDismissed = dismissed; backdrop.remove(); };
@@ -1221,12 +1209,25 @@ async function offerRoomStation({ force = false } = {}) {
 
 async function maybeOfferRoomStation() { return offerRoomStation(); }
 
+let waitingController = null;
+function waitingRoom() {
+  return waitingController ??= createWaitingRoom({ escapeHtml, openDocumentViewer, connectWithProfile, connectError,
+    onConnected: () => { sessionStorage.removeItem(HANDOFF_KEY); localStorage.removeItem(HANDOFF_KEY); },
+    onLeave: () => { sessionStorage.removeItem(HANDOFF_KEY); localStorage.removeItem(HANDOFF_KEY);
+      sessionStorage.removeItem(AUTH_TOKEN_KEY); location.replace("/conference/"); } });
+}
+
 async function connectWithProfile(profile) {
   const api = new EdgeApi(profile);
   let lease;
   try {
     if (!await clientBuildReady(api, CLIENT_BUILD, BUILD_RELOAD_KEY)) return false;
-    await api.get(`/meetings/${encodeURIComponent(profile.meetingId)}`);
+    const meeting = await api.get(`/meetings/${encodeURIComponent(profile.meetingId)}`);
+    if (meeting.status === "ready" && !["operator", "secretary", "admin"].includes(profile.role)) {
+      await waitingRoom().show(profile, api, meeting);
+      return false;
+    }
+    if (!["ready", "active"].includes(meeting.status)) throw new Error("Конференция не готова к входу");
     lease = await api.post("/licenses/leases", {
       entitlementId: profile.entitlementId, deviceId: profile.deviceId,
       meetingId: profile.meetingId, remote: profile.remote,
@@ -1239,7 +1240,7 @@ async function connectWithProfile(profile) {
     });
     enterApplication({ api, profile, leaseId: lease.id, participantId: participant.id });
     await refreshAll();
-    await autoPublishOwnCamera();
+    if (state.meeting?.status === "active") await autoPublishOwnCamera();
     return true;
   } catch (error) {
     if (lease?.id) await api.delete(`/licenses/leases/${lease.id}`).catch(() => {});
@@ -1273,14 +1274,13 @@ async function consumeConferenceHandoff() {
 }
 
 async function autoPublishOwnCamera() {
+  if (state.meeting?.status !== "active") return;
   const wantsAudio = canSpeak() && localStorage.getItem(MICROPHONE_AUTO_KEY) !== "off" &&
     !state.localMedia?.getAudioTracks().some((track) => track.readyState === "live");
   const wantsVideo = localStorage.getItem(CAMERA_AUTO_KEY) !== "off" &&
     !state.localMedia?.getVideoTracks().some((track) => track.readyState === "live");
   if (!wantsAudio && !wantsVideo) return;
-  // A refresh is not a user gesture. Safari/iPadOS may show the system sheet
-  // again when getUserMedia is invoked here. Resume automatically only when
-  // the browser explicitly reports that every required permission is granted.
+  // Safari may reprompt without a user gesture; resume only granted capture.
   const permissions = await Promise.all([
     wantsAudio ? queryCapturePermission("microphone") : "granted",
     wantsVideo ? queryCapturePermission("camera") : "granted"
@@ -1339,11 +1339,7 @@ async function recoverSuspendedVideo(reason) {
   state.videoRecoveryTimer = null;
   if (document.hidden || localStorage.getItem(CAMERA_AUTO_KEY) === "off") return;
   const current = state.localMedia?.getVideoTracks()[0];
-  // iPadOS can leave a nominally live track muted after backgrounding. A new
-  // capture track plus a new video producer forces a fresh keyframe into the
-  // persistent VideoCore input without restarting audio or the send transport.
-  // Foregrounding an iPad is not evidence of a broken capture. Reopening a
-  // healthy track here triggers another browser permission sheet on Safari.
+  // Renew only broken iPad capture tracks; healthy tracks must not reprompt.
   if (current && current.readyState === "live" && !current.muted) return;
   const media = await navigator.mediaDevices.getUserMedia({ audio: false, video: {
     ...deviceConstraint(state.selectedVideoInputId), facingMode: state.selectedVideoInputId ? undefined : { ideal: "user" },
@@ -1559,12 +1555,12 @@ function schedulePushRefresh(eventType) {
       type.startsWith("conference.microphone") || type.startsWith("mcu.video-program") ||
       type === "mcu.video-scene-visible" ||
       type === "mediaplane.video-scene-visible" ||
-      type === "media.floor-scene-updated");
+      type === "media.floor-scene-updated" || type.startsWith("uc.session-"));
     if (events.some((type) => type.startsWith("media.") || type.startsWith("mcu.video-program") ||
         type === "mcu.video-scene-visible" ||
       type === "mediaplane.video-scene-visible" ||
         type === "participant.updated")) refreshProgram();
-    // Floor events update meeting state without detaching live video canvases.
+    // Floor updates keep video canvases mounted.
     if (floorOnly) refreshFloorState();
     else refreshAll(true);
   }, 60);
@@ -1582,6 +1578,7 @@ async function refreshFloorState() {
   try {
     const meeting = await state.api.get(`/meetings/${encodeURIComponent(state.profile.meetingId)}`);
     state.meeting = meeting;
+    state.ucSessions = meeting.ucSessions ?? [];
     if (["closed", "archived"].includes(meeting.status)) return exitClosedConference();
     renderMicrophoneDock();
     renderFixedControls();
@@ -1608,7 +1605,7 @@ async function refreshFloorState() {
         field?.setSelectionRange(...selection);
       }
     }
-    // Keep video canvases mounted.
+    // Keep live canvases.
     if (state.activeTab === "conference") {
       const template = document.createElement("template");
       template.innerHTML = conferenceHtml();
@@ -1737,9 +1734,7 @@ async function startEventStream() {
   }
 }
 
-// PGM follows the floor within ~1.5 s instead of waiting for the full
-// 4-second page refresh (which, together with the old two-poll switch
-// confirmation, delayed a speaker's camera in PGM by up to 8 s).
+// Track floor-to-PGM quickly, without the full page refresh delay.
 async function refreshProgram() {
   if (!state.api || !state.meeting || state.programRefreshing) return;
   state.programRefreshing = true;
@@ -1762,7 +1757,7 @@ async function refreshProgram() {
       else mountStudioMonitors();
     }
   } catch (_) {
-    // The next full refresh reports connectivity problems; a missed PGM poll is not one.
+    // Full refresh reports connection failures.
   } finally {
     state.programRefreshing = false;
   }
@@ -1776,8 +1771,7 @@ async function refreshAll(silent = false) {
   try {
     const meetingId = encodeURIComponent(state.profile.meetingId);
     const keep = (promise, fallback) => promise.catch(() => fallback);
-    // Role rights are configurable by the administrator; the server is the
-    // authority, the UI only hides what the server would refuse anyway.
+    // Server rights are authoritative.
     const permissions = await keep(state.api.get(`/permissions/me?meetingId=${meetingId}`), null);
     if (permissions) {
       state.capabilities = new Set(permissions.capabilities);
@@ -1808,6 +1802,16 @@ async function refreshAll(silent = false) {
     const mediaAccess = can("media.devices");
     const aes67Access = ["operator", "technician", "admin"].includes(role);
     const meeting = await state.api.get(`/meetings/${meetingId}`);
+    state.ucSessions = meeting.ucSessions ?? [];
+    state.ucControl = ["operator", "secretary", "admin"].includes(role) && can("conference.lifecycle")
+      ? await keep(state.api.get(`/meetings/${meetingId}/uc-control`), null) : null;
+    if (meeting.status === "ready") {
+      state.meeting = meeting;
+      state.documents = await keep(state.api.get(`/meetings/${meetingId}/documents`), []);
+      updateBuildLabels();
+      renderPage();
+      return;
+    }
     const roomId = meeting.roomId ?? "default-room";
     const [streams, votes, documents, presentations, devices, readiness, signagePlayers, aes67, serviceRequests, sharedSeats, chatSessions, cameras, mediaRuntime, routing, programDescriptor, mediaWorkers, multicastJobs, ndiJobs, systemStatus, mcuHealth, pgmSlates, translateStatus, translateMeeting] = await Promise.all([
       state.api.get(`/meetings/${meetingId}/streams`),
@@ -1836,6 +1840,11 @@ async function refreshAll(silent = false) {
       keep(state.api.get(`/meetings/${meetingId}/translate-core`), state.translateMeeting)
     ]);
     if (!await clientBuildReady(state.api, CLIENT_BUILD, BUILD_RELOAD_KEY, systemStatus)) return;
+    for (const previous of state.presentations ?? []) {
+      if (previous.status === "active" && !presentations.some((item) => item.id === previous.id && item.status === "active")) {
+        closePresentationViewer(previous.id);
+      }
+    }
     Object.assign(state, { meeting, streams, votes, documents, presentations, devices, readiness, signagePlayers, aes67, serviceRequests, sharedSeats, cameras, mediaRuntime, routing, programDescriptor, mediaWorkers, multicastJobs, ndiJobs, systemStatus, mcuHealth, pgmSlates, translateStatus, translateMeeting });
     state.roomControlPanelId = meetingControlPanelId(meetingId);
     state.roomControl = state.capabilities.has("control.room.operate")
@@ -1907,6 +1916,7 @@ async function refreshAll(silent = false) {
       capabilities: [...state.capabilities].sort(),
       votes: votes.map((item) => [item.id, item.status, item.updatedAt, item.closedAt, Object.keys(item.ballots ?? {}).length]),
       presentations: presentations.map((item) => [item.id, item.status, item.updatedAt]),
+      serviceRequests: serviceRequests.map((item) => [item.id, item.status, item.updatedAt]),
       presenters: (meeting.preparedParticipants ?? []).filter((item) => item.reports || item.role === "presenter")
         .map((item) => [item.id, item.status, item.excludedAt, item.reportOrder, item.presenterSeatId,
           item.reportSeatMode, item.ownReportSession?.status]),
@@ -2296,6 +2306,10 @@ $("#pageContent").addEventListener("click", (event) => {
   if (action === "chair-activate") runAction(activateChairMicrophone, "Приоритетный микрофон председателя включён");
   if (action === "grant-floor") runAction(() => grantFloor(target.dataset.participantId), "Слово предоставлено");
   if (action === "release-floor") runAction(() => releaseFloor(target.dataset.participantId), "Микрофон отключён");
+  if (action === "uc-toggle-mute") runAction(() => toggleUcMute(target.dataset.ucSessionId), "Звук внешней встречи обновлён");
+  if (action === "uc-connect-plan") void connectPlannedUc(target);
+  if (action === "uc-connect-live") void connectLiveUc(target);
+  if (action === "uc-disconnect") void disconnectUc(target);
   if (action === "self-release") runAction(selfRelease, "Слово освобождено");
   if (action === "save-microphone-limit") runAction(saveMicrophoneLimit, "Лимит активных микрофонов обновлён");
   if (action === "toggle-fifo") runAction(toggleFifo, "Режим FIFO обновлён");
@@ -2303,6 +2317,7 @@ $("#pageContent").addEventListener("click", (event) => {
   if (action === "mute-all") runAction(muteAllMicrophones, "Все микрофоны выключены");
   if (action === "edit-agenda") openAgendaDialog({ editable: true });
   if (action === "view-agenda") openAgendaDialog();
+  if (action === "start-conference") void startPreparedConference();
   if (action === "close-conference") void (async () => {
     if (!["operator", "admin", "secretary"].includes(state.profile.role) || !can("conference.lifecycle") || state.meeting?.status !== "active") return;
     if (!await confirmDialog("Завершить конференцию для всех участников? Все подключения будут отключены.", "Завершить конференцию", "Отмена")) return;
@@ -2384,13 +2399,16 @@ $("#pageContent").addEventListener("click", (event) => {
   if (action === "configure-vote-result") runAction(async () => {
     const vote = state.votes.find((item) => item.id === target.dataset.voteId);
     if (!vote) throw new Error("Голосование не найдено");
-    const values = await httpForm("Показ итогов голосования", [
+    const values = await httpForm("Настройки показа голосования", [
+      {name:"autoTakePgm",label:"Автоматически показывать ход голосования в PGM",type:"select",value:String(vote.displayPolicy?.autoTakePgm === true),options:[
+        {value:"false",label:"Нет"},{value:"true",label:"Да"}]},
       {name:"resultTarget",label:"Направление",type:"select",value:vote.displayPolicy?.resultTarget ?? "none",options:[
         {value:"none",label:"Не отправлять в PGM"},{value:"tiles",label:"Плиткой в PGM"},{value:"program",label:"Во весь PGM"}]},
       {name:"resultHoldSeconds",label:"Время показа после появления в эфире, сек.",type:"number",value:vote.displayPolicy?.resultHoldSeconds ?? 30}
     ], "Сохранить");
     if (values) await state.api.patch(`/votes/${encodeURIComponent(vote.id)}`, { displayPolicy: {
-      resultTarget: values.resultTarget, resultHoldSeconds: Number(values.resultHoldSeconds) } });
+      autoTakePgm: values.autoTakePgm === "true", resultTarget: values.resultTarget,
+      resultHoldSeconds: Number(values.resultHoldSeconds) } });
   }, "Показ итогов настроен");
   if (action === "delete-vote") runAction(async () => {
     if (!await confirmDialog("Удалить проект голосования?", "Удалить", "Отмена")) return;
@@ -2535,9 +2553,6 @@ $("#microphoneDock").addEventListener("click", (event) => {
 });
 
 window.addEventListener("beforeinstallprompt", (event) => {
-  // Chrome reports that its automatic banner was deferred. That console
-  // message is informational: installation is deliberately offered from the
-  // Settings action so it only opens after a user gesture.
   event.preventDefault();
   state.installPrompt = event;
   $$('[data-action="install-pwa"]').forEach((button) => { button.hidden = false; });

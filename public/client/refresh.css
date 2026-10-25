@@ -127,6 +127,9 @@ body:not([data-role="admin"]):not([data-role="technician"]):not([data-role="oper
 /* Queue rows without chair actions give the whole width to the name. */
 .floor-person:not(:has(.floor-decisions)):not(:has(.button)) { grid-template-columns: 34px minmax(0, 1fr); }
 .floor-person:has(.floor-decisions) { grid-template-columns: 34px minmax(0, 1fr) auto; }
+.conference-speakers-panel .uc-floor-person { grid-template-columns: 34px minmax(0, 1fr) auto; }
+.conference-speakers-panel .uc-floor-person .button { white-space: nowrap; }
+.conference-speakers-panel .uc-floor-person.is-muted .person-avatar { background: #f7e5e3; color: #8f2926; }
 
 /* ---------- Under the picture: reference cards in a row ---------- */
 .conference-below { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; align-items: stretch; min-width: 0; }
@@ -182,7 +185,7 @@ body:not([data-role="admin"]):not([data-role="technician"]):not([data-role="oper
 }
 
 /* ---------- Conference workspace (constructor) for participant and technical roles ---------- */
-.workspace-grid { grid-auto-rows: 2px; row-gap: 0 !important; column-gap: 6px; grid-auto-flow: row dense; align-items: start; }
+.workspace-grid { grid-auto-rows: 10px; row-gap: 0 !important; column-gap: 10px; grid-auto-flow: row dense; align-items: start; }
 .conference-screen-fit:has(.workspace-area){overflow-y:auto!important;overscroll-behavior:contain}
 /* Keep the scroll track above the fixed microphone dock on iPad and desktop.
    The dock height is measured by ResizeObserver, including the safe area. */
@@ -406,3 +409,4 @@ body:not([data-role="admin"]):not([data-role="technician"]):not([data-role="oper
 @media (max-width: 760px) {
   #appView .translation-channel-choices { grid-template-columns: 1fr; }
 }
+.conference-screen-fit .conference-dashboard,.conference-screen-fit .conference-main-column,.conference-screen-fit .conference-side-stack,.conference-screen-fit .conference-below,.conference-screen-fit .secretary-extra-panels{gap:10px}

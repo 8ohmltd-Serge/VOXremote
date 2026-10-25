@@ -35,7 +35,8 @@ import {
 } from "./app.js";
 
 function inMcu(stream) {
-  return stream.protocol === "webrtc" || (state.programDescriptor?.mcuVideoStreamIds ?? []).includes(stream.id);
+  return ["webrtc", "external_uc"].includes(stream.protocol) ||
+    (state.programDescriptor?.mcuVideoStreamIds ?? []).includes(stream.id);
 }
 
 async function runAction(action, success = null) {
@@ -47,6 +48,66 @@ async function runAction(action, success = null) {
   } catch (error) {
     notify(error.message);
   }
+}
+
+async function toggleUcMute(sessionId) {
+  const session = state.ucSessions.find((item) => item.id === sessionId);
+  if (!session) throw Error("Подключение UCCore уже завершено");
+  return state.api.patch(`/meetings/${encodeURIComponent(state.profile.meetingId)}/uc-sessions/${encodeURIComponent(session.id)}/mute`,
+    { muted: !session.muted });
+}
+
+const canConnectUc = () => ["operator", "secretary", "admin"].includes(state.profile.role) &&
+  state.capabilities.has("conference.lifecycle");
+
+async function startPreparedConference() {
+  if (!canConnectUc() || state.meeting?.status !== "ready") return;
+  try {
+    if (!await confirmDialog("Начать конференцию и открыть вход участникам?", "Начать конференцию", "Отмена")) return;
+    await state.api.post(`/meetings/${encodeURIComponent(state.profile.meetingId)}/start`, {});
+    await refreshAll();
+    await autoPublishOwnCamera();
+  } catch (error) { notify(error.message); }
+}
+
+async function connectPlannedUc(button) {
+  if (!canConnectUc()) return;
+  button.disabled = true;
+  try {
+    await state.api.post(`/meetings/${encodeURIComponent(state.profile.meetingId)}/uc-control/plans/${encodeURIComponent(button.dataset.planId)}/connect`, {});
+    await refreshAll();
+    if (state.meeting.status === "active") await autoPublishOwnCamera();
+    notify(state.meeting.status === "ready" ? "Внешняя встреча подключена для подготовки. Конференция ещё не начата" : "Внешняя встреча подключена");
+  } catch (error) { await refreshAll().catch(() => {}); notify(error.message); }
+  finally { button.disabled = false; }
+}
+
+async function connectLiveUc(button) {
+  if (!canConnectUc() || state.meeting.status !== "active") return;
+  const adapters = (state.ucControl?.adapters ?? []).filter((item) => item.capabilities?.join);
+  if (!adapters.length) return notify("Лицензированный UC-адаптер для подключения не настроен");
+  const form = await httpForm("Подключиться к идущей UC-встрече", [
+    { name: "providerId", label: "Платформа", type: "select", options: adapters.map((item) => ({ value: item.id, label: item.name })) },
+    { name: "target", label: "Ссылка на встречу", type: "url", maxLength: 2048 }
+  ], "Подключить");
+  if (!form) return;
+  button.disabled = true;
+  try {
+    await state.api.post(`/meetings/${encodeURIComponent(state.profile.meetingId)}/uc-control/connect`, form);
+    await refreshAll(); notify("Внешняя встреча подключена");
+  } catch (error) { notify(error.message); }
+  finally { button.disabled = false; }
+}
+
+async function disconnectUc(button) {
+  if (!canConnectUc()) return;
+  if (!await confirmDialog("Отключить эту внешнюю встречу от VOX-S?", "Отключить", "Отмена")) return;
+  button.disabled = true;
+  try {
+    await state.api.delete(`/meetings/${encodeURIComponent(state.profile.meetingId)}/uc-control/sessions/${encodeURIComponent(button.dataset.ucSessionId)}`);
+    await refreshAll(); notify("Внешняя встреча отключена");
+  } catch (error) { notify(error.message); }
+  finally { button.disabled = false; }
 }
 
 async function requestFloor() {
@@ -677,7 +738,7 @@ async function selectStream(streamId) {
 async function ensureStreamPreview(stream) {
   if (stream.sourceType === "system_multiview") return;
   if (stream.protocol === "synthetic" && stream.syntheticKind === "document") return;
-  if (stream.protocol === "webrtc" || stream.protocol === "mjpeg" || stream.protocol === "hls" || stream.previewUrl) return;
+  if (["webrtc", "external_uc", "mjpeg", "hls"].includes(stream.protocol) || stream.previewUrl) return;
   if (!canOperateMedia()) throw new Error("Источник ещё не преобразован в HLS. Оператор должен запустить Media Worker.");
   if (stream.protocol === "rtsp") {
     const job = await state.api.post("/media/workers", {
@@ -1533,10 +1594,24 @@ async function pollChatSignaling() {
   const sessions = await state.api.get(`/chat/sessions?${query}`);
   reconcileChatSessions(sessions);
   for (const session of state.chatSessions) {
+    const previousMessages = state.chatMessages.get(session.id) ?? [];
+    const knownIds = new Set(previousMessages.map((message) => message.id));
     const persisted = (session.messages ?? []).map((message) => ({
       id: message.id, text: message.text, at: message.at, own: message.participantId === state.participantId
     }));
-    if (persisted.length) state.chatMessages.set(session.id, persisted);
+    if (persisted.length) {
+      state.chatMessages.set(session.id, persisted);
+      const unread = persisted.filter((message) => !message.own && !knownIds.has(message.id) &&
+        Date.parse(message.at) > Date.parse(session.readBy?.[state.participantId] ?? 0));
+      if (unread.length) {
+        if (state.activeTab === "chat" && state.activeChatId === session.id) markChatRead(session.id);
+        else {
+          state.chatUnread.set(session.id, (state.chatUnread.get(session.id) ?? 0) + unread.length);
+          notify(`Новое личное сообщение от ${partnerFor(session).displayName}`);
+        }
+        updateChatNotice();
+      }
+    }
     let pc = state.chatPeers.get(session.id);
     if (!pc && session.initiatorParticipantId === state.participantId) {
       await startChatOffer(session);
@@ -1601,19 +1676,27 @@ async function pollChatSignaling() {
 
 async function sendChatMessage(text) {
   const sessionId = state.activeChatId;
-  const channel = state.chatChannels.get(sessionId);
-  const payload = { text: String(text).slice(0, 1000), at: new Date().toISOString() };
-  const signal = await state.api.post(`/chat/sessions/${sessionId}/signals`, {
-    participantId: state.participantId, type: "message", payload
-  });
-  if (channel?.readyState === "open") channel.send(JSON.stringify({ ...payload, id: signal.id }));
-  const messages = state.chatMessages.get(sessionId) ?? [];
-  messages.push({ ...payload, id: signal.id, own: true });
-  state.chatMessages.set(sessionId, messages.slice(-200));
-  const input = $("#chatMessage");
-  if (input) input.value = "";
-  state.chatDrafts.set(sessionId, "");
-  renderPage();
+  if (!sessionId) throw new Error("Выберите диалог");
+  state.chatSending ??= new Set();
+  if (state.chatSending.has(sessionId)) return false;
+  state.chatSending.add(sessionId);
+  try {
+    const channel = state.chatChannels.get(sessionId);
+    const payload = { text: String(text).slice(0, 1000), at: new Date().toISOString() };
+    const signal = await state.api.post(`/chat/sessions/${sessionId}/signals`, {
+      participantId: state.participantId, type: "message", payload
+    });
+    if (channel?.readyState === "open") channel.send(JSON.stringify({ ...payload, id: signal.id }));
+    const messages = state.chatMessages.get(sessionId) ?? [];
+    if (!messages.some((message) => message.id === signal.id)) messages.push({ ...payload, id: signal.id, own: true });
+    state.chatMessages.set(sessionId, messages.slice(-200));
+    const input = $("#chatMessage");
+    if (input) input.value = "";
+    state.chatDrafts.set(sessionId, "");
+    renderPage();
+  } finally {
+    state.chatSending.delete(sessionId);
+  }
 }
 
 async function closeAllChats() {
@@ -1660,11 +1743,11 @@ async function publishRoom(status) {
   await state.api.post(`/signage/scenes?meetingId=${encodeURIComponent(state.profile.meetingId)}`, {
     type: "room-status",
     title: status === "free" ? "Зал свободен" : state.meeting.title,
-    body: status === "free" ? "Следующее мероприятие — по расписанию" : "Идёт заседание · просьба не входить",
+    body: status === "free" ? "Следующее мероприятие — по расписанию" : "Идёт конференция · просьба не входить",
     roomStatus: status,
     target: playerId ? { playerIds: [playerId] } : { roomId }
   });
-  state.signageFeedback = status === "free" ? "Статус «Зал свободен» отправлен" : "Статус «Идёт заседание» отправлен";
+  state.signageFeedback = status === "free" ? "Статус «Зал свободен» отправлен" : "Статус «Идёт конференция» отправлен";
 }
 
 async function publishSignageScene() {
@@ -1713,7 +1796,7 @@ async function callParticipant() {
     participant: { ...(presenter ? { id: presenter.id } : {}), displayName: name }, sound: { enabled: true, tone: "chime", repeats: 2 },
     durationSeconds: 30, target: playerId ? { playerIds: [playerId] } : { roomId }
   });
-  state.signageFeedback = "Вызов отправлен на вывеску";
+  state.signageFeedback = playerId ? "Вызов отправлен на выбранный экран" : "Вызов отправлен на все экраны зала";
 }
 
 async function startAes67() {
@@ -1725,7 +1808,7 @@ async function stopAes67() {
 }
 
 async function createServiceRequest() {
-  const values=await httpForm("Сервисный запрос",[{name:"category",label:"Категория",type:"select",value:"water",options:serviceRequestCategoryOptions(interfaceLocale())},{name:"quantity",label:"Количество",type:"number",value:"1"},{name:"comment",label:"Комментарий",type:"textarea",value:"",required:false}]);if(!values)return false;const category=values.category;
+  const values=await httpForm("Сервисный запрос",[{name:"category",label:"Категория",type:"select",value:"water",options:serviceRequestCategoryOptions(interfaceLocale())},{name:"quantity",label:"Количество",type:"number",value:"1",visibleWhen:{name:"category",values:["tea","coffee","water","stationery"]}},{name:"comment",label:"Комментарий",type:"textarea",value:"",required:false}]);if(!values)return false;const category=values.category;
   const quantity = Number(values.quantity || 1); const comment=values.comment||"";
   const cameraSnapshot = await captureServiceCameraSnapshot();
   const request = await state.api.post("/service/requests", {
@@ -1836,7 +1919,7 @@ async function createVote() {
     {name:"maxRounds",label:"Максимум туров",type:"number",value:voteCore.defaults?.multiRound?.maxRounds ?? 2,visibleWhen:{name:"multiRound",values:["true"]}},
     {name:"advanceCount",label:"Проходит в следующий тур",type:"number",value:voteCore.defaults?.multiRound?.advanceCount ?? 2,visibleWhen:{name:"multiRound",values:["true"]}}
   );
-  const values=await voteCreationForm(pro ? "Новое голосование · VoteCore Pro" : "Новое голосование · VoteCore Basic",fields,electorate,pro,voteCore.defaults?.governance ?? {},"Создать проект");if(!values)return;
+  const values=await voteCreationForm(pro ? "Новое голосование · VoteCore Pro" : "Новое голосование · VoteCore Basic",fields,electorate,pro,voteCore.defaults?.governance ?? {},"Создать проект");if(!values)return false;
   const {topic,question,raw,mode,ruleSetId}=values;
   const options = raw?.split(";").map((item) => item.trim()).filter(Boolean) || [];
   if (options.length < 2) throw new Error("Нужно не менее двух вариантов.");
@@ -2077,7 +2160,8 @@ async function toggleFullscreen() {
 }
 
 export { inMcu, runAction, requestFloor, applyLocalFloorResult, runMicrophoneAction, activateChairMicrophone,
-  grantFloor, releaseFloor, selfRelease, saveMicrophoneLimit, toggleFifo, saveDiscussionMode,
+  grantFloor, releaseFloor, toggleUcMute, connectPlannedUc, connectLiveUc, disconnectUc, startPreparedConference,
+  selfRelease, saveMicrophoneLimit, toggleFifo, saveDiscussionMode,
   toggleChairPriority, muteAllMicrophones, activateAgenda, revealAccessPin, editAccessPin, changeParticipantRole,
   toggleIncomingAudio, removeParticipant, confirmRemoveParticipant, ensureMicrophone, syncLocalMicrophone,
   startCamera, stopCamera, startPublishing, ensurePublishedMedia, registerSystemCamera, editStream,

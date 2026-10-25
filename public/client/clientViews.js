@@ -71,6 +71,16 @@ function renderPage() {
   $("#participantName").textContent = state.profile.displayName;
   $("#participantRole").textContent = CONFERENCE_ROLE_LABELS[state.profile.role] ?? state.profile.role;
   $("#appView").dataset.role = state.profile.role;
+  document.body.dataset.prestart = String(state.meeting.status === "ready");
+  if (state.meeting.status === "ready" && state.activeTab !== "streams") {
+    $("#meetingTitle").textContent = state.meeting.title;
+    $("#meetingState").textContent = "ПОДГОТОВЛЕНА К ЗАПУСКУ";
+    $("#microphoneDock").hidden = true;
+    const agenda = (state.meeting.agenda ?? []).filter((item) => item.kind !== "intermission");
+    const materials = (state.documents ?? []).filter((item) => item.availableImmediately === true);
+    $("#pageContent").innerHTML = `<section class="panel panel-pad prestart-workspace"><h2>${escapeHtml(state.meeting.title)}</h2><p>Участники видят экран ожидания и подключатся автоматически после запуска.</p><section class="waiting-section" aria-label="План мероприятия"><h3>План мероприятия</h3>${agenda.length ? `<ol>${agenda.map((item) => `<li>${escapeHtml(item.title)}</li>`).join("")}</ol>` : `<p class="waiting-empty">Вопросы повестки пока не добавлены.</p>`}</section><section class="waiting-section" aria-label="Материалы для просмотра"><h3>Материалы для просмотра</h3>${materials.length ? materials.map((item) => `<button class="waiting-material" data-action="download-document" data-document-id="${escapeHtml(item.id)}"><span>${escapeHtml(item.fileName)}</span><span>Открыть</span></button>`).join("") : `<p class="waiting-empty">Доступных до начала материалов пока нет.</p>`}</section>${ucControlHtml(true)}<div class="conference-agenda-actions">${["operator", "secretary", "admin"].includes(state.profile.role) && can("conference.lifecycle") ? `<button class="button button-primary" data-action="start-conference">Начать конференцию</button>` : ""}</div></section>`;
+    return;
+  }
   const secretaryLayoutButton = $("#secretaryLayoutBtn");
   const secretaryLayoutActions = $("#secretaryLayoutActions");
   const editableWorkspace = (state.activeTab === "conference" ||
@@ -79,6 +89,7 @@ function renderPage() {
   if (secretaryLayoutButton && ["interpreter", "translator"].includes(state.profile.role)) secretaryLayoutButton.title = "Настроить рабочее место переводчика";
   if (secretaryLayoutActions) secretaryLayoutActions.hidden = !editableWorkspace || !state.secretaryLayoutDraft;
   renderMicrophoneDock();
+  if (state.meeting.status === "ready") $("#microphoneDock").hidden = true;
   renderFixedControls();
   const persistentProgramStage = $("#programStage") ?? state.programStageNode;
   persistentProgramStage?.remove();
@@ -217,7 +228,7 @@ function roomControlHtml() {
       ? item.borderRadius : 8;
     const geometry = [layout.x, layout.y, layout.w, layout.h].every(Number.isInteger) &&
       layout.x >= 0 && layout.y >= 0 && layout.w > 0 && layout.h > 0 && layout.x + layout.w <= columns && layout.y + layout.h <= rows
-      ? ` style="grid-column:${layout.x + 1} / span ${layout.w};grid-row:${layout.y + 1} / span ${layout.h};z-index:${Number.isInteger(item.z) ? item.z : 0};--control-border:${border};--control-radius:${radius}px"` : "";
+      ? ` style="grid-column:${layout.x + 1} / span ${layout.w};grid-row:${layout.y + 1} / span ${layout.h};z-index:${Number.isInteger(item.z) ? item.z : 0};--control-border:${border};--control-radius:${radius}px;${validControlColor(item.fontColor) ? `color:${item.fontColor};` : ""}${Number.isInteger(item.fontSize) ? `font-size:${item.fontSize}px;` : ""}"` : "";
     const selectedState = item.states?.find((entry) => entry.value === value ||
       typeof value === "boolean" && typeof entry.value === "number" && entry.value === Number(value));
     const iconSource = selectedState?.icon || item.icon;
@@ -230,9 +241,13 @@ function roomControlHtml() {
     if (item.type === "viewer") return `<div class="room-control-tile room-control-viewer"${geometry}><video data-room-control-viewer="${escapeHtml(item.id)}" muted autoplay playsinline aria-label="${escapeHtml(item.label)}"></video><span>${escapeHtml(item.label)}</span></div>`;
     if (item.type === "slider") return `<div class="room-control-tile"${geometry}><label class="room-control-slider">${icon}<span>${escapeHtml(item.label)}</span><input type="range" min="${item.min}" max="${item.max}" value="${Number.isFinite(value) ? value : item.min}" data-room-control-slider="${escapeHtml(item.id)}"><output>${Number.isFinite(value) ? value : item.min}</output></label></div>`;
     const detail = !selectedState && item.type === "multistate" ? "Состояние неизвестно" : "";
-    const color = validControlColor(selectedState?.color)
-      ? ` style="background-color:${selectedState.color};color:${controlColorInk(selectedState.color)}"` : "";
-    return `<div class="room-control-tile"${geometry}><button type="button" data-room-control-button="${escapeHtml(item.id)}" data-hit="${escapeHtml(item.hit ?? "bounding-box")}" aria-pressed="${Boolean(value)}"${color}>${icon}<span>${escapeHtml(selectedState?.label ?? item.label)}</span>${detail ? `<small>${escapeHtml(detail)}</small>` : ""}</button></div>`;
+    const color = validControlColor(selectedState?.color) ? selectedState.color : null;
+    const fontColor = validControlColor(selectedState?.fontColor) ? selectedState.fontColor : item.fontColor;
+    const fontSize = Number.isInteger(selectedState?.fontSize) ? selectedState.fontSize : item.fontSize;
+    const style = [color ? `--control-state-color:${color}` : "",
+      validControlColor(fontColor) ? `--control-state-ink:${fontColor}` : color ? `--control-state-ink:${controlColorInk(color)}` : "",
+      Number.isInteger(fontSize) ? `font-size:${fontSize}px` : ""].filter(Boolean).join(";");
+    return `<div class="room-control-tile"${geometry}><button type="button" data-room-control-button="${escapeHtml(item.id)}" data-hit="${escapeHtml(item.hit ?? "bounding-box")}" aria-pressed="${Boolean(value)}"${style ? ` style="${style}"` : ""}>${icon}<span>${escapeHtml(selectedState?.label ?? item.label)}</span>${detail ? `<small>${escapeHtml(detail)}</small>` : ""}</button></div>`;
   }).join("");
   return `${pageHead("Управление залом", `${escapeHtml(project.panel.title)} · версия ${project.version}`)}<article class="panel panel-pad"><h4 class="panel-title">${escapeHtml(selectedPage.title)}</h4><div class="room-control-actions is-layout" style="--control-columns:${project.panel.grid?.columns ?? 12}">${controls}</div><p class="room-control-feedback" role="status" aria-live="polite"></p></article>`;
 }
@@ -495,21 +510,23 @@ function renderMicrophoneDock() {
     return;
   }
   if (participant.role === "chair") {
+    const chairSpeaking = participant.microphone === "open";
     const nextId = state.meeting.audioSettings?.discussionMode === "managed"
       ? state.meeting.floorQueue.find((id) => state.meeting.participants?.[id]?.state === "joined") : null;
     const next = nextId ? state.meeting.participants[nextId] : null;
     const nextIcon = `<span class="chair-next-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15m-6-6 6 6-6 6"/></svg><svg class="chair-next-attention" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15m-6-6 6 6-6 6"/></svg></span>`;
-    dock.innerHTML = `<button type="button" class="mic-button chair-mic-button mic-neutral" data-mic-action="chair-priority" ${meetingPaused ? "disabled" : ""} aria-label="Приоритет: выключить микрофоны остальных участников, кроме председателей, и взять слово">${microphoneIcon("on")}<span><b>Приоритет</b><small>Отключить остальных</small></span></button><button type="button" class="mic-button chair-mic-button mic-green ${speaking ? "mic-live" : "mic-idle"}" data-mic-action="chair-take-floor" ${meetingPaused ? "disabled" : ""} aria-label="${speaking ? "Выключить свой микрофон" : "Взять слово без отключения остальных"}">${microphoneIcon(speaking ? "on" : "off")}<span><b>${speaking ? "Выключить микрофон" : "Взять слово"}</b><small>${speaking ? "Вы в эфире" : "Без отключения других"}</small></span></button><button type="button" class="mic-button chair-mic-button mic-neutral chair-next ${next ? "has-queue" : ""}" data-mic-action="chair-next" ${!next || meetingPaused ? "disabled" : ""} aria-label="${next ? `Дать слово следующему: ${escapeHtml(next.displayName)}` : "Нет запросов слова в очереди"}" title="${next ? escapeHtml(next.displayName) : "Очередь пуста"}">${nextIcon}<span><b>Следующий</b><small>${next ? `В очереди: ${state.meeting.floorQueue.length}` : "Очередь пуста"}</small></span></button>${speaking ? '<span class="on-air-tag" role="status">● В эфире</span>' : ""}`;
+    dock.innerHTML = `<button type="button" class="mic-button chair-mic-button mic-neutral" data-mic-action="chair-priority" ${meetingPaused ? "disabled" : ""} aria-label="Приоритет: выключить микрофоны остальных участников, кроме председателей, и взять слово">${microphoneIcon("on")}<span><b>Приоритет</b><small>Отключить остальных</small></span></button><button type="button" class="mic-button chair-mic-button ${chairSpeaking ? "mic-green mic-live" : "mic-red mic-idle"}" data-mic-action="chair-take-floor" ${meetingPaused ? "disabled" : ""} aria-label="${chairSpeaking ? "Выключить свой микрофон" : "Взять слово без отключения остальных"}">${microphoneIcon(chairSpeaking ? "on" : "off")}<span><b>${chairSpeaking ? "Выключить микрофон" : "Взять слово"}</b><small>${chairSpeaking ? "Вы в эфире" : "Без отключения других"}</small></span></button><button type="button" class="mic-button chair-mic-button mic-neutral chair-next ${next ? "has-queue" : ""}" data-mic-action="chair-next" ${!next || meetingPaused ? "disabled" : ""} aria-label="${next ? `Дать слово следующему: ${escapeHtml(next.displayName)}` : "Нет запросов слова в очереди"}" title="${next ? escapeHtml(next.displayName) : "Очередь пуста"}">${nextIcon}<span><b>Следующий</b><small>${next ? `В очереди: ${state.meeting.floorQueue.length}` : "Очередь пуста"}</small></span></button>${chairSpeaking ? '<span class="on-air-tag" role="status">● В эфире</span>' : ""}`;
     dock.insertAdjacentHTML("beforeend", recordingToggleHtml(meetingPaused));
     dock.insertAdjacentHTML("beforeend", presentationDockHtml());
     return;
   }
   const color = speaking ? "mic-green mic-live" : queued ? "mic-yellow mic-queued" : "mic-red mic-idle";
-  const label = speaking ? "Выключить микрофон" : queued ? "Отменить запрос слова" : "Включить микрофон или запросить слово";
+  const openDiscussion = state.meeting.audioSettings?.discussionMode === "open";
+  const label = speaking ? "Выключить микрофон" : queued ? "Отменить запрос слова" : openDiscussion ? "Взять слово" : "Запросить слово";
   const queuePlace = queued ? state.meeting.floorQueue.indexOf(state.participantId) + 1 : 0;
   const blocked = meetingPaused || (state.meeting.chairPriority?.mode === "hard" && !speaking && !queued);
   const blockedReason = meetingPaused ? "Конференция на паузе" : "Председатель использует приоритет; запрос временно недоступен";
-  dock.innerHTML = `<button type="button" class="mic-button ${color}" data-mic-action="delegate" aria-label="${blocked ? blockedReason : label}" title="${blocked ? blockedReason : label}" ${blocked ? "disabled" : ""}>${microphoneIcon(speaking ? "on" : queued ? "wait" : "off")}<span><b>${meetingPaused ? "Микрофон на паузе" : speaking ? "Завершить выступление" : queued ? "Отменить запрос" : "Попросить слово"}</b><small>${meetingPaused ? "Заседание на паузе" : speaking ? "Вас слышит зал" : queued ? `Вы в очереди: №${queuePlace}` : blocked ? "Приоритет председателя" : "Нажмите, чтобы выступить"}</small></span></button>${speaking ? '<span class="on-air-tag" role="status">● В эфире</span>' : ""}`;
+  dock.innerHTML = `<button type="button" class="mic-button ${color}" data-mic-action="delegate" aria-label="${blocked ? blockedReason : label}" title="${blocked ? blockedReason : label}" ${blocked ? "disabled" : ""}>${microphoneIcon(speaking ? "on" : queued ? "wait" : "off")}<span><b>${meetingPaused ? "Микрофон на паузе" : speaking ? "Завершить выступление" : queued ? "Отменить запрос" : label}</b><small>${meetingPaused ? "Заседание на паузе" : speaking ? "Вас слышит зал" : queued ? `Вы в очереди: №${queuePlace}` : blocked ? "Приоритет председателя" : "Нажмите, чтобы выступить"}</small></span></button>${speaking ? '<span class="on-air-tag" role="status">● В эфире</span>' : ""}`;
   dock.insertAdjacentHTML("beforeend", recordingToggleHtml(meetingPaused));
   dock.insertAdjacentHTML("beforeend", presentationDockHtml());
 }
@@ -711,9 +728,10 @@ const WORKSPACE_PANEL_LABELS = { program: "Трансляция зала", speak
   materials: "Материалы к пункту", vote: "Голосование", metrics: "Показатели",
   service: "Сервис", translation: "Перевод" };
 const WORKSPACE_PERSONAL_ROLES = ["operator", "av_operator", "technician", "admin"];
-// Blocks pack on 2 px rows with a 6 px gap between them.
-const WORKSPACE_ROW = 2;
-const WORKSPACE_GAP = 6;
+// Blocks pack on 10 px rows with a 10 px visible vertical and horizontal gap.
+const WORKSPACE_ROW = 10;
+const WORKSPACE_GAP = 10;
+const WORKSPACE_VERTICAL_GAP = WORKSPACE_ROW;
 
 // Every block this role may place (same rule as the server), and those that can be added right now.
 function workspaceAllowedPanels(role = state.profile?.role) {
@@ -736,7 +754,7 @@ function fitProgramTiles() {
       panel.offsetHeight - panel.clientHeight) / 10) * 10);
     if (wrap.style.getPropertyValue("--layout-height") === `${height}px`) continue;
     wrap.style.setProperty("--layout-height", `${height}px`);
-    wrap.style.gridRow = `span ${Math.ceil((height + WORKSPACE_GAP) / WORKSPACE_ROW)}`;
+    wrap.style.gridRow = `span ${Math.ceil((height + WORKSPACE_VERTICAL_GAP) / WORKSPACE_ROW)}`;
   }
 }
 let programTileWatch = false;
@@ -855,7 +873,7 @@ function secretaryLayoutPanel(id, content) {
   // Workspace grids pack blocks on 2 px rows; the Program tile height follows its width (16:9).
   const masonry = state.profile.role !== "secretary";
   const height = masonry && id === "program" ? programTileHeight(size.width) : size.height;
-  const rows = masonry ? `;grid-row:span ${Math.ceil((height + WORKSPACE_GAP) / WORKSPACE_ROW)}` : "";
+  const rows = `;grid-row:span ${Math.ceil((height + WORKSPACE_VERTICAL_GAP) / WORKSPACE_ROW)}`;
   return `<div class="secretary-layout-panel${editing ? " is-editing" : ""}" data-layout-panel="${id}" style="--layout-span:${size.width};--layout-height:${height}px;order:${order}${rows}">
       ${editing ? `<div class="secretary-panel-tools"><button type="button" class="secretary-drag-handle" data-layout-drag="${id}" aria-label="Переместить блок" title="Перетащите блок">⠿ Переместить</button><button type="button" class="secretary-order-button" data-action="secretary-panel-before" data-panel-id="${id}" aria-label="Передвинуть блок раньше">←</button><button type="button" class="secretary-order-button" data-action="secretary-panel-after" data-panel-id="${id}" aria-label="Передвинуть блок позже">→</button>${lockButton(id, "width", size)}${masonry && id === "program" ? "" : lockButton(id, "height", size)}<span>${size.width}/12 · ${masonry && id === "program" ? "16:9" : `${size.height} px`}</span>${masonry && layout.order.length > 1 && !(id === "translation" && ["interpreter", "translator"].includes(state.profile.role)) ? `<button type="button" class="secretary-order-button layout-remove" data-action="layout-remove" data-panel-id="${id}" aria-label="Убрать блок «${WORKSPACE_PANEL_LABELS[id] ?? id}»" title="Убрать блок">×</button>` : ""}</div>` : ""}
     ${content}
@@ -981,11 +999,20 @@ function conferenceHtml() {
         if (!participant) return "";
         return `<div class="status-row floor-person"><span class="person-avatar">${escapeHtml(initials(participant.displayName))}</span><div class="floor-person-copy"><strong><span class="queue-index">${index + 1}</span><span class="floor-name" title="${escapeHtml(participant.displayName)}">${escapeHtml(participant.displayName)}</span></strong><small>${escapeHtml(CONFERENCE_ROLE_LABELS[participant.role] ?? participant.role)}</small></div>${canManageFloor ? `<div class="action-strip floor-decisions"><button class="button floor-grant" title="Дать слово" aria-label="Дать слово" data-action="grant-floor" data-participant-id="${escapeHtml(id)}">✓</button><button class="button floor-reject" title="Отклонить запрос" aria-label="Отклонить запрос" data-action="release-floor" data-participant-id="${escapeHtml(id)}">×</button></div>` : ""}</div>`;
       }).join("") || `<div class="empty">Очередь запросов пуста.</div>`;
-  const activeSpeakers = state.meeting.activeSpeakerIds.map((id) => {
+  const localSpeakers = state.meeting.activeSpeakerIds.map((id) => {
         const participant = state.meeting.participants[id];
         if (!participant) return "";
         return `<div class="status-row floor-person is-speaking"><span class="person-avatar">${escapeHtml(initials(participant.displayName))}</span><div><strong>${escapeHtml(participant.displayName)}</strong><br><small>Микрофон открыт</small></div>${canManageFloor ? `<button class="button button-danger icon-label-button" data-action="release-floor" data-participant-id="${escapeHtml(id)}" title="Отключить микрофон" aria-label="Отключить микрофон: ${escapeHtml(participant.displayName)}">${iconLabel("micOff", "Отключить")}</button>` : ""}</div>`;
-      }).join("") || `<div class="empty">Текущих выступающих нет.</div>`;
+      }).join("");
+  const ucSpeakers = (state.ucSessions ?? []).filter((session) =>
+    !session.simulated && session.state === "connected" && session.streamId).map((session) => {
+    const provider = { "yandex-telemost": "Яндекс Телемост", zoom: "Zoom", webex: "Webex",
+      trueconf: "TrueConf", "kontur-talk": "Контур.Толк" }[session.providerId] ?? session.providerId;
+    const name = session.displayName?.trim() || `${provider} · ${session.id.slice(0, 8)}`;
+    const mute = session.muted === true;
+    return `<div class="status-row floor-person uc-floor-person ${mute ? "is-muted" : "is-speaking"}" data-uc-session-id="${escapeHtml(session.id)}"><span class="person-avatar">UC</span><div class="floor-person-copy"><strong>${escapeHtml(name)}</strong><small>${mute ? "MUTE · звук в VOX-S отключён" : "Внешняя встреча · звук включён"}</small></div>${can("audio.operate") && session.streamId ? `<button class="button ${mute ? "button-secondary" : "button-danger"} icon-label-button" data-action="uc-toggle-mute" data-uc-session-id="${escapeHtml(session.id)}" aria-label="${mute ? "Включить звук" : "Заглушить звук"}: ${escapeHtml(name)}">${mute ? "Включить" : "MUTE"}</button>` : ""}</div>`;
+  }).join("");
+  const activeSpeakers = localSpeakers + ucSpeakers || `<div class="empty">Текущих выступающих нет.</div>`;
   const scheduledPresenters = (state.meeting.preparedParticipants ?? []).filter((item) => !item.excludedAt &&
     (item.reports || item.role === "presenter"))
     .sort((a, b) => Number(a.reportOrder ?? 999) - Number(b.reportOrder ?? 999));
@@ -1033,8 +1060,9 @@ function conferenceHtml() {
   const agenda = state.meeting.agenda ?? [];
   const activeAgenda = agenda.find((item) => item.id === state.meeting.activeAgendaItemId);
   const agendaAction = `<button class="button ${canManageAgenda ? "button-secondary" : "button-quiet"}" data-action="${canManageAgenda ? "edit-agenda" : "view-agenda"}">${canManageAgenda ? "Изменить повестку" : "Посмотреть"}</button>`;
-  const closeAction = ["operator", "admin", "secretary"].includes(state.profile.role) && can("conference.lifecycle") && state.meeting.status === "active"
-    ? `<button class="button button-quiet" data-action="close-conference">Завершить конференцию</button>` : "";
+  const closeAction = ["operator", "admin", "secretary"].includes(state.profile.role) && can("conference.lifecycle")
+    ? state.meeting.status === "ready" ? `<button class="button button-primary" data-action="start-conference">Начать конференцию</button>`
+      : state.meeting.status === "active" ? `<button class="button button-quiet" data-action="close-conference">Завершить конференцию</button>` : "" : "";
   const pauseAction = ["chair", "secretary", "admin"].includes(state.profile.role) && can("conference.pause") && state.meeting.status === "active"
     ? `<button class="button button-secondary" data-action="${state.meeting.pausedAt ? "resume-conference" : "pause-conference"}">${state.meeting.pausedAt ? "Продолжить" : "Пауза"}</button>` : "";
   const activeAgendaIndex = activeAgenda ? agenda.findIndex((item) => item.id === activeAgenda.id) + 1 : 0;
@@ -1054,7 +1082,8 @@ function conferenceHtml() {
   const programPanel = `<article class="panel conference-program-panel"><div id="programStage" class="preview-stage program-stage-large"><div class="preview-empty">В Program пока не назначен источник.</div></div></article>`;
   const channelsPanel = `<article class="panel panel-pad secretary-open-channels"><h4 class="panel-title">Открытые каналы</h4><div class="secretary-speakers">${secretarySpeakersHtml()}</div></article>`;
   const queuePanel = `<article class="panel panel-pad conference-queue-panel"><div class="section-title-row"><h4 class="panel-title">Очередь</h4><span class="count-badge">${state.meeting.floorQueue.length}</span></div>${queue}${presenterSchedule}</article>`;
-  const speakersPanel = `<article class="panel panel-pad conference-speakers-panel"><div class="section-title-row"><h4 class="panel-title">Выступают</h4><span class="live-badge">● В эфире ${state.meeting.activeSpeakerIds.length}</span></div>${activeSpeakers}</article>`;
+  const ucLiveCount = (state.ucSessions ?? []).filter((session) => !session.simulated && !session.muted).length;
+  const speakersPanel = `<article class="panel panel-pad conference-speakers-panel"><div class="section-title-row"><h4 class="panel-title">Выступают</h4><span class="live-badge">● В эфире ${state.meeting.activeSpeakerIds.length + ucLiveCount}</span></div>${activeSpeakers}</article>`;
   const secretaryDashboard = state.profile.role !== "secretary" ? "" : `<div class="secretary-layout-grid">${secretaryLayoutPanel("program", programPanel)}${secretaryLayoutPanel("channels", channelsPanel)}${secretaryLayoutPanel("queue", queuePanel)}${secretaryLayoutPanel("speakers", speakersPanel)}${secretaryLayoutPanel("protocol", secretaryWorkspaceHtml())}</div><div class="secretary-extra-panels">${voteStatus}${presentationOffer}${materialOffer}</div>`;
   // Live floor state on the right; reference cards (materials, show, last vote) fill the space under the picture.
   const belowCards = `${presentationOffer}${materialOffer}${voteStatus}`;
@@ -1241,8 +1270,10 @@ function streamsHtml() {
   const previewSource = state.routing?.buses?.preview?.sourceId ?? null;
   const programSource = state.routing?.buses?.program?.sourceId ?? null;
   const autoDirectorEnabled = state.routing?.autoDirector?.enabled === true;
-  const manualDisabled = autoDirectorEnabled ? "disabled" : "";
-  const manualTitle = autoDirectorEnabled ? "Автодиректор включён: выключите его для ручного TAKE/FADE" : "Перенести Preview в PGM";
+  const prestart = state.meeting.status === "ready";
+  const manualDisabled = autoDirectorEnabled || prestart ? "disabled" : "";
+  const manualTitle = prestart ? "PGM доступен после запуска конференции"
+    : autoDirectorEnabled ? "Автодиректор включён: выключите его для ручного TAKE/FADE" : "Перенести Preview в PGM";
   const autoDirectorToggle = can("pgm.operate")
     ? `<button class="button ${autoDirectorEnabled ? "button-quiet" : "button-secondary"}" data-action="toggle-auto-director">${autoDirectorEnabled ? "Выключить" : "Включить"} Автодиректор</button>` : "";
   const autoDirectorStatus = autoDirectorEnabled
@@ -1306,8 +1337,9 @@ function streamsHtml() {
     </section>` : "";
   return `
     ${pageHead("Камеры и потоки", "Камеры и источники")}
+    ${prestart ? `<p class="waiting-section">Конференция ещё не начата. Источники можно обнаружить и проверить; вывод в PGM доступен после запуска.</p>` : ""}
     ${canOperateMedia() ? "" : participantsAndSourcesHtml()}
-    ${can("pgm.operate") ? pgmModeHtml() : ""}
+    ${can("pgm.operate") && !prestart ? pgmModeHtml() : ""}
     ${advanced}`;
 }
 
@@ -1800,7 +1832,7 @@ function votingHtml() {
     }).join("");
     const ballot = vote.status === "open" && isEligibleForVote(vote) && !vote.hasVoted ? advancedBallot(vote) : "";
     const controls = canManageVotes() ? `<div class="action-strip" style="margin-top:12px">${
-      vote.status === "draft" ? `<label class="inline-number">Время, сек. <input data-vote-duration="${vote.id}" type="number" min="10" max="86400" value="${vote.durationSeconds ?? 60}"></label>${can("pgm.tiles") ? `<button class="button button-secondary" data-action="configure-vote-result" data-vote-id="${vote.id}">Показ итогов: ${escapeHtml(({ none: "выкл", tiles: "плитка PGM", program: "весь PGM" })[vote.displayPolicy?.resultTarget ?? "none"])}</button>` : ""}<button class="button button-secondary" data-action="open-vote" data-vote-id="${vote.id}">Открыть</button><button class="button button-danger" data-action="delete-vote" data-vote-id="${vote.id}">Удалить проект</button>` : ""
+      vote.status === "draft" ? `<label class="inline-number">Время, сек. <input data-vote-duration="${vote.id}" type="number" min="10" max="86400" value="${vote.durationSeconds ?? 60}"></label>${can("pgm.tiles") ? `<button class="button button-secondary" data-action="configure-vote-result" data-vote-id="${vote.id}">Настройки показа</button>` : ""}<button class="button button-secondary" data-action="open-vote" data-vote-id="${vote.id}">Открыть</button><button class="button button-danger" data-action="delete-vote" data-vote-id="${vote.id}">Удалить проект</button>` : ""
     }${vote.status === "open" ? `<button class="button button-danger" data-action="close-vote" data-vote-id="${vote.id}">Закрыть</button>` : ""}${vote.status === "closed" && vote.finalResult?.nextRoundAllowed ? `<button class="button button-secondary" data-action="next-vote-round" data-vote-id="${vote.id}">Следующий тур</button>` : ""}</div>` : "";
     const remaining = vote.status === "open" && vote.closesAt ? Math.max(0, Math.ceil((Date.parse(vote.closesAt) - Date.now()) / 1000)) : null;
     const summary = vote.electorateSummary ?? {};
@@ -1928,7 +1960,7 @@ function chatHtml() {
 }
 
 function requestItemsText(request) {
-  return request.items.map((item) => `${serviceRequestCategoryLabel(item, interfaceLocale())} × ${item.quantity}`).join(", ");
+  return request.items.map((item) => `${serviceRequestCategoryLabel(item, interfaceLocale())}${["tea", "coffee", "water", "stationery"].includes(item.category) ? ` × ${item.quantity}` : ""}`).join(", ");
 }
 
 function updateSignagePreviews() {
@@ -1965,6 +1997,29 @@ function updateSignagePreviews() {
   }
 }
 
+function ucControlHtml(prestart = false) {
+  if (!["operator", "secretary", "admin"].includes(state.profile.role) || !can("conference.lifecycle")) return "";
+  const control = state.ucControl;
+  if (!control) return "";
+  const adapters = new Map((control.adapters ?? []).map((item) => [item.id, item]));
+  const atCapacity = control.usedCapacity >= control.capacity;
+  const sessions = control.sessions ?? [];
+  const plans = (control.plans ?? []).map((plan) => {
+    const adapter = adapters.get(plan.providerId);
+    const session = sessions.find((item) => item.connectionPlanId === plan.id);
+    const supported = adapter?.capabilities?.join && (plan.mode !== "create" || adapter.capabilities.create);
+    const reason = !supported ? "Адаптер этой платформы не установлен или не лицензирован"
+      : plan.mode === "existing" && !plan.targetConfigured ? "Ссылка на встречу не указана"
+        : atCapacity && !session ? "Достигнут лимит одновременных UC-подключений" : "";
+    const action = session ? `<span class="chip">${session.state === "connecting" ? "Подключается" : "Подключена"}</span><button class="button button-quiet" data-action="uc-disconnect" data-uc-session-id="${escapeHtml(session.id)}">Отключить</button>`
+      : `<button class="button button-secondary" data-action="uc-connect-plan" data-plan-id="${escapeHtml(plan.id)}" ${reason ? `disabled title="${escapeHtml(reason)}"` : ""}>Подключить UC</button>`;
+    return `<div class="uc-control-row"><div><strong>${escapeHtml(plan.title)}</strong><small>${escapeHtml(adapter?.name ?? plan.providerId)} · ${plan.kind === "room" ? "удалённый зал" : "персональное подключение"}</small>${reason ? `<small>${escapeHtml(reason)}</small>` : ""}</div><div class="uc-control-actions">${action}</div></div>`;
+  }).join("");
+  const unplanned = sessions.filter((item) => !item.connectionPlanId).map((session) =>
+    `<div class="uc-control-row"><div><strong>${escapeHtml(adapters.get(session.providerId)?.name ?? session.providerId)}</strong><small>Подключение вне плана · ${session.state === "connecting" ? "подключается" : "подключено"}</small></div><div class="uc-control-actions"><button class="button button-quiet" data-action="uc-disconnect" data-uc-session-id="${escapeHtml(session.id)}">Отключить</button></div></div>`).join("");
+  return `<section class="${prestart ? "waiting-section" : "panel panel-pad"} uc-control" aria-label="Внешние встречи"><div class="uc-control-heading"><div><h3>Внешние встречи</h3><p>${prestart ? "Подключите внешнюю встречу для проверки до начала конференции. Звук и PGM зала отправятся в неё только после запуска." : "Подключите запланированную встречу или присоединитесь к уже идущей."}</p><small>Лицензия: ${escapeHtml(control.usedCapacity)} из ${escapeHtml(control.capacity)} одновременных подключений</small></div>${!prestart && adapters.size ? `<button class="button button-secondary" data-action="uc-connect-live" ${atCapacity ? 'disabled title="Достигнут лимит одновременных UC-подключений"' : ""}>Подключиться к идущей UC</button>` : ""}</div><div class="uc-control-list">${plans || (prestart ? `<p class="waiting-empty">В подготовке UC-подключения не указаны.</p>` : "")}${unplanned}</div>${!adapters.size ? `<p class="waiting-empty">Нет доступного лицензированного UC-адаптера.</p>` : ""}</section>`;
+}
+
 function operationsHtml() {
   const role = state.profile.role;
   const canDevices = ["operator", "technician", "admin"].includes(role);
@@ -1978,10 +2033,10 @@ function operationsHtml() {
   const signageDocuments = state.documents.filter((item) => item.meetingId === state.profile.meetingId);
   const selectedScreen = roomPlayers[0];
   const signagePreviews = `<div class="signage-preview-grid"><div class="signage-preview"><strong>Сейчас на экране</strong><div class="signage-preview-surface" id="signageCurrentPreview"></div><small id="signageScreenStatus">${selectedScreen ? selectedScreen.online ? "В сети" : "Не в сети" : "Экран не выбран"}</small></div><div class="signage-preview"><strong>Готовится к отправке</strong><div class="signage-preview-surface" id="signageDraftPreview"></div></div></div>`;
-  const signage = canSignage ? `<article class="panel panel-pad signage-control"><h4 class="panel-title">Вывески</h4><p>${roomPlayers.length ? `Выберите один экран или отправьте сцену на все экраны зала.` : "Для этого зала ещё не зарегистрирован экран. Добавьте его в SignageCore."}</p><label class="signage-target-label">Куда отправить<select id="signageTargetPlayer"><option value="">Все экраны этого зала</option>${roomPlayers.map((player) => `<option value="${escapeHtml(player.id)}">${escapeHtml(player.name || player.id)}${player.online ? " · в сети" : " · не в сети"}</option>`).join("")}</select></label>${signagePreviews}<div class="action-strip compact"><button class="button button-quiet" data-action="publish-room-free" ${roomPlayers.length ? "" : "disabled"}>Зал свободен</button><button class="button button-quiet" data-action="publish-room-busy" ${roomPlayers.length ? "" : "disabled"}>Идёт заседание</button><button class="button button-secondary" data-action="call-participant" ${roomPlayers.length ? "" : "disabled"}>Вызвать участника</button></div><div class="signage-compose"><label>Контент<select id="signageSceneType"><option value="text">Текст</option><option value="schedule">Расписание</option><option value="document">Документ</option></select></label><label data-signage-text>Заголовок<input id="signageSceneTitle" maxlength="160" autocomplete="off" placeholder="Что показать на экране"></label><label data-signage-text>Текст<textarea id="signageSceneBody" rows="3" maxlength="2000" placeholder="Необязательно"></textarea></label><label data-signage-document hidden>Документ<select id="signageSceneDocument">${signageDocuments.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.fileName)}</option>`).join("")}</select></label><div class="action-strip compact"><button class="button button-secondary" data-action="publish-signage-scene" ${roomPlayers.length ? "" : "disabled"}>Отправить на экран</button><a class="button button-quiet" href="/service/?tab=signage-core" target="_blank" rel="noopener">Настроить экраны</a></div></div><p class="signage-feedback" id="signageFeedback" role="status" aria-live="polite">${escapeHtml(state.signageFeedback ?? "")}</p></article>` : "";
+  const signage = canSignage ? `<article class="panel panel-pad signage-control"><h4 class="panel-title">Вывески</h4><p>${roomPlayers.length ? `Выберите один экран или отправьте сцену на все экраны зала.` : "Для этого зала ещё не зарегистрирован экран. Добавьте его в SignageCore."}</p><label class="signage-target-label">Куда отправить<select id="signageTargetPlayer"><option value="">Все экраны этого зала</option>${roomPlayers.map((player) => `<option value="${escapeHtml(player.id)}">${escapeHtml(player.name || player.id)}${player.online ? " · в сети" : " · не в сети"}</option>`).join("")}</select></label>${signagePreviews}<div class="action-strip compact"><button class="button button-quiet" data-action="publish-room-free" ${roomPlayers.length ? "" : "disabled"}>Зал свободен</button><button class="button button-quiet" data-action="publish-room-busy" ${roomPlayers.length ? "" : "disabled"}>Идёт конференция</button><button class="button button-secondary" data-action="call-participant" ${roomPlayers.length ? "" : "disabled"}>Вызвать участника</button></div><div class="signage-compose"><label>Контент<select id="signageSceneType"><option value="text">Текст</option><option value="schedule">Расписание</option><option value="document">Документ</option></select></label><label data-signage-text>Заголовок<input id="signageSceneTitle" maxlength="160" autocomplete="off" placeholder="Что показать на экране"></label><label data-signage-text>Текст<textarea id="signageSceneBody" rows="3" maxlength="2000" placeholder="Необязательно"></textarea></label><label data-signage-document hidden>Документ<select id="signageSceneDocument">${signageDocuments.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.fileName)}</option>`).join("")}</select></label><div class="action-strip compact"><button class="button button-secondary" data-action="publish-signage-scene" ${roomPlayers.length ? "" : "disabled"}>Отправить на экран</button><a class="button button-quiet" href="/service/?tab=signage-core" target="_blank" rel="noopener">Настроить экраны</a></div></div><p class="signage-feedback" id="signageFeedback" role="status" aria-live="polite">${escapeHtml(state.signageFeedback ?? "")}</p></article>` : "";
   const aes67Running = ["starting", "running"].includes(state.aes67?.state);
   const aes67 = canAes67 ? `<article class="panel panel-pad"><div class="list-item-head"><div><h4 class="panel-title">AES67 / RTP L24</h4><p>${escapeHtml(state.aes67?.settings?.name ?? "VOX-S Program Audio")} · ${escapeHtml(state.aes67?.settings?.bus ?? "program")} · автозапуск при старте конференции</p></div><span class="chip ${state.aes67?.state === "running" ? "" : "offline"}">${escapeHtml(state.aes67?.state ?? "stopped")}</span></div>${state.aes67?.error ? `<p class="form-error">${escapeHtml(state.aes67.error)}</p>` : ""}<div class="action-strip"><button class="button ${aes67Running ? "button-danger" : "button-secondary"}" data-action="${aes67Running ? "stop-aes67" : "start-aes67"}">${aes67Running ? "Выключить AES67" : "Включить AES67"}</button></div></article>` : "";
-  return `${pageHead("Операции", "Зал, вывески и сервис")}<div class="grid grid-2 operations-grid">${readiness}${signage}${devices}${serviceCardHtml()}</div>`;
+  return `${pageHead("Операции", "Зал, вывески и сервис")}${ucControlHtml()}<div class="grid grid-2 operations-grid">${readiness}${signage}${devices}${serviceCardHtml()}</div>`;
 }
 
 // Service calls card: on the Service tab and as a block of the conference workspace.
@@ -1991,7 +2046,7 @@ function serviceCardHtml(extraClass = "") {
   const requestButton = !["observer", "service"].includes(role) ? `<button class="button button-primary" data-action="service-request">Вызвать персонал</button>` : "";
   const seatButton = ["delegate", "operator"].includes(role) ? `<button class="button button-secondary" data-action="change-room-seat">Изменить место</button>` : "";
   const requests = state.serviceRequests.map((request) => `<div class="list-item"><div class="list-item-head"><div><h4>${escapeHtml(request.participantName)} · ${escapeHtml(request.seatLabel)}</h4><p>${escapeHtml(requestItemsText(request))}${request.comment ? ` · ${escapeHtml(request.comment)}` : ""}</p></div><span class="chip ${["closed", "cancelled", "rejected"].includes(request.status) ? "offline" : ""}">${escapeHtml(serviceRequestStatusLabel(request.status, interfaceLocale()))}</span></div>${canService ? `<div class="action-strip compact">${request.stationId ? `<a class="button button-quiet" href="/room-planner/?stationId=${encodeURIComponent(request.stationId)}&requestId=${encodeURIComponent(request.id)}" target="_blank" rel="noopener">На плане</a>` : ""}${request.status === "new" ? `<button class="button button-secondary" data-action="service-status" data-request-id="${request.id}" data-status="accepted">${uiText("service.accept")}</button>` : ""}${request.status === "accepted" ? `<button class="button button-secondary" data-action="service-status" data-request-id="${request.id}" data-status="in-progress">${uiText("service.start")}</button>` : ""}${request.status === "in-progress" ? `<button class="button button-secondary" data-action="service-status" data-request-id="${request.id}" data-status="delivered">${uiText("service.complete")}</button>` : ""}${request.status === "delivered" ? `<button class="button button-secondary" data-action="service-status" data-request-id="${request.id}" data-status="closed">${uiText("service.close")}</button>` : ""}</div>` : ""}</div>`).join("");
-  return `<article class="panel ${extraClass}"><div class="panel-pad"><div class="list-item-head"><div><h4 class="panel-title">${uiText("service.title")}</h4><p>${uiText("service.description")}</p></div><div class="action-strip compact">${seatButton}${requestButton}</div></div></div><div class="list">${requests || `<div class="empty">${uiText("service.empty")}</div>`}</div></article>`;
+  return `<article class="panel ${extraClass}"><div class="panel-pad"><div class="list-item-head"><div><h4 class="panel-title">${uiText("service.title")}</h4><p>${uiText("service.description")}</p></div><div class="action-strip compact service-card-actions">${seatButton}${requestButton}</div></div></div><div class="list">${requests || `<div class="empty">${uiText("service.empty")}</div>`}</div></article>`;
 }
 
 function settingsHtml() {

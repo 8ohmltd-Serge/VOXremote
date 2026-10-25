@@ -201,6 +201,10 @@ async function refreshScene(viewer) {
   if (current !== viewer || scene.revision < (viewer.scene?.revision ?? -1)) return;
   const prior = viewer.scene;
   viewer.scene = scene;
+  for (const [id, pending] of viewer.pendingAnnotations) {
+    if (pending.serverId && scene.annotations.some((item) => item.id === pending.serverId))
+      viewer.pendingAnnotations.delete(id);
+  }
   const own = scene.authors[viewer.userId];
   viewer.color = own?.color ?? null;
   const used = new Set(Object.values(scene.authors).map((item) => item.color));
@@ -221,7 +225,9 @@ async function refreshScene(viewer) {
 function drawAnnotations(viewer) {
   if (!viewer.scene) return;
   viewer.overlay.innerHTML = '<rect x="0" y="0" width="1000" height="1000" fill="transparent" pointer-events="all"></rect>' +
-    viewer.scene.annotations.filter((item) => item.page === viewer.page).map(svgFor).join("");
+    viewer.scene.annotations.filter((item) => item.page === viewer.page).map(svgFor).join("") +
+    [...viewer.pendingAnnotations.values()].filter((item) => item.page === viewer.page &&
+      !viewer.scene.annotations.some((saved) => saved.id === item.serverId)).map(svgFor).join("");
 }
 
 async function renderPage(viewer) {
@@ -416,7 +422,7 @@ export async function openDocumentViewer({ api, document: item, presentation = n
     zoomLabel: root.querySelector("[data-viewer-zoom]"), owner: root.querySelector(".document-viewer-owner"),
     page: 1, pageCount: 1, zoom: 1, tool: "move", fontSize: 28,
     follow: followAvailable,
-    renderToken: 0, text: null };
+    renderToken: 0, text: null, pendingAnnotations: new Map(), pendingSequence: 0 };
   current = viewer;
   root.querySelector('[data-viewer="close"]').addEventListener("click", () => {
     if (current !== viewer) return;
@@ -658,10 +664,16 @@ export async function openDocumentViewer({ api, document: item, presentation = n
       payload.text = value;
       payload.fontSize = viewer.fontSize;
     }
+    const pendingId = `pending-${++viewer.pendingSequence}`;
+    viewer.pendingAnnotations.set(pendingId, { ...payload, id: pendingId, color: viewer.color });
+    drawAnnotations(viewer);
     try {
-      await viewer.api.post(viewer.sceneBase + "/annotations", payload);
+      const saved = await viewer.api.post(viewer.sceneBase + "/annotations", payload);
+      const pending = viewer.pendingAnnotations.get(pendingId);
+      if (pending) pending.serverId = saved?.id ?? saved?.body?.id ?? null;
       await refreshScene(viewer);
     } catch (error) {
+      viewer.pendingAnnotations.delete(pendingId);
       drawAnnotations(viewer);
       viewerError(viewer, error.message);
     }
