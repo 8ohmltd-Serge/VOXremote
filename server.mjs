@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { WebSocketServer } from "ws";
+import { detachPendingRequestsForSocket } from "./pendingRequests.mjs";
 import { GATEWAY_CAPABILITIES, normalizeRemoteCode, validateTunnelHello } from "./protocol.mjs";
 import { codeTableForPurpose, sessionTableForPath } from "./codePurpose.mjs";
 import { resolveStaticPath } from "./staticPath.mjs";
@@ -92,7 +93,7 @@ function sendRequest(installationId, input, response) {
     }, timeoutMs);
     item.timer.unref?.();
   };
-  const item = { response, installationId, started: false, timer: null, timeoutMs };
+  const item = { response, installationId, socket, started: false, timer: null, timeoutMs };
   pending.set(id, item);
   armTimeout(item);
   response.on("close", () => {
@@ -357,11 +358,9 @@ wss.on("connection", (socket) => {
   socket.on("close", () => {
     clearTimeout(timeout);
     if (installationId && live.get(installationId) === socket) live.delete(installationId);
-    for (const [id, item] of pending) if (item.installationId === installationId) {
-      pending.delete(id);
-      clearTimeout(item.timer);
+    for (const item of detachPendingRequestsForSocket(pending, socket)) {
       if (!item.response.headersSent) json(item.response, 503, { error: "Связь с сервером конференции потеряна" });
-      else item.response.end();
+      else item.response.destroy(new Error("Связь с сервером конференции потеряна"));
     }
   });
 });

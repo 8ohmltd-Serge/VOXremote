@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { codeTableForPurpose, sessionTableForPath } from "./codePurpose.mjs";
 import { GATEWAY_CAPABILITIES } from "./protocol.mjs";
+import { detachPendingRequestsForSocket } from "./pendingRequests.mjs";
 
 test("gateway advertises explicit remote and organizer capabilities", async () => {
   assert.deepEqual(GATEWAY_CAPABILITIES, ["remote-participant.v1", "uc-organizer.v1"]);
@@ -45,4 +46,16 @@ test("RSVP proxy keeps its inactivity deadline through response headers and chun
   assert.match(source, /else if \(message\.type === "response-chunk"\)\s*\{\s*armTimeout\(item\)/);
   assert.match(source, /if \(item\.started\)\s*\{[\s\S]*?response\.destroy\(/);
   assert.match(source, /clearTimeout\(item\.timer\);\s*item\.response\.end\(\);/);
+});
+
+test("closing a replaced connector socket leaves new socket requests pending", () => {
+  const oldSocket = {};
+  const currentSocket = {};
+  const oldRequest = { socket: oldSocket, timer: setTimeout(() => {}, 60_000) };
+  const currentRequest = { socket: currentSocket, timer: setTimeout(() => {}, 60_000) };
+  const pending = new Map([["old-request", oldRequest], ["current-request", currentRequest]]);
+
+  assert.deepEqual(detachPendingRequestsForSocket(pending, oldSocket), [oldRequest]);
+  assert.deepEqual([...pending], [["current-request", currentRequest]]);
+  clearTimeout(currentRequest.timer);
 });
