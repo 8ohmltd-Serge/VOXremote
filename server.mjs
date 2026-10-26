@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { WebSocketServer } from "ws";
-import { detachPendingRequestsForSocket } from "./pendingRequests.mjs";
+import { recoverPendingRequestsForSocketClose } from "./pendingRequests.mjs";
 import { GATEWAY_CAPABILITIES, normalizeRemoteCode, validateTunnelHello } from "./protocol.mjs";
 import { codeTableForPurpose, sessionTableForPath } from "./codePurpose.mjs";
 import { resolveStaticPath } from "./staticPath.mjs";
@@ -29,6 +29,7 @@ await pool.query(readFileSync(path.join(base, "schema.sql"), "utf8"));
 
 const live = new Map();
 const pending = new Map();
+const MAX_INVITATION_RESPONSE_BYTES = 64 * 1024;
 const attempts = new Map();
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 const json = (response, status, body, headers = {}) => {
@@ -89,12 +90,33 @@ function sendRequest(installationId, input, response) {
         // instead of trying to write a second JSON response after commitment.
         response.destroy(new Error("Сервер конференции не завершил ответ вовремя"));
       } else json(response, 504, { error: "Сервер конференции не завершил ответ вовремя" });
-      if (socket.readyState === 1) socket.send(JSON.stringify({ type: "cancel", id }));
+      if (item.socket?.readyState === 1) item.socket.send(JSON.stringify({ type: "cancel", id }));
     }, timeoutMs);
     item.timer.unref?.();
   };
-  const item = { response, installationId, socket, path: input.path, started: false, timer: null, timeoutMs,
-    upstreamStatus: null, responseBytes: 0 };
+  const bufferResponse = /^\/api\/v1\/invitations\/(?:lookup|respond)$/.test(input.path ?? "");
+  const item = { response, installationId, socket, input, path: input.path, started: false, timer: null, timeoutMs,
+    bufferResponse, retryOnReconnect: bufferResponse, maxRetries: bufferResponse ? 1 : 0, retries: 0,
+    awaitingReconnect: false, upstreamStatus: null, upstreamHeaders: {}, responseChunks: [], responseBytes: 0 };
+  const retryWithSocket = (nextSocket) => {
+    item.socket = nextSocket;
+    item.awaitingReconnect = false;
+    item.started = false;
+    item.upstreamStatus = null;
+    item.upstreamHeaders = {};
+    item.responseChunks = [];
+    item.responseBytes = 0;
+    armTimeout(item);
+    try {
+      if (nextSocket?.readyState !== 1) throw new Error("connector_not_ready");
+      nextSocket.send(JSON.stringify({ type: "request", id, ...input }));
+    } catch {
+      item.socket = null;
+      item.awaitingReconnect = true;
+    }
+  };
+  item.retryWithSocket = retryWithSocket;
+  item.armTimeout = () => armTimeout(item);
   pending.set(id, item);
   armTimeout(item);
   response.on("close", () => {
@@ -102,9 +124,9 @@ function sendRequest(installationId, input, response) {
     if (!item) return;
     pending.delete(id);
     clearTimeout(item.timer);
-    if (socket.readyState === 1) socket.send(JSON.stringify({ type: "cancel", id }));
+    if (item.socket?.readyState === 1) item.socket.send(JSON.stringify({ type: "cancel", id }));
   });
-  socket.send(JSON.stringify({ type: "request", id, ...input }));
+  item.retryWithSocket(socket);
 }
 
 function handleConnectorFrame(socket, installationId, message) {
@@ -130,7 +152,7 @@ function handleConnectorFrame(socket, installationId, message) {
   }
   if (!["response-start", "response-chunk", "response-end"].includes(message.type)) return;
   const item = pending.get(message.id);
-  if (!item || item.installationId !== installationId) return;
+  if (!item || item.installationId !== installationId || item.socket !== socket) return;
   if (message.type === "response-start") {
     armTimeout(item);
     item.upstreamStatus = Number(message.status) || 502;
@@ -138,21 +160,43 @@ function handleConnectorFrame(socket, installationId, message) {
     for (const [name, value] of Object.entries(message.headers ?? {})) {
       if (["content-type", "cache-control", "etag", "last-event-id"].includes(name.toLowerCase())) headers[name] = value;
     }
-    item.response.writeHead(item.upstreamStatus, headers);
-    item.started = true;
+    item.upstreamHeaders = headers;
+    if (!item.bufferResponse) {
+      item.response.writeHead(item.upstreamStatus, headers);
+      item.started = true;
+    }
   } else if (message.type === "response-chunk") {
     armTimeout(item);
     if (typeof message.data === "string") {
       const chunk = Buffer.from(message.data, "base64");
       item.responseBytes += chunk.length;
-      item.response.write(chunk);
+      if (item.bufferResponse) {
+        if (item.responseBytes <= MAX_INVITATION_RESPONSE_BYTES) item.responseChunks.push(chunk);
+      } else item.response.write(chunk);
     }
   } else {
+    if (item.bufferResponse && item.responseBytes === 0 && item.upstreamStatus >= 200 &&
+        item.upstreamStatus < 300 && item.retries < item.maxRetries) {
+      item.retries += 1;
+      console.warn(JSON.stringify({ event: "invitation_proxy_retry", path: item.path, reason: "empty_response" }));
+      item.retryWithSocket(socket);
+      return;
+    }
     pending.delete(message.id);
     clearTimeout(item.timer);
     if (/^\/api\/v1\/invitations\/(?:lookup|respond)$/.test(item.path ?? "")) {
       console.log(JSON.stringify({ event: "invitation_proxy_response", path: item.path,
-        status: item.upstreamStatus, bytes: item.responseBytes }));
+        status: item.upstreamStatus, bytes: item.responseBytes, retries: item.retries }));
+    }
+    if (item.bufferResponse) {
+      if (item.responseBytes > MAX_INVITATION_RESPONSE_BYTES ||
+          (item.responseBytes === 0 && item.upstreamStatus >= 200 && item.upstreamStatus < 300)) {
+        return json(item.response, 502, { error: "Не удалось проверить приглашение" });
+      }
+      item.response.writeHead(item.upstreamStatus ?? 502, item.upstreamHeaders);
+      item.started = true;
+      item.response.end(Buffer.concat(item.responseChunks));
+      return;
     }
     item.response.end();
   }
@@ -360,6 +404,9 @@ wss.on("connection", (socket) => {
       if (previous && previous !== socket) previous.close(1012, "replaced");
       live.set(installationId, socket);
       socket.send(JSON.stringify({ type: "welcome", installationId, capabilities: GATEWAY_CAPABILITIES }));
+      for (const [id, item] of pending) {
+        if (item.installationId === installationId && item.awaitingReconnect) item.retryWithSocket(socket);
+      }
       return;
     }
     handleConnectorFrame(socket, installationId, message);
@@ -368,7 +415,14 @@ wss.on("connection", (socket) => {
   socket.on("close", () => {
     clearTimeout(timeout);
     if (installationId && live.get(installationId) === socket) live.delete(installationId);
-    for (const item of detachPendingRequestsForSocket(pending, socket)) {
+    const recovered = recoverPendingRequestsForSocketClose(pending, socket);
+    for (const { item } of recovered.retry) {
+      console.warn(JSON.stringify({ event: "invitation_proxy_retry", path: item.path, reason: "connector_reconnected" }));
+      const currentSocket = live.get(installationId);
+      if (currentSocket && currentSocket !== socket) item.retryWithSocket(currentSocket);
+      else item.armTimeout();
+    }
+    for (const item of recovered.failed) {
       if (!item.response.headersSent) json(item.response, 503, { error: "Связь с сервером конференции потеряна" });
       else item.response.destroy(new Error("Связь с сервером конференции потеряна"));
     }

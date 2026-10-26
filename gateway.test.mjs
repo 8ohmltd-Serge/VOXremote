@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { codeTableForPurpose, sessionTableForPath } from "./codePurpose.mjs";
 import { GATEWAY_CAPABILITIES } from "./protocol.mjs";
-import { detachPendingRequestsForSocket } from "./pendingRequests.mjs";
+import { recoverPendingRequestsForSocketClose } from "./pendingRequests.mjs";
 
 test("gateway advertises explicit remote and organizer capabilities", async () => {
   assert.deepEqual(GATEWAY_CAPABILITIES, ["remote-participant.v1", "uc-organizer.v1"]);
@@ -47,17 +47,29 @@ test("RSVP proxy keeps its inactivity deadline through response headers and chun
   assert.match(source, /if \(item\.started\)\s*\{[\s\S]*?response\.destroy\(/);
   assert.match(source, /clearTimeout\(item\.timer\);[\s\S]*?item\.response\.end\(\);/);
   assert.match(source, /item\.responseBytes \+= chunk\.length/);
+  assert.match(source, /item\.response\.end\(Buffer\.concat\(item\.responseChunks\)\)/);
+  assert.match(source, /item\.awaitingReconnect\) item\.retryWithSocket\(socket\)/);
   assert.match(source, /event: "invitation_proxy_response"[\s\S]*?bytes: item\.responseBytes/);
 });
 
-test("closing a replaced connector socket leaves new socket requests pending", () => {
+test("closing a connector retries invitation requests but leaves new socket requests pending", () => {
   const oldSocket = {};
   const currentSocket = {};
-  const oldRequest = { socket: oldSocket, timer: setTimeout(() => {}, 60_000) };
-  const currentRequest = { socket: currentSocket, timer: setTimeout(() => {}, 60_000) };
+  const oldRequest = { socket: oldSocket, timer: setTimeout(() => {}, 60_000),
+    retryOnReconnect: true, retries: 0, maxRetries: 1, responseChunks: [Buffer.from("stale")], responseBytes: 5 };
+  const currentRequest = { socket: currentSocket, timer: setTimeout(() => {}, 60_000),
+    retryOnReconnect: true, retries: 0, maxRetries: 1 };
   const pending = new Map([["old-request", oldRequest], ["current-request", currentRequest]]);
 
-  assert.deepEqual(detachPendingRequestsForSocket(pending, oldSocket), [oldRequest]);
-  assert.deepEqual([...pending], [["current-request", currentRequest]]);
+  const result = recoverPendingRequestsForSocketClose(pending, oldSocket);
+  assert.equal(result.retry.length, 1);
+  assert.deepEqual(result.retry[0], { id: "old-request", item: oldRequest });
+  assert.deepEqual(result.failed, []);
+  assert.equal(oldRequest.socket, null);
+  assert.equal(oldRequest.awaitingReconnect, true);
+  assert.equal(oldRequest.responseBytes, 0);
+  assert.deepEqual(oldRequest.responseChunks, []);
+  assert.deepEqual([...pending], [["old-request", oldRequest], ["current-request", currentRequest]]);
+  clearTimeout(oldRequest.timer);
   clearTimeout(currentRequest.timer);
 });
