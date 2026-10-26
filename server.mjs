@@ -214,6 +214,8 @@ function handleConnectorFrame(socket, installationId, message) {
       item.response.writeHead(attempt.upstreamStatus, headers);
       item.started = true;
     }
+    if (item.bufferResponse) console.log(JSON.stringify({ event: "invitation_proxy_state_after_frame",
+      requestId: message.id, type: message.type, status: attempt.upstreamStatus, bytes: attempt.responseBytes }));
   } else if (message.type === "response-chunk") {
     armTimeout(item);
     if (typeof message.data === "string") {
@@ -223,6 +225,8 @@ function handleConnectorFrame(socket, installationId, message) {
         if (attempt.responseBytes <= MAX_INVITATION_RESPONSE_BYTES) attempt.responseChunks.push(chunk);
       } else item.response.write(chunk);
     }
+    if (item.bufferResponse) console.log(JSON.stringify({ event: "invitation_proxy_state_after_frame",
+      requestId: message.id, type: message.type, status: attempt.upstreamStatus, bytes: attempt.responseBytes }));
   } else {
     if (item.bufferResponse && attempt.responseBytes === 0 &&
         (attempt.upstreamStatus === null || (attempt.upstreamStatus >= 200 && attempt.upstreamStatus < 300)) &&
