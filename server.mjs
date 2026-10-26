@@ -29,6 +29,7 @@ await pool.query(readFileSync(path.join(base, "schema.sql"), "utf8"));
 
 const live = new Map();
 const pending = new Map();
+const recentInvitationRequests = new Map();
 const MAX_INVITATION_RESPONSE_BYTES = 64 * 1024;
 const attempts = new Map();
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
@@ -36,6 +37,19 @@ const json = (response, status, body, headers = {}) => {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...headers });
   response.end(JSON.stringify(body));
 };
+
+function rememberInvitationRequest(item) {
+  if (!item.bufferResponse) return;
+  const now = Date.now();
+  for (const [id, trace] of recentInvitationRequests) {
+    if (trace.expiresAt <= now) recentInvitationRequests.delete(id);
+  }
+  recentInvitationRequests.set(item.id, { path: item.path, installationId: item.installationId,
+    expiresAt: now + 2 * 60_000 });
+  while (recentInvitationRequests.size > 500) {
+    recentInvitationRequests.delete(recentInvitationRequests.keys().next().value);
+  }
+}
 const securityHeaders = (response) => {
   response.setHeader("x-content-type-options", "nosniff");
   response.setHeader("referrer-policy", "no-referrer");
@@ -108,6 +122,7 @@ function sendRequest(installationId, input, response) {
       // tunnel attempt cannot complete or cancel the new attempt.
       item.id = randomUUID();
       pending.set(item.id, item);
+      rememberInvitationRequest(item);
     }
     item.socket = nextSocket;
     item.awaitingReconnect = false;
@@ -128,6 +143,7 @@ function sendRequest(installationId, input, response) {
   item.retryWithSocket = (nextSocket) => sendWithSocket(nextSocket, true);
   item.armTimeout = () => armTimeout(item);
   pending.set(item.id, item);
+  rememberInvitationRequest(item);
   armTimeout(item);
   response.on("close", () => {
     const pendingItem = pending.get(item.id);
@@ -168,7 +184,18 @@ function handleConnectorFrame(socket, installationId, message) {
   }
   if (!["response-start", "response-chunk", "response-end"].includes(message.type)) return;
   const item = pending.get(message.id);
+  const trace = recentInvitationRequests.get(message.id);
+  if (trace && (!item || item.installationId !== installationId || item.socket !== socket)) {
+    console.warn(JSON.stringify({ event: "invitation_proxy_frame_unmatched", path: trace.path,
+      type: message.type, itemFound: Boolean(item), installationMatches: item?.installationId === installationId,
+      socketMatches: item?.socket === socket }));
+  }
   if (!item || item.installationId !== installationId || item.socket !== socket) return;
+  if (item.bufferResponse) console.log(JSON.stringify({ event: "invitation_proxy_frame", path: item.path,
+    type: message.type, status: message.type === "response-start" ? Number(message.status) || 502 : undefined,
+    chunkBytes: message.type === "response-chunk" && typeof message.data === "string"
+      ? Buffer.from(message.data, "base64").length : undefined,
+    aborted: message.type === "response-end" ? message.aborted === true : undefined }));
   if (message.type === "response-start") {
     armTimeout(item);
     item.upstreamStatus = Number(message.status) || 502;
@@ -196,7 +223,8 @@ function handleConnectorFrame(socket, installationId, message) {
         item.retries < item.maxRetries) {
       item.retries += 1;
       console.warn(JSON.stringify({ event: "invitation_proxy_retry", path: item.path,
-        reason: item.upstreamStatus === null ? "response_ended_without_start" : "empty_response" }));
+        reason: item.upstreamStatus === null ? "response_ended_without_start" : "empty_response",
+        status: item.upstreamStatus, bytes: item.responseBytes }));
       item.retryWithSocket(socket);
       return;
     }
