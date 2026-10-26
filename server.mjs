@@ -93,7 +93,8 @@ function sendRequest(installationId, input, response) {
     }, timeoutMs);
     item.timer.unref?.();
   };
-  const item = { response, installationId, socket, started: false, timer: null, timeoutMs };
+  const item = { response, installationId, socket, path: input.path, started: false, timer: null, timeoutMs,
+    upstreamStatus: null, responseBytes: 0 };
   pending.set(id, item);
   armTimeout(item);
   response.on("close", () => {
@@ -132,18 +133,27 @@ function handleConnectorFrame(socket, installationId, message) {
   if (!item || item.installationId !== installationId) return;
   if (message.type === "response-start") {
     armTimeout(item);
+    item.upstreamStatus = Number(message.status) || 502;
     const headers = {};
     for (const [name, value] of Object.entries(message.headers ?? {})) {
       if (["content-type", "cache-control", "etag", "last-event-id"].includes(name.toLowerCase())) headers[name] = value;
     }
-    item.response.writeHead(Number(message.status) || 502, headers);
+    item.response.writeHead(item.upstreamStatus, headers);
     item.started = true;
   } else if (message.type === "response-chunk") {
     armTimeout(item);
-    if (typeof message.data === "string") item.response.write(Buffer.from(message.data, "base64"));
+    if (typeof message.data === "string") {
+      const chunk = Buffer.from(message.data, "base64");
+      item.responseBytes += chunk.length;
+      item.response.write(chunk);
+    }
   } else {
     pending.delete(message.id);
     clearTimeout(item.timer);
+    if (/^\/api\/v1\/invitations\/(?:lookup|respond)$/.test(item.path ?? "")) {
+      console.log(JSON.stringify({ event: "invitation_proxy_response", path: item.path,
+        status: item.upstreamStatus, bytes: item.responseBytes }));
+    }
     item.response.end();
   }
 }

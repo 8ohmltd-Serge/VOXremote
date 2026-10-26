@@ -45,7 +45,9 @@ test("RSVP proxy keeps its inactivity deadline through response headers and chun
   assert.match(source, /if \(message\.type === "response-start"\)\s*\{\s*armTimeout\(item\)/);
   assert.match(source, /else if \(message\.type === "response-chunk"\)\s*\{\s*armTimeout\(item\)/);
   assert.match(source, /if \(item\.started\)\s*\{[\s\S]*?response\.destroy\(/);
-  assert.match(source, /clearTimeout\(item\.timer\);\s*item\.response\.end\(\);/);
+  assert.match(source, /clearTimeout\(item\.timer\);[\s\S]*?item\.response\.end\(\);/);
+  assert.match(source, /item\.responseBytes \+= chunk\.length/);
+  assert.match(source, /event: "invitation_proxy_response"[\s\S]*?bytes: item\.responseBytes/);
 });
 
 test("closing a replaced connector socket leaves new socket requests pending", () => {
