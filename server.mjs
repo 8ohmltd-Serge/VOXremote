@@ -114,10 +114,11 @@ function sendRequest(installationId, input, response) {
   const bufferResponse = /^\/api\/v1\/invitations\/(?:lookup|respond)$/.test(input.path ?? "");
   const item = { id: randomUUID(), response, installationId, socket, input, path: input.path, started: false, timer: null, timeoutMs,
     bufferResponse, retryOnReconnect: bufferResponse, maxRetries: bufferResponse ? 1 : 0, retries: 0,
-    awaitingReconnect: false, upstreamStatus: null, upstreamHeaders: {}, responseChunks: [], responseBytes: 0 };
+    awaitingReconnect: false, attempts: new Map() };
   const sendWithSocket = (nextSocket, retry = false) => {
     if (retry) {
       if (pending.get(item.id) === item) pending.delete(item.id);
+      item.attempts.delete(item.id);
       // A retried request gets a fresh ID so delayed frames from the failed
       // tunnel attempt cannot complete or cancel the new attempt.
       item.id = randomUUID();
@@ -127,10 +128,7 @@ function sendRequest(installationId, input, response) {
     item.socket = nextSocket;
     item.awaitingReconnect = false;
     item.started = false;
-    item.upstreamStatus = null;
-    item.upstreamHeaders = {};
-    item.responseChunks = [];
-    item.responseBytes = 0;
+    item.attempts.set(item.id, { upstreamStatus: null, upstreamHeaders: {}, responseChunks: [], responseBytes: 0 });
     armTimeout(item);
     try {
       if (nextSocket?.readyState !== 1) throw new Error("connector_not_ready");
@@ -191,43 +189,49 @@ function handleConnectorFrame(socket, installationId, message) {
       socketMatches: item?.socket === socket }));
   }
   if (!item || item.installationId !== installationId || item.socket !== socket) return;
+  const attempt = item.attempts.get(message.id);
+  if (!attempt) {
+    if (item.bufferResponse) console.warn(JSON.stringify({ event: "invitation_proxy_attempt_missing",
+      requestId: message.id, path: item.path, type: message.type, retries: item.retries }));
+    return;
+  }
   if (item.bufferResponse) console.log(JSON.stringify({ event: "invitation_proxy_frame", path: item.path,
     requestId: message.id, attempt: item.retries, type: message.type,
     status: message.type === "response-start" ? Number(message.status) || 502 : undefined,
-    statusBefore: item.upstreamStatus, bytesBefore: item.responseBytes,
+    statusBefore: attempt.upstreamStatus, bytesBefore: attempt.responseBytes,
     chunkBytes: message.type === "response-chunk" && typeof message.data === "string"
       ? Buffer.from(message.data, "base64").length : undefined,
     aborted: message.type === "response-end" ? message.aborted === true : undefined }));
   if (message.type === "response-start") {
     armTimeout(item);
-    item.upstreamStatus = Number(message.status) || 502;
+    attempt.upstreamStatus = Number(message.status) || 502;
     const headers = {};
     for (const [name, value] of Object.entries(message.headers ?? {})) {
       if (["content-type", "cache-control", "etag", "last-event-id"].includes(name.toLowerCase())) headers[name] = value;
     }
-    item.upstreamHeaders = headers;
+    attempt.upstreamHeaders = headers;
     if (!item.bufferResponse) {
-      item.response.writeHead(item.upstreamStatus, headers);
+      item.response.writeHead(attempt.upstreamStatus, headers);
       item.started = true;
     }
   } else if (message.type === "response-chunk") {
     armTimeout(item);
     if (typeof message.data === "string") {
       const chunk = Buffer.from(message.data, "base64");
-      item.responseBytes += chunk.length;
+      attempt.responseBytes += chunk.length;
       if (item.bufferResponse) {
-        if (item.responseBytes <= MAX_INVITATION_RESPONSE_BYTES) item.responseChunks.push(chunk);
+        if (attempt.responseBytes <= MAX_INVITATION_RESPONSE_BYTES) attempt.responseChunks.push(chunk);
       } else item.response.write(chunk);
     }
   } else {
-    if (item.bufferResponse && item.responseBytes === 0 &&
-        (item.upstreamStatus === null || (item.upstreamStatus >= 200 && item.upstreamStatus < 300)) &&
+    if (item.bufferResponse && attempt.responseBytes === 0 &&
+        (attempt.upstreamStatus === null || (attempt.upstreamStatus >= 200 && attempt.upstreamStatus < 300)) &&
         item.retries < item.maxRetries) {
       item.retries += 1;
       console.warn(JSON.stringify({ event: "invitation_proxy_retry", path: item.path,
         requestId: message.id, attempt: item.retries,
-        reason: item.upstreamStatus === null ? "response_ended_without_start" : "empty_response",
-        status: item.upstreamStatus, bytes: item.responseBytes }));
+        reason: attempt.upstreamStatus === null ? "response_ended_without_start" : "empty_response",
+        status: attempt.upstreamStatus, bytes: attempt.responseBytes }));
       item.retryWithSocket(socket);
       return;
     }
@@ -236,20 +240,22 @@ function handleConnectorFrame(socket, installationId, message) {
     if (/^\/api\/v1\/invitations\/(?:lookup|respond)$/.test(item.path ?? "")) {
       console.log(JSON.stringify({ event: "invitation_proxy_response", path: item.path,
         requestId: message.id, attempt: item.retries,
-        status: item.upstreamStatus, bytes: item.responseBytes, retries: item.retries,
+        status: attempt.upstreamStatus, bytes: attempt.responseBytes, retries: item.retries,
         aborted: message.aborted === true }));
     }
     if (item.bufferResponse) {
-      if (item.responseBytes > MAX_INVITATION_RESPONSE_BYTES ||
-          (item.responseBytes === 0 && (item.upstreamStatus === null ||
-            (item.upstreamStatus >= 200 && item.upstreamStatus < 300)))) {
+      item.attempts.delete(message.id);
+      if (attempt.responseBytes > MAX_INVITATION_RESPONSE_BYTES ||
+          (attempt.responseBytes === 0 && (attempt.upstreamStatus === null ||
+            (attempt.upstreamStatus >= 200 && attempt.upstreamStatus < 300)))) {
         return json(item.response, 502, { error: "Не удалось проверить приглашение" });
       }
-      item.response.writeHead(item.upstreamStatus ?? 502, item.upstreamHeaders);
+      item.response.writeHead(attempt.upstreamStatus ?? 502, attempt.upstreamHeaders);
       item.started = true;
-      item.response.end(Buffer.concat(item.responseChunks));
+      item.response.end(Buffer.concat(attempt.responseChunks));
       return;
     }
+    item.attempts.delete(message.id);
     item.response.end();
   }
 }
