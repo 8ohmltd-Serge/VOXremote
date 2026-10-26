@@ -192,7 +192,9 @@ function handleConnectorFrame(socket, installationId, message) {
   }
   if (!item || item.installationId !== installationId || item.socket !== socket) return;
   if (item.bufferResponse) console.log(JSON.stringify({ event: "invitation_proxy_frame", path: item.path,
-    type: message.type, status: message.type === "response-start" ? Number(message.status) || 502 : undefined,
+    requestId: message.id, attempt: item.retries, type: message.type,
+    status: message.type === "response-start" ? Number(message.status) || 502 : undefined,
+    statusBefore: item.upstreamStatus, bytesBefore: item.responseBytes,
     chunkBytes: message.type === "response-chunk" && typeof message.data === "string"
       ? Buffer.from(message.data, "base64").length : undefined,
     aborted: message.type === "response-end" ? message.aborted === true : undefined }));
@@ -223,6 +225,7 @@ function handleConnectorFrame(socket, installationId, message) {
         item.retries < item.maxRetries) {
       item.retries += 1;
       console.warn(JSON.stringify({ event: "invitation_proxy_retry", path: item.path,
+        requestId: message.id, attempt: item.retries,
         reason: item.upstreamStatus === null ? "response_ended_without_start" : "empty_response",
         status: item.upstreamStatus, bytes: item.responseBytes }));
       item.retryWithSocket(socket);
@@ -232,6 +235,7 @@ function handleConnectorFrame(socket, installationId, message) {
     clearTimeout(item.timer);
     if (/^\/api\/v1\/invitations\/(?:lookup|respond)$/.test(item.path ?? "")) {
       console.log(JSON.stringify({ event: "invitation_proxy_response", path: item.path,
+        requestId: message.id, attempt: item.retries,
         status: item.upstreamStatus, bytes: item.responseBytes, retries: item.retries,
         aborted: message.aborted === true }));
     }
