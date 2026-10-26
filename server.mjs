@@ -78,27 +78,34 @@ function sendRequest(installationId, input, response) {
     json(response, 503, { error: "Сервер конференции временно недоступен" });
     return;
   }
-  const id = randomUUID();
   const timeoutMs = Math.min(60_000, Math.max(5_000, Number(input.timeoutMs) || 30_000));
   const armTimeout = (item) => {
     clearTimeout(item.timer);
+    const requestId = item.id;
     item.timer = setTimeout(() => {
-      if (pending.get(id) !== item) return;
-      pending.delete(id);
+      if (pending.get(requestId) !== item) return;
+      pending.delete(requestId);
       if (item.started) {
         // Headers may already have been sent. Destroy the stalled response
         // instead of trying to write a second JSON response after commitment.
         response.destroy(new Error("Сервер конференции не завершил ответ вовремя"));
       } else json(response, 504, { error: "Сервер конференции не завершил ответ вовремя" });
-      if (item.socket?.readyState === 1) item.socket.send(JSON.stringify({ type: "cancel", id }));
+      if (item.socket?.readyState === 1) item.socket.send(JSON.stringify({ type: "cancel", id: requestId }));
     }, timeoutMs);
     item.timer.unref?.();
   };
   const bufferResponse = /^\/api\/v1\/invitations\/(?:lookup|respond)$/.test(input.path ?? "");
-  const item = { response, installationId, socket, input, path: input.path, started: false, timer: null, timeoutMs,
+  const item = { id: randomUUID(), response, installationId, socket, input, path: input.path, started: false, timer: null, timeoutMs,
     bufferResponse, retryOnReconnect: bufferResponse, maxRetries: bufferResponse ? 1 : 0, retries: 0,
     awaitingReconnect: false, upstreamStatus: null, upstreamHeaders: {}, responseChunks: [], responseBytes: 0 };
-  const retryWithSocket = (nextSocket) => {
+  const sendWithSocket = (nextSocket, retry = false) => {
+    if (retry) {
+      if (pending.get(item.id) === item) pending.delete(item.id);
+      // A retried request gets a fresh ID so delayed frames from the failed
+      // tunnel attempt cannot complete or cancel the new attempt.
+      item.id = randomUUID();
+      pending.set(item.id, item);
+    }
     item.socket = nextSocket;
     item.awaitingReconnect = false;
     item.started = false;
@@ -109,24 +116,26 @@ function sendRequest(installationId, input, response) {
     armTimeout(item);
     try {
       if (nextSocket?.readyState !== 1) throw new Error("connector_not_ready");
-      nextSocket.send(JSON.stringify({ type: "request", id, ...input }));
+      nextSocket.send(JSON.stringify({ type: "request", id: item.id, ...input }));
     } catch {
       item.socket = null;
       item.awaitingReconnect = true;
     }
   };
-  item.retryWithSocket = retryWithSocket;
+  item.retryWithSocket = (nextSocket) => sendWithSocket(nextSocket, true);
   item.armTimeout = () => armTimeout(item);
-  pending.set(id, item);
+  pending.set(item.id, item);
   armTimeout(item);
   response.on("close", () => {
-    const item = pending.get(id);
-    if (!item) return;
-    pending.delete(id);
-    clearTimeout(item.timer);
-    if (item.socket?.readyState === 1) item.socket.send(JSON.stringify({ type: "cancel", id }));
+    const pendingItem = pending.get(item.id);
+    if (!pendingItem) return;
+    pending.delete(pendingItem.id);
+    clearTimeout(pendingItem.timer);
+    if (pendingItem.socket?.readyState === 1) {
+      pendingItem.socket.send(JSON.stringify({ type: "cancel", id: pendingItem.id }));
+    }
   });
-  item.retryWithSocket(socket);
+  sendWithSocket(socket);
 }
 
 function handleConnectorFrame(socket, installationId, message) {
@@ -175,10 +184,12 @@ function handleConnectorFrame(socket, installationId, message) {
       } else item.response.write(chunk);
     }
   } else {
-    if (item.bufferResponse && item.responseBytes === 0 && item.upstreamStatus >= 200 &&
-        item.upstreamStatus < 300 && item.retries < item.maxRetries) {
+    if (item.bufferResponse && item.responseBytes === 0 &&
+        (item.upstreamStatus === null || (item.upstreamStatus >= 200 && item.upstreamStatus < 300)) &&
+        item.retries < item.maxRetries) {
       item.retries += 1;
-      console.warn(JSON.stringify({ event: "invitation_proxy_retry", path: item.path, reason: "empty_response" }));
+      console.warn(JSON.stringify({ event: "invitation_proxy_retry", path: item.path,
+        reason: item.upstreamStatus === null ? "response_ended_without_start" : "empty_response" }));
       item.retryWithSocket(socket);
       return;
     }
@@ -190,7 +201,8 @@ function handleConnectorFrame(socket, installationId, message) {
     }
     if (item.bufferResponse) {
       if (item.responseBytes > MAX_INVITATION_RESPONSE_BYTES ||
-          (item.responseBytes === 0 && item.upstreamStatus >= 200 && item.upstreamStatus < 300)) {
+          (item.responseBytes === 0 && (item.upstreamStatus === null ||
+            (item.upstreamStatus >= 200 && item.upstreamStatus < 300)))) {
         return json(item.response, 502, { error: "Не удалось проверить приглашение" });
       }
       item.response.writeHead(item.upstreamStatus ?? 502, item.upstreamHeaders);
