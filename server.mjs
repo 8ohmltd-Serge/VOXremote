@@ -90,7 +90,10 @@ function sendRequest(installationId, input, response) {
         // instead of trying to write a second JSON response after commitment.
         response.destroy(new Error("Сервер конференции не завершил ответ вовремя"));
       } else json(response, 504, { error: "Сервер конференции не завершил ответ вовремя" });
-      if (item.socket?.readyState === 1) item.socket.send(JSON.stringify({ type: "cancel", id: requestId }));
+      if (item.socket?.readyState === 1) {
+        if (item.bufferResponse) console.warn(JSON.stringify({ event: "invitation_proxy_cancel", path: item.path, reason: "timeout" }));
+        item.socket.send(JSON.stringify({ type: "cancel", id: requestId }));
+      }
     }, timeoutMs);
     item.timer.unref?.();
   };
@@ -128,10 +131,14 @@ function sendRequest(installationId, input, response) {
   armTimeout(item);
   response.on("close", () => {
     const pendingItem = pending.get(item.id);
+    if (item.bufferResponse) console.warn(JSON.stringify({ event: "invitation_proxy_http_close", path: item.path,
+      pending: pendingItem === item, writableEnded: response.writableEnded, retries: item.retries }));
     if (!pendingItem) return;
     pending.delete(pendingItem.id);
     clearTimeout(pendingItem.timer);
     if (pendingItem.socket?.readyState === 1) {
+      if (pendingItem.bufferResponse) console.warn(JSON.stringify({ event: "invitation_proxy_cancel",
+        path: pendingItem.path, reason: "http_response_closed" }));
       pendingItem.socket.send(JSON.stringify({ type: "cancel", id: pendingItem.id }));
     }
   });
@@ -197,7 +204,8 @@ function handleConnectorFrame(socket, installationId, message) {
     clearTimeout(item.timer);
     if (/^\/api\/v1\/invitations\/(?:lookup|respond)$/.test(item.path ?? "")) {
       console.log(JSON.stringify({ event: "invitation_proxy_response", path: item.path,
-        status: item.upstreamStatus, bytes: item.responseBytes, retries: item.retries }));
+        status: item.upstreamStatus, bytes: item.responseBytes, retries: item.retries,
+        aborted: message.aborted === true }));
     }
     if (item.bufferResponse) {
       if (item.responseBytes > MAX_INVITATION_RESPONSE_BYTES ||
