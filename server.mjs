@@ -29,7 +29,6 @@ await pool.query(readFileSync(path.join(base, "schema.sql"), "utf8"));
 
 const live = new Map();
 const pending = new Map();
-const recentInvitationRequests = new Map();
 const MAX_INVITATION_RESPONSE_BYTES = 64 * 1024;
 const attempts = new Map();
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
@@ -37,19 +36,6 @@ const json = (response, status, body, headers = {}) => {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...headers });
   response.end(JSON.stringify(body));
 };
-
-function rememberInvitationRequest(item) {
-  if (!item.bufferResponse) return;
-  const now = Date.now();
-  for (const [id, trace] of recentInvitationRequests) {
-    if (trace.expiresAt <= now) recentInvitationRequests.delete(id);
-  }
-  recentInvitationRequests.set(item.id, { path: item.path, installationId: item.installationId,
-    expiresAt: now + 2 * 60_000 });
-  while (recentInvitationRequests.size > 500) {
-    recentInvitationRequests.delete(recentInvitationRequests.keys().next().value);
-  }
-}
 const securityHeaders = (response) => {
   response.setHeader("x-content-type-options", "nosniff");
   response.setHeader("referrer-policy", "no-referrer");
@@ -104,31 +90,29 @@ function sendRequest(installationId, input, response) {
         // instead of trying to write a second JSON response after commitment.
         response.destroy(new Error("Сервер конференции не завершил ответ вовремя"));
       } else json(response, 504, { error: "Сервер конференции не завершил ответ вовремя" });
-      if (item.socket?.readyState === 1) {
-        if (item.bufferResponse) console.warn(JSON.stringify({ event: "invitation_proxy_cancel", path: item.path, reason: "timeout" }));
-        item.socket.send(JSON.stringify({ type: "cancel", id: requestId }));
-      }
+      if (item.socket?.readyState === 1) item.socket.send(JSON.stringify({ type: "cancel", id: requestId }));
     }, timeoutMs);
     item.timer.unref?.();
   };
   const bufferResponse = /^\/api\/v1\/invitations\/(?:lookup|respond)$/.test(input.path ?? "");
   const item = { id: randomUUID(), response, installationId, socket, input, path: input.path, started: false, timer: null, timeoutMs,
     bufferResponse, retryOnReconnect: bufferResponse, maxRetries: bufferResponse ? 1 : 0, retries: 0,
-    awaitingReconnect: false, attempts: new Map() };
+    awaitingReconnect: false, upstreamStatus: null, upstreamHeaders: {}, responseChunks: [], responseBytes: 0 };
   const sendWithSocket = (nextSocket, retry = false) => {
     if (retry) {
       if (pending.get(item.id) === item) pending.delete(item.id);
-      item.attempts.delete(item.id);
       // A retried request gets a fresh ID so delayed frames from the failed
       // tunnel attempt cannot complete or cancel the new attempt.
       item.id = randomUUID();
       pending.set(item.id, item);
-      rememberInvitationRequest(item);
     }
     item.socket = nextSocket;
     item.awaitingReconnect = false;
     item.started = false;
-    item.attempts.set(item.id, { upstreamStatus: null, upstreamHeaders: {}, responseChunks: [], responseBytes: 0 });
+    item.upstreamStatus = null;
+    item.upstreamHeaders = {};
+    item.responseChunks = [];
+    item.responseBytes = 0;
     armTimeout(item);
     try {
       if (nextSocket?.readyState !== 1) throw new Error("connector_not_ready");
@@ -141,18 +125,13 @@ function sendRequest(installationId, input, response) {
   item.retryWithSocket = (nextSocket) => sendWithSocket(nextSocket, true);
   item.armTimeout = () => armTimeout(item);
   pending.set(item.id, item);
-  rememberInvitationRequest(item);
   armTimeout(item);
   response.on("close", () => {
     const pendingItem = pending.get(item.id);
-    if (item.bufferResponse) console.warn(JSON.stringify({ event: "invitation_proxy_http_close", path: item.path,
-      pending: pendingItem === item, writableEnded: response.writableEnded, retries: item.retries }));
     if (!pendingItem) return;
     pending.delete(pendingItem.id);
     clearTimeout(pendingItem.timer);
     if (pendingItem.socket?.readyState === 1) {
-      if (pendingItem.bufferResponse) console.warn(JSON.stringify({ event: "invitation_proxy_cancel",
-        path: pendingItem.path, reason: "http_response_closed" }));
       pendingItem.socket.send(JSON.stringify({ type: "cancel", id: pendingItem.id }));
     }
   });
@@ -182,60 +161,35 @@ function handleConnectorFrame(socket, installationId, message) {
   }
   if (!["response-start", "response-chunk", "response-end"].includes(message.type)) return;
   const item = pending.get(message.id);
-  const trace = recentInvitationRequests.get(message.id);
-  if (trace && (!item || item.installationId !== installationId || item.socket !== socket)) {
-    console.warn(JSON.stringify({ event: "invitation_proxy_frame_unmatched", path: trace.path,
-      type: message.type, itemFound: Boolean(item), installationMatches: item?.installationId === installationId,
-      socketMatches: item?.socket === socket }));
-  }
   if (!item || item.installationId !== installationId || item.socket !== socket) return;
-  const attempt = item.attempts.get(message.id);
-  if (!attempt) {
-    if (item.bufferResponse) console.warn(JSON.stringify({ event: "invitation_proxy_attempt_missing",
-      requestId: message.id, path: item.path, type: message.type, retries: item.retries }));
-    return;
-  }
-  if (item.bufferResponse) console.log(JSON.stringify({ event: "invitation_proxy_frame", path: item.path,
-    requestId: message.id, attempt: item.retries, type: message.type,
-    status: message.type === "response-start" ? Number(message.status) || 502 : undefined,
-    statusBefore: attempt.upstreamStatus, bytesBefore: attempt.responseBytes,
-    chunkBytes: message.type === "response-chunk" && typeof message.data === "string"
-      ? Buffer.from(message.data, "base64").length : undefined,
-    aborted: message.type === "response-end" ? message.aborted === true : undefined }));
   if (message.type === "response-start") {
-    armTimeout(item);
-    attempt.upstreamStatus = Number(message.status) || 502;
+    item.armTimeout();
+    item.upstreamStatus = Number(message.status) || 502;
     const headers = {};
     for (const [name, value] of Object.entries(message.headers ?? {})) {
       if (["content-type", "cache-control", "etag", "last-event-id"].includes(name.toLowerCase())) headers[name] = value;
     }
-    attempt.upstreamHeaders = headers;
+    item.upstreamHeaders = headers;
     if (!item.bufferResponse) {
-      item.response.writeHead(attempt.upstreamStatus, headers);
+      item.response.writeHead(item.upstreamStatus, headers);
       item.started = true;
     }
-    if (item.bufferResponse) console.log(JSON.stringify({ event: "invitation_proxy_state_after_frame",
-      requestId: message.id, type: message.type, status: attempt.upstreamStatus, bytes: attempt.responseBytes }));
   } else if (message.type === "response-chunk") {
-    armTimeout(item);
+    item.armTimeout();
     if (typeof message.data === "string") {
       const chunk = Buffer.from(message.data, "base64");
-      attempt.responseBytes += chunk.length;
+      item.responseBytes += chunk.length;
       if (item.bufferResponse) {
-        if (attempt.responseBytes <= MAX_INVITATION_RESPONSE_BYTES) attempt.responseChunks.push(chunk);
+        if (item.responseBytes <= MAX_INVITATION_RESPONSE_BYTES) item.responseChunks.push(chunk);
       } else item.response.write(chunk);
     }
-    if (item.bufferResponse) console.log(JSON.stringify({ event: "invitation_proxy_state_after_frame",
-      requestId: message.id, type: message.type, status: attempt.upstreamStatus, bytes: attempt.responseBytes }));
   } else {
-    if (item.bufferResponse && attempt.responseBytes === 0 &&
-        (attempt.upstreamStatus === null || (attempt.upstreamStatus >= 200 && attempt.upstreamStatus < 300)) &&
+    if (item.bufferResponse && item.responseBytes === 0 &&
+        (item.upstreamStatus === null || (item.upstreamStatus >= 200 && item.upstreamStatus < 300)) &&
         item.retries < item.maxRetries) {
       item.retries += 1;
       console.warn(JSON.stringify({ event: "invitation_proxy_retry", path: item.path,
-        requestId: message.id, attempt: item.retries,
-        reason: attempt.upstreamStatus === null ? "response_ended_without_start" : "empty_response",
-        status: attempt.upstreamStatus, bytes: attempt.responseBytes }));
+        reason: item.upstreamStatus === null ? "response_ended_without_start" : "empty_response" }));
       item.retryWithSocket(socket);
       return;
     }
@@ -243,23 +197,19 @@ function handleConnectorFrame(socket, installationId, message) {
     clearTimeout(item.timer);
     if (/^\/api\/v1\/invitations\/(?:lookup|respond)$/.test(item.path ?? "")) {
       console.log(JSON.stringify({ event: "invitation_proxy_response", path: item.path,
-        requestId: message.id, attempt: item.retries,
-        status: attempt.upstreamStatus, bytes: attempt.responseBytes, retries: item.retries,
-        aborted: message.aborted === true }));
+        status: item.upstreamStatus, bytes: item.responseBytes, retries: item.retries }));
     }
     if (item.bufferResponse) {
-      item.attempts.delete(message.id);
-      if (attempt.responseBytes > MAX_INVITATION_RESPONSE_BYTES ||
-          (attempt.responseBytes === 0 && (attempt.upstreamStatus === null ||
-            (attempt.upstreamStatus >= 200 && attempt.upstreamStatus < 300)))) {
+      if (item.responseBytes > MAX_INVITATION_RESPONSE_BYTES ||
+          (item.responseBytes === 0 && (item.upstreamStatus === null ||
+            (item.upstreamStatus >= 200 && item.upstreamStatus < 300)))) {
         return json(item.response, 502, { error: "Не удалось проверить приглашение" });
       }
-      item.response.writeHead(attempt.upstreamStatus ?? 502, attempt.upstreamHeaders);
+      item.response.writeHead(item.upstreamStatus ?? 502, item.upstreamHeaders);
       item.started = true;
-      item.response.end(Buffer.concat(attempt.responseChunks));
+      item.response.end(Buffer.concat(item.responseChunks));
       return;
     }
-    item.attempts.delete(message.id);
     item.response.end();
   }
 }
