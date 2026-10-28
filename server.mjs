@@ -9,6 +9,7 @@ import { recoverPendingRequestsForSocketClose } from "./pendingRequests.mjs";
 import { GATEWAY_CAPABILITIES, normalizeRemoteCode, validateTunnelHello } from "./protocol.mjs";
 import { codeTableForPurpose, sessionTableForPath } from "./codePurpose.mjs";
 import { resolveStaticPath } from "./staticPath.mjs";
+import { clientIp, closeAtLicenseExpiry, rateAllowed as allowAttempt } from "./gatewayLimits.mjs";
 
 const base = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT ?? 8080);
@@ -43,18 +44,9 @@ const securityHeaders = (response) => {
   response.setHeader("content-security-policy", "default-src 'self'; connect-src 'self' wss:; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; worker-src 'self' blob:");
 };
 
-function clientIp(request) {
-  if (process.env.TRUST_PROXY === "1") return String(request.headers["x-forwarded-for"] ?? "").split(",")[0].trim() || request.socket.remoteAddress;
-  return request.socket.remoteAddress;
-}
-
-function rateAllowed(ip) {
-  const now = Date.now();
-  const recent = (attempts.get(ip) ?? []).filter((at) => now - at < 60_000);
-  recent.push(now);
-  attempts.set(ip, recent);
-  return recent.length <= 10;
-}
+// clientIp() takes the right-hand X-Forwarded-For entry added by the trusted
+// proxy, not the client-controlled left one (audit F-20).
+const rateAllowed = (ip) => allowAttempt(attempts, ip);
 
 async function readBody(request, maximum = 2 * 1024 * 1024) {
   const chunks = [];
@@ -233,7 +225,7 @@ const handleHttp = async (request, response) => {
       if (!live.has(installationId)) return json(response, 503, { error: "Сервер конференции временно недоступен" });
       const action = url.pathname.endsWith("/respond") ? "respond" : "lookup";
       sendRequest(installationId, { method: "POST", path: `/api/v1/invitations/${action}`,
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "x-vox-client-address": clientIp(request) },
         bodyBase64: Buffer.from(JSON.stringify(action === "respond"
           ? { token, response: body.response } : { token })).toString("base64") }, response);
     } catch (error) {
@@ -273,7 +265,7 @@ const handleHttp = async (request, response) => {
         }, on() {}
       };
       sendRequest(installationId, { method: "POST", path: "/api/v1/uc-organizer/code-login",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "x-vox-client-address": clientIp(request) },
         bodyBase64: Buffer.from(JSON.stringify({ code })).toString("base64") }, proxyResponse);
     } catch (error) { return json(response, error.status ?? 400, { error: "Не удалось обработать код организатора" }); }
     return;
@@ -319,7 +311,7 @@ const handleHttp = async (request, response) => {
         on() {}
       };
       sendRequest(installationId, { method: "POST", path: "/api/v1/remote-access/code-login",
-        headers: { "content-type": "application/json" }, bodyBase64: Buffer.from(JSON.stringify({ code })).toString("base64") }, proxyResponse);
+        headers: { "content-type": "application/json", "x-vox-client-address": clientIp(request) }, bodyBase64: Buffer.from(JSON.stringify({ code })).toString("base64") }, proxyResponse);
     } catch (error) { return json(response, error.status ?? 400, { error: "Не удалось обработать код" }); }
     return;
   }
@@ -337,7 +329,7 @@ const handleHttp = async (request, response) => {
         return json(response, 401, { error: "Требуется токен организатора" });
       }
       sendRequest(found.rows[0].installation_id, { method: request.method, path: url.pathname,
-        headers: { "x-vox-uc-session": token, "content-type": "application/json" },
+        headers: { "x-vox-uc-session": token, "content-type": "application/json", "x-vox-client-address": clientIp(request) },
         bodyBase64: body.toString("base64") }, response);
     } catch (error) { json(response, error.status ?? 400, { error: error.message }); }
     return;
@@ -354,6 +346,8 @@ const handleHttp = async (request, response) => {
       for (const name of ["authorization", "content-type", "accept", "last-event-id", "if-none-match"]) {
         if (typeof request.headers[name] === "string") headers[name] = request.headers[name];
       }
+      // Set by the gateway, never copied from the client (audit F-21).
+      headers["x-vox-client-address"] = clientIp(request);
       sendRequest(found.rows[0].installation_id, { method: request.method, path: `${url.pathname}${url.search}`,
         headers, bodyBase64: body.toString("base64") }, response);
     } catch (error) { json(response, error.status ?? 400, { error: error.message }); }
@@ -388,6 +382,7 @@ server.on("upgrade", (request, socket, head) => {
 });
 wss.on("connection", (socket) => {
   let installationId = null;
+  let licenseTimer = null;
   const timeout = setTimeout(() => socket.close(1008, "hello required"), 10_000);
   const processFrame = async (raw) => {
     let message;
@@ -415,6 +410,9 @@ wss.on("connection", (socket) => {
       const previous = live.get(installationId);
       if (previous && previous !== socket) previous.close(1012, "replaced");
       live.set(installationId, socket);
+      // The licence is checked at hello; an open tunnel must also end when
+      // that licence expires (audit F-15).
+      licenseTimer = closeAtLicenseExpiry(socket, result.licenseExpiresAt);
       socket.send(JSON.stringify({ type: "welcome", installationId, capabilities: GATEWAY_CAPABILITIES }));
       for (const [id, item] of pending) {
         if (item.installationId === installationId && item.awaitingReconnect) item.retryWithSocket(socket);
@@ -426,6 +424,7 @@ wss.on("connection", (socket) => {
   socket.on("message", (raw) => processFrame(raw).catch(() => socket.close(1011, "gateway error")));
   socket.on("close", () => {
     clearTimeout(timeout);
+    licenseTimer?.cancel();
     if (installationId && live.get(installationId) === socket) live.delete(installationId);
     const recovered = recoverPendingRequestsForSocketClose(pending, socket);
     for (const { item } of recovered.retry) {

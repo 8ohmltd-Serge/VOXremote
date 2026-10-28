@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { codeTableForPurpose, sessionTableForPath } from "./codePurpose.mjs";
 import { GATEWAY_CAPABILITIES } from "./protocol.mjs";
 import { recoverPendingRequestsForSocketClose } from "./pendingRequests.mjs";
+import { clientIp, closeAtLicenseExpiry, rateAllowed } from "./gatewayLimits.mjs";
 
 test("gateway advertises explicit remote and organizer capabilities", async () => {
   assert.deepEqual(GATEWAY_CAPABILITIES, ["remote-participant.v1", "uc-organizer.v1"]);
@@ -42,8 +44,9 @@ test("RSVP gateway exposes only a bounded invitation proxy without a customer li
 
 test("RSVP proxy keeps its inactivity deadline through response headers and chunks", async () => {
   const source = await readFile(new URL("./server.mjs", import.meta.url), "utf8");
-  assert.match(source, /if \(message\.type === "response-start"\)\s*\{\s*armTimeout\(item\)/);
-  assert.match(source, /else if \(message\.type === "response-chunk"\)\s*\{\s*armTimeout\(item\)/);
+  // The per-item method keeps the deadline in scope of the frame handler (fix 4965f82).
+  assert.match(source, /if \(message\.type === "response-start"\)\s*\{\s*item\.armTimeout\(\)/);
+  assert.match(source, /else if \(message\.type === "response-chunk"\)\s*\{\s*item\.armTimeout\(\)/);
   assert.match(source, /if \(item\.started\)\s*\{[\s\S]*?response\.destroy\(/);
   assert.match(source, /clearTimeout\(item\.timer\);[\s\S]*?item\.response\.end\(\);/);
   assert.match(source, /item\.responseBytes \+= chunk\.length/);
@@ -72,4 +75,32 @@ test("closing a connector retries invitation requests but leaves new socket requ
   assert.deepEqual([...pending], [["old-request", oldRequest], ["current-request", currentRequest]]);
   clearTimeout(oldRequest.timer);
   clearTimeout(currentRequest.timer);
+});
+
+test("audit F-20: client address is the proxy-appended X-Forwarded-For entry, not the spoofable left one", () => {
+  const request = (xff, remoteAddress = "10.0.0.2") => ({ headers: { "x-forwarded-for": xff }, socket: { remoteAddress } });
+  assert.equal(clientIp(request("6.6.6.6, 203.0.113.7"), "1"), "203.0.113.7");
+  assert.equal(clientIp(request("203.0.113.7"), "1"), "203.0.113.7");
+  assert.equal(clientIp(request("1.1.1.1, 203.0.113.7, 10.1.1.1"), "2"), "203.0.113.7");
+  assert.equal(clientIp(request(""), "1"), "10.0.0.2");
+  assert.equal(clientIp(request("6.6.6.6"), undefined), "10.0.0.2");
+  const attempts = new Map();
+  for (let index = 0; index < 10; index += 1) assert.equal(rateAllowed(attempts, "a", { now: 1000 }), true);
+  assert.equal(rateAllowed(attempts, "a", { now: 1000 }), false);
+  for (let index = 0; index < 50; index += 1) rateAllowed(attempts, `ip-${index}`, { now: 1000, maxAddresses: 20 });
+  assert.equal(attempts.size, 20);
+  const source = readFileSync(new URL("./server.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /split\(","\)\[0\]/);
+});
+
+test("audit F-15: a connector tunnel is closed when its licence expires", () => {
+  const closed = []; const timers = [];
+  let clock = 0;
+  const socket = { close: (code, reason) => closed.push([code, reason]) };
+  closeAtLicenseExpiry(socket, new Date(5_000).toISOString(),
+    { now: () => clock, setTimer: (fn, ms) => { timers.push([fn, ms]); return null; } });
+  assert.equal(timers[0][1], 5_000);
+  clock = 5_000; timers[0][0]();
+  assert.deepEqual(closed, [[1008, "license_expired"]]);
+  assert.equal(closeAtLicenseExpiry(socket, null), null);
 });
