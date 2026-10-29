@@ -1,10 +1,11 @@
 import { createHmac, randomBytes } from "node:crypto";
+import { zoomUserIdFromAccessToken } from "./zoomWebhook.mjs";
 
 const REDIRECT = "https://connect.voxordia.com/oauth/zoom/callback";
 const TOKEN = "https://zoom.us/oauth/token";
 const TTL = 5 * 60_000;
 
-export function createZoomOAuth({ clientId, clientSecret, fetcher = fetch, now = Date.now } = {}) {
+export function createZoomOAuth({ clientId, clientSecret, fetcher = fetch, now = Date.now, onLinked = async () => {} } = {}) {
   const pending = new Map();
   const awaitingAck = new Map();
   const configured = Boolean(clientId && clientSecret);
@@ -41,6 +42,10 @@ export function createZoomOAuth({ clientId, clientSecret, fetcher = fetch, now =
     if (!item || item.expiresAt < now() || !code ||
         socketForInstallation(item.installationId) !== item.socket || item.socket.readyState !== 1) return false;
     const credentials = await token({ grant_type: "authorization_code", code });
+    const zoomUserId = zoomUserIdFromAccessToken(credentials.access_token);
+    // Remember which installation a Zoom user linked, so a later app removal in
+    // Zoom reaches that installation. Only a hash of the user ID is kept.
+    if (zoomUserId) await onLinked(zoomUserId, item.installationId).catch(() => {});
     return new Promise((resolve) => {
       const timeout = setTimeout(() => { awaitingAck.delete(item.id); resolve(false); }, 10_000);
       awaitingAck.set(item.id, { socket: item.socket, resolve: (ok) => {
@@ -48,7 +53,7 @@ export function createZoomOAuth({ clientId, clientSecret, fetcher = fetch, now =
       } });
       send(item.socket, { type: "zoom-oauth-authorized", id: item.id,
         accessToken: credentials.access_token, refreshToken: credentials.refresh_token,
-        expiresIn: credentials.expires_in, userId: "me" });
+        expiresIn: credentials.expires_in, userId: zoomUserId ?? "me" });
     });
   }
   function ack(socket, id, ok) {

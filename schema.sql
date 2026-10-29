@@ -35,6 +35,20 @@ CREATE TABLE IF NOT EXISTS remote_sessions (
 );
 CREATE INDEX IF NOT EXISTS remote_sessions_expiry_idx ON remote_sessions(expires_at);
 
+-- Zoom users linked by installations (hash only) and app removals awaiting delivery.
+CREATE TABLE IF NOT EXISTS zoom_links (
+  user_hash char(64) NOT NULL,
+  installation_id text NOT NULL REFERENCES remote_installations(installation_id) ON DELETE CASCADE,
+  linked_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_hash, installation_id)
+);
+CREATE TABLE IF NOT EXISTS zoom_revocations (
+  user_hash char(64) NOT NULL,
+  installation_id text NOT NULL REFERENCES remote_installations(installation_id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_hash, installation_id)
+);
+
 -- UC organizer credentials are isolated from delegate codes and cookies.
 CREATE TABLE IF NOT EXISTS uc_organizer_codes (
   code_digest char(64) PRIMARY KEY,

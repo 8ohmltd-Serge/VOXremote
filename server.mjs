@@ -11,6 +11,7 @@ import { codeTableForPurpose, sessionTableForPath } from "./codePurpose.mjs";
 import { resolveStaticPath } from "./staticPath.mjs";
 import { clientIp, closeAtLicenseExpiry, rateAllowed as allowAttempt } from "./gatewayLimits.mjs";
 import { createZoomOAuth } from "./zoomOAuth.mjs";
+import { createZoomWebhook, zoomUserHash } from "./zoomWebhook.mjs";
 
 const base = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT ?? 8080);
@@ -31,7 +32,27 @@ await pool.query(readFileSync(path.join(base, "schema.sql"), "utf8"));
 
 const live = new Map();
 const zoomOAuth = createZoomOAuth({ clientId: process.env.ZOOM_OAUTH_CLIENT_ID,
-  clientSecret: process.env.ZOOM_OAUTH_CLIENT_SECRET });
+  clientSecret: process.env.ZOOM_OAUTH_CLIENT_SECRET,
+  onLinked: (userId, installationId) => pool.query(`INSERT INTO zoom_links(user_hash,installation_id) VALUES($1,$2)
+    ON CONFLICT(user_hash,installation_id) DO UPDATE SET linked_at=now()`, [zoomUserHash(userId), installationId]) });
+// Development and production apps each have a webhook secret token; comma-separated.
+const zoomWebhook = createZoomWebhook({ secretTokens: String(process.env.ZOOM_WEBHOOK_SECRET_TOKENS ?? "")
+  .split(",").map((value) => value.trim()) });
+
+// Deliver a Zoom app removal to the installation now, or keep it until it reconnects.
+async function revokeZoomUser(userHash) {
+  const linked = await pool.query("DELETE FROM zoom_links WHERE user_hash=$1 RETURNING installation_id", [userHash]);
+  for (const { installation_id: installationId } of linked.rows) {
+    const socket = live.get(installationId);
+    if (socket?.readyState === 1) socket.send(JSON.stringify({ type: "zoom-oauth-revoked", userHash }));
+    else await pool.query(`INSERT INTO zoom_revocations(user_hash,installation_id) VALUES($1,$2)
+      ON CONFLICT DO NOTHING`, [userHash, installationId]);
+  }
+}
+async function deliverZoomRevocations(installationId, socket) {
+  const pendingRows = await pool.query("DELETE FROM zoom_revocations WHERE installation_id=$1 RETURNING user_hash", [installationId]);
+  for (const { user_hash: userHash } of pendingRows.rows) socket.send(JSON.stringify({ type: "zoom-oauth-revoked", userHash }));
+}
 const pending = new Map();
 const MAX_INVITATION_RESPONSE_BYTES = 64 * 1024;
 const attempts = new Map();
@@ -233,6 +254,16 @@ const handleHttp = async (request, response) => {
   const url = new URL(request.url, "https://connect.voxordia.com");
   if (request.method === "GET" && url.pathname === "/health") {
     return json(response, 200, { service: "voxordia-remote-gateway", ready: true });
+  }
+  if (request.method === "POST" && url.pathname === "/oauth/zoom/deauthorize") {
+    try {
+      const raw = (await readBody(request, 16_384)).toString("utf8");
+      const result = zoomWebhook.handle(raw, request.headers);
+      if (result.revoke) await revokeZoomUser(result.revoke.userHash);
+      return json(response, result.status, result.body);
+    } catch (error) {
+      return json(response, error.status === 413 ? 413 : 500, { error: "webhook_failed" });
+    }
   }
   if (request.method === "GET" && url.pathname === "/oauth/zoom/callback") {
     response.setHeader("content-type", "text/html; charset=utf-8");
@@ -458,6 +489,7 @@ wss.on("connection", (socket) => {
       for (const [id, item] of pending) {
         if (item.installationId === installationId && item.awaitingReconnect) item.retryWithSocket(socket);
       }
+      if (result.zoomAllowed) await deliverZoomRevocations(installationId, socket).catch(() => {});
       return;
     }
     handleConnectorFrame(socket, installationId, message);
