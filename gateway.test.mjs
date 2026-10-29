@@ -8,7 +8,7 @@ import { recoverPendingRequestsForSocketClose } from "./pendingRequests.mjs";
 import { clientIp, closeAtLicenseExpiry, rateAllowed } from "./gatewayLimits.mjs";
 
 test("gateway advertises scoped remote, organizer and Zoom OAuth capabilities", async () => {
-  assert.deepEqual(GATEWAY_CAPABILITIES, ["remote-participant.v1", "uc-organizer.v1", "zoom-oauth.v1"]);
+  assert.deepEqual(GATEWAY_CAPABILITIES, ["remote-participant.v1", "uc-organizer.v1", "zoom-oauth.v1", "zoom-sdk.v1"]);
   const source = await readFile(new URL("./server.mjs", import.meta.url), "utf8");
   assert.match(source, /type: "welcome", installationId,[\s\S]*capabilities: GATEWAY_CAPABILITIES\.filter/);
   assert.match(source, /type: "ack", id: message\.id, purpose: message\.purpose, ok: true/);

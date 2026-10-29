@@ -146,6 +146,10 @@ function handleConnectorFrame(socket, installationId, message) {
     zoomOAuth.refresh(socket, message.id, message.refreshToken).catch(() => {});
     return;
   }
+  if (message.type === "zoom-sdk-signature") {
+    zoomOAuth.signature(socket, message.id, message.meetingNumber, message.role);
+    return;
+  }
   if (message.type === "zoom-oauth-ack") {
     zoomOAuth.ack(socket, message.id, message.ok);
     return;
@@ -449,7 +453,7 @@ wss.on("connection", (socket) => {
       // that licence expires (audit F-15).
       licenseTimer = closeAtLicenseExpiry(socket, result.licenseExpiresAt);
       socket.send(JSON.stringify({ type: "welcome", installationId,
-        capabilities: GATEWAY_CAPABILITIES.filter((name) => name === "zoom-oauth.v1" ? result.zoomAllowed :
+        capabilities: GATEWAY_CAPABILITIES.filter((name) => ["zoom-oauth.v1", "zoom-sdk.v1"].includes(name) ? result.zoomAllowed :
           name === "uc-organizer.v1" ? result.remoteAllowed || result.zoomAllowed : result.remoteAllowed) }));
       for (const [id, item] of pending) {
         if (item.installationId === installationId && item.awaitingReconnect) item.retryWithSocket(socket);

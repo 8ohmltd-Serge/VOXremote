@@ -45,3 +45,21 @@ test("Zoom refresh returns rotated token to authorized socket", async () => {
   await oauth.refresh(socket, "denied", "old-refresh");
   assert.equal(sent.at(-1).ok, false);
 });
+
+test("Zoom SDK signature is an HS256 JWT for one meeting and needs the Zoom entitlement", async () => {
+  const { createHmac } = await import("node:crypto");
+  const { oauth, socket, sent } = fixture();
+  oauth.signature(socket, "sig-1", "81422837524", 1);
+  const result = sent.at(-1);
+  assert.equal(result.ok, true);
+  const [head, body, mac] = result.signature.split(".");
+  assert.equal(mac, createHmac("sha256", "secret").update(`${head}.${body}`).digest("base64url"));
+  const payload = JSON.parse(Buffer.from(body, "base64url").toString());
+  assert.deepEqual([payload.appKey, payload.sdkKey, payload.mn, payload.role], ["client", "client", "81422837524", 1]);
+  assert.ok(payload.exp - payload.iat <= 2 * 3600 + 30);
+  oauth.signature(socket, "sig-2", "12; drop", 1);
+  assert.equal(sent.at(-1).ok, false);
+  oauth.signature({ ...socket, voxEntitlements: {} }, "sig-3", "81422837524", 1);
+  assert.equal(sent.at(-1).ok, false);
+  assert.ok(!JSON.stringify(sent).includes("secret"), "the client secret never leaves the gateway");
+});
