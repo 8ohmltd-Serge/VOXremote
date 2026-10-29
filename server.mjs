@@ -10,6 +10,7 @@ import { GATEWAY_CAPABILITIES, normalizeRemoteCode, validateTunnelHello } from "
 import { codeTableForPurpose, sessionTableForPath } from "./codePurpose.mjs";
 import { resolveStaticPath } from "./staticPath.mjs";
 import { clientIp, closeAtLicenseExpiry, rateAllowed as allowAttempt } from "./gatewayLimits.mjs";
+import { createZoomOAuth } from "./zoomOAuth.mjs";
 
 const base = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT ?? 8080);
@@ -29,6 +30,8 @@ const pool = new pg.Pool({ connectionString: databaseUrl, ssl: process.env.PGSSL
 await pool.query(readFileSync(path.join(base, "schema.sql"), "utf8"));
 
 const live = new Map();
+const zoomOAuth = createZoomOAuth({ clientId: process.env.ZOOM_OAUTH_CLIENT_ID,
+  clientSecret: process.env.ZOOM_OAUTH_CLIENT_SECRET });
 const pending = new Map();
 const MAX_INVITATION_RESPONSE_BYTES = 64 * 1024;
 const attempts = new Map();
@@ -135,7 +138,21 @@ function handleConnectorFrame(socket, installationId, message) {
     socket.send(JSON.stringify({ type: "keepalive-ack", at: new Date().toISOString() }));
     return;
   }
+  if (message.type === "zoom-oauth-start") {
+    zoomOAuth.start(socket, installationId, message.id);
+    return;
+  }
+  if (message.type === "zoom-oauth-refresh") {
+    zoomOAuth.refresh(socket, message.id, message.refreshToken).catch(() => {});
+    return;
+  }
+  if (message.type === "zoom-oauth-ack") {
+    zoomOAuth.ack(socket, message.id, message.ok);
+    return;
+  }
   if (message.type === "code-sync") {
+    if (message.purpose === "remote-participant" && !socket.voxEntitlements?.remote ||
+        message.purpose === "uc-organizer" && !socket.voxEntitlements?.uc) return;
     const validDigest = /^[a-f0-9]{64}$/.test(message.codeDigest ?? "");
     const table = codeTableForPurpose(message.purpose);
     const expires = Date.parse(message.expiresAt);
@@ -151,7 +168,8 @@ function handleConnectorFrame(socket, installationId, message) {
       .catch(() => socket.send(JSON.stringify({ type: "ack", id: message.id, purpose: message.purpose, ok: false })));
     return;
   }
-  if (!["response-start", "response-chunk", "response-end"].includes(message.type)) return;
+  if (!["response-start", "response-chunk", "response-end"].includes(message.type) ||
+      !socket.voxEntitlements?.remote && !socket.voxEntitlements?.uc) return;
   const item = pending.get(message.id);
   if (!item || item.installationId !== installationId || item.socket !== socket) return;
   if (message.type === "response-start") {
@@ -211,6 +229,21 @@ const handleHttp = async (request, response) => {
   const url = new URL(request.url, "https://connect.voxordia.com");
   if (request.method === "GET" && url.pathname === "/health") {
     return json(response, 200, { service: "voxordia-remote-gateway", ready: true });
+  }
+  if (request.method === "GET" && url.pathname === "/oauth/zoom/callback") {
+    response.setHeader("content-type", "text/html; charset=utf-8");
+    response.setHeader("cache-control", "no-store");
+    try {
+      const ok = await zoomOAuth.callback(url.searchParams.get("state"), url.searchParams.get("code"),
+        (id) => live.get(id));
+      response.writeHead(ok ? 200 : 409);
+      response.end(ok ? "<!doctype html><html lang=ru><meta charset=utf-8><title>Zoom подключён</title><body><h1>Zoom подключён</h1><p>Вернитесь в служебный интерфейс VOX-S.</p></body></html>" :
+        "<!doctype html><html lang=ru><meta charset=utf-8><title>Повторите подключение</title><body><h1>Подключение не завершено</h1><p>Вернитесь в VOX-S и повторите авторизацию Zoom.</p></body></html>");
+    } catch {
+      response.writeHead(502);
+      response.end("<!doctype html><html lang=ru><meta charset=utf-8><title>Ошибка Zoom</title><body><h1>Zoom не ответил</h1><p>Вернитесь в VOX-S и повторите попытку.</p></body></html>");
+    }
+    return;
   }
   if (request.method === "POST" && ["/api/invitations/lookup", "/api/invitations/respond"].includes(url.pathname)) {
     if (!rateAllowed(clientIp(request))) return json(response, 429, { error: "Слишком много попыток. Повторите позже." });
@@ -391,6 +424,8 @@ wss.on("connection", (socket) => {
       const result = validateTunnelHello(message, vendorPublicKeys);
       if (!result.ok) { socket.close(1008, result.reason); return; }
       installationId = result.installationId;
+      socket.voxEntitlements = { remote: result.remoteAllowed,
+        uc: result.remoteAllowed || result.zoomAllowed, zoom: result.zoomAllowed };
       clearTimeout(timeout);
       const registered = await pool.query(`INSERT INTO remote_installations(installation_id,public_key,public_key_sha256,license_revision,
         license_expires_at,media_public_ip,media_port_min,media_port_max,last_nonce,last_hello_at)
@@ -404,8 +439,8 @@ wss.on("connection", (socket) => {
           AND remote_installations.last_nonce <> excluded.last_nonce
         RETURNING installation_id`,
       [installationId, result.installationPublicKey, sha256(result.installationPublicKey.replace(/\r/g, "").trim()),
-        result.licenseRevision, result.licenseExpiresAt, result.media.publicIp, result.media.portMin,
-        result.media.portMax, result.nonce, new Date(result.issuedAt).toISOString()]);
+        result.licenseRevision, result.licenseExpiresAt, result.media?.publicIp ?? null, result.media?.portMin ?? null,
+        result.media?.portMax ?? null, result.nonce, new Date(result.issuedAt).toISOString()]);
       if (registered.rowCount !== 1) { socket.close(1008, "replayed_hello"); return; }
       const previous = live.get(installationId);
       if (previous && previous !== socket) previous.close(1012, "replaced");
@@ -413,7 +448,9 @@ wss.on("connection", (socket) => {
       // The licence is checked at hello; an open tunnel must also end when
       // that licence expires (audit F-15).
       licenseTimer = closeAtLicenseExpiry(socket, result.licenseExpiresAt);
-      socket.send(JSON.stringify({ type: "welcome", installationId, capabilities: GATEWAY_CAPABILITIES }));
+      socket.send(JSON.stringify({ type: "welcome", installationId,
+        capabilities: GATEWAY_CAPABILITIES.filter((name) => name === "zoom-oauth.v1" ? result.zoomAllowed :
+          name === "uc-organizer.v1" ? result.remoteAllowed || result.zoomAllowed : result.remoteAllowed) }));
       for (const [id, item] of pending) {
         if (item.installationId === installationId && item.awaitingReconnect) item.retryWithSocket(socket);
       }
@@ -441,6 +478,7 @@ wss.on("connection", (socket) => {
 });
 
 setInterval(() => {
+  zoomOAuth.sweep();
   pool.query("DELETE FROM remote_codes WHERE expires_at<=now(); DELETE FROM remote_sessions WHERE expires_at<=now(); DELETE FROM uc_organizer_codes WHERE expires_at<=now(); DELETE FROM uc_organizer_sessions WHERE expires_at<=now()")
     .catch(() => {});
   const cutoff = Date.now() - 60_000;

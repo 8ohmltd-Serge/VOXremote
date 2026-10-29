@@ -4,15 +4,18 @@ CREATE TABLE IF NOT EXISTS remote_installations (
   public_key_sha256 text NOT NULL,
   license_revision integer NOT NULL,
   license_expires_at timestamptz,
-  media_public_ip inet NOT NULL,
-  media_port_min integer NOT NULL,
-  media_port_max integer NOT NULL,
+  media_public_ip inet,
+  media_port_min integer,
+  media_port_max integer,
   last_nonce text NOT NULL,
   last_hello_at timestamptz NOT NULL,
   connected_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE remote_installations ADD COLUMN IF NOT EXISTS last_hello_at timestamptz;
+ALTER TABLE remote_installations ALTER COLUMN media_public_ip DROP NOT NULL;
+ALTER TABLE remote_installations ALTER COLUMN media_port_min DROP NOT NULL;
+ALTER TABLE remote_installations ALTER COLUMN media_port_max DROP NOT NULL;
 UPDATE remote_installations SET last_hello_at=coalesce(last_hello_at, connected_at) WHERE last_hello_at IS NULL;
 ALTER TABLE remote_installations ALTER COLUMN last_hello_at SET NOT NULL;
 
