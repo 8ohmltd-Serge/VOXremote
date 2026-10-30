@@ -434,7 +434,7 @@ const handleHttp = async (request, response) => {
   const type = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
     ".svg": "image/svg+xml", ".woff2": "font/woff2", ".png": "image/png", ".json": "application/json", ".webmanifest": "application/manifest+json", ".mjs": "text/javascript; charset=utf-8" }[path.extname(target)] ?? "application/octet-stream";
   response.writeHead(200, { "content-type": type, "cache-control": target.endsWith("index.html") ? "no-store" : "public,max-age=300" });
-  createReadStream(target).pipe(response);
+  createReadStream(target).on("error", () => response.destroy()).pipe(response);
 };
 const server = createServer((request, response) => {
   handleHttp(request, response).catch(() => {
@@ -445,7 +445,10 @@ const server = createServer((request, response) => {
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 3 * 1024 * 1024 });
 server.on("upgrade", (request, socket, head) => {
-  if (new URL(request.url, "https://connect.voxordia.com").pathname !== "/gateway/connect") return socket.destroy();
+  socket.on("error", () => {});
+  let pathname;
+  try { pathname = new URL(request.url, "https://connect.voxordia.com").pathname; } catch { return socket.destroy(); }
+  if (pathname !== "/gateway/connect") return socket.destroy();
   wss.handleUpgrade(request, socket, head, (ws) => wss.emit("connection", ws));
 });
 wss.on("connection", (socket) => {
@@ -494,6 +497,10 @@ wss.on("connection", (socket) => {
     }
     handleConnectorFrame(socket, installationId, message);
   };
+  // ws emits "error" for an invalid or oversized frame and on a reset; without
+  // a listener that is an uncaught exception that ends the whole gateway.
+  // "close" follows and does the cleanup.
+  socket.on("error", () => {});
   socket.on("message", (raw) => processFrame(raw).catch(() => socket.close(1011, "gateway error")));
   socket.on("close", () => {
     clearTimeout(timeout);
