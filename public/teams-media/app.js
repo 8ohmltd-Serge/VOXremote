@@ -29,7 +29,7 @@ async function view() {
   } catch(e) { $("status").textContent = e.message; }
   finally { polling = false; if (!stopped) setTimeout(view, 1200); }
 }
-$("screen").addEventListener("click", (event) => { const r = event.currentTarget.getBoundingClientRect(); enqueue({ type: "click", x: (event.clientX-r.left)*1100/r.width, y: (event.clientY-r.top)*760/r.height }); $("entry").focus(); });
+$("screen").addEventListener("click", (event) => { const r = event.currentTarget.getBoundingClientRect(); enqueue({ type: "click", x: (event.clientX-r.left)*1100/r.width, y: (event.clientY-r.top)*760/r.height }); $("entry").focus({preventScroll:true}); });
 $("entry").addEventListener("input", (event) => { const text = event.target.value; event.target.value = ""; if (text) enqueue({type:"text",text}); });
 $("entry").addEventListener("keydown", (event) => { if (["Enter","Backspace","Delete","ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Tab","Escape"].includes(event.key) || event.ctrlKey && event.key.toLowerCase()==="a") { event.preventDefault(); enqueue({type:"key",key:event.ctrlKey?"Control+A":event.shiftKey&&event.key==="Tab"?"Shift+Tab":event.key}); } });
 $("enter").onclick = () => enqueue({type:"key",key:"Enter"});
