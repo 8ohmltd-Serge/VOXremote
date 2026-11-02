@@ -11,6 +11,7 @@ import { codeTableForPurpose, sessionTableForPath } from "./codePurpose.mjs";
 import { resolveStaticPath } from "./staticPath.mjs";
 import { clientIp, closeAtLicenseExpiry, rateAllowed as allowAttempt } from "./gatewayLimits.mjs";
 import { createZoomOAuth } from "./zoomOAuth.mjs";
+import { createTeamsOAuth } from "./teamsOAuth.mjs";
 import { createZoomWebhook, zoomUserHash } from "./zoomWebhook.mjs";
 
 const base = path.dirname(fileURLToPath(import.meta.url));
@@ -35,6 +36,8 @@ const zoomOAuth = createZoomOAuth({ clientId: process.env.ZOOM_OAUTH_CLIENT_ID,
   clientSecret: process.env.ZOOM_OAUTH_CLIENT_SECRET,
   onLinked: (userId, installationId) => pool.query(`INSERT INTO zoom_links(user_hash,installation_id) VALUES($1,$2)
     ON CONFLICT(user_hash,installation_id) DO UPDATE SET linked_at=now()`, [zoomUserHash(userId), installationId]) });
+const teamsOAuth = createTeamsOAuth({ clientId: process.env.TEAMS_OAUTH_CLIENT_ID,
+  clientSecret: process.env.TEAMS_OAUTH_CLIENT_SECRET });
 // Development and production apps each have a webhook secret token; comma-separated.
 const zoomWebhook = createZoomWebhook({ secretTokens: String(process.env.ZOOM_WEBHOOK_SECRET_TOKENS ?? "")
   .split(",").map((value) => value.trim()) });
@@ -175,6 +178,18 @@ function handleConnectorFrame(socket, installationId, message) {
     zoomOAuth.ack(socket, message.id, message.ok);
     return;
   }
+  if (message.type === "teams-oauth-start") {
+    teamsOAuth.start(socket, installationId, message.id);
+    return;
+  }
+  if (message.type === "teams-oauth-refresh") {
+    teamsOAuth.refresh(socket, message.id, message.refreshToken).catch(() => {});
+    return;
+  }
+  if (message.type === "teams-oauth-ack") {
+    teamsOAuth.ack(socket, message.id, message.ok);
+    return;
+  }
   if (message.type === "code-sync") {
     if (message.purpose === "remote-participant" && !socket.voxEntitlements?.remote ||
         message.purpose === "uc-organizer" && !socket.voxEntitlements?.uc) return;
@@ -277,6 +292,21 @@ const handleHttp = async (request, response) => {
     } catch {
       response.writeHead(502);
       response.end("<!doctype html><html lang=ru><meta charset=utf-8><title>Ошибка Zoom</title><body><h1>Zoom не ответил</h1><p>Вернитесь в VOX-S и повторите попытку.</p></body></html>");
+    }
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/oauth/teams/callback") {
+    response.setHeader("content-type", "text/html; charset=utf-8");
+    response.setHeader("cache-control", "no-store");
+    try {
+      const ok = await teamsOAuth.callback(url.searchParams.get("state"), url.searchParams.get("code"),
+        (id) => live.get(id));
+      response.writeHead(ok ? 200 : 409);
+      response.end(ok ? "<!doctype html><html lang=ru><meta charset=utf-8><title>Teams подключён</title><body><h1>Teams подключён</h1><p>Вернитесь в служебный интерфейс VOX-S.</p></body></html>" :
+        "<!doctype html><html lang=ru><meta charset=utf-8><title>Повторите подключение</title><body><h1>Подключение не завершено</h1><p>Вернитесь в VOX-S и повторите подключение Teams.</p></body></html>");
+    } catch {
+      response.writeHead(502);
+      response.end("<!doctype html><html lang=ru><meta charset=utf-8><title>Ошибка Teams</title><body><h1>Teams не ответил</h1><p>Вернитесь в VOX-S и повторите попытку.</p></body></html>");
     }
     return;
   }
@@ -463,7 +493,8 @@ wss.on("connection", (socket) => {
       if (!result.ok) { socket.close(1008, result.reason); return; }
       installationId = result.installationId;
       socket.voxEntitlements = { remote: result.remoteAllowed,
-        uc: result.remoteAllowed || result.zoomAllowed, zoom: result.zoomAllowed };
+        uc: result.remoteAllowed || result.zoomAllowed || result.teamsAllowed,
+        zoom: result.zoomAllowed, teams: result.teamsAllowed };
       clearTimeout(timeout);
       const registered = await pool.query(`INSERT INTO remote_installations(installation_id,public_key,public_key_sha256,license_revision,
         license_expires_at,media_public_ip,media_port_min,media_port_max,last_nonce,last_hello_at)
@@ -488,7 +519,8 @@ wss.on("connection", (socket) => {
       licenseTimer = closeAtLicenseExpiry(socket, result.licenseExpiresAt);
       socket.send(JSON.stringify({ type: "welcome", installationId,
         capabilities: GATEWAY_CAPABILITIES.filter((name) => ["zoom-oauth.v1", "zoom-sdk.v1"].includes(name) ? result.zoomAllowed :
-          name === "uc-organizer.v1" ? result.remoteAllowed || result.zoomAllowed : result.remoteAllowed) }));
+          name === "teams-oauth.v1" ? result.teamsAllowed && teamsOAuth.configured :
+          name === "uc-organizer.v1" ? result.remoteAllowed || result.zoomAllowed || result.teamsAllowed : result.remoteAllowed) }));
       for (const [id, item] of pending) {
         if (item.installationId === installationId && item.awaitingReconnect) item.retryWithSocket(socket);
       }

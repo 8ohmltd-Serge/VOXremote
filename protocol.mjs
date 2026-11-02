@@ -14,7 +14,7 @@ export const unsignedDocument = (document) => Object.fromEntries(Object.entries(
 export const ENROLL_SCHEMA = "voxordia.remote-gateway-enrollment.v1";
 export const TUNNEL_HELLO_SCHEMA = "voxordia.remote-tunnel.hello.v1";
 export const PROOF_PURPOSE = "voxordia-remote-connector-proof";
-export const GATEWAY_CAPABILITIES = Object.freeze(["remote-participant.v1", "uc-organizer.v1", "zoom-oauth.v1", "zoom-sdk.v1"]);
+export const GATEWAY_CAPABILITIES = Object.freeze(["remote-participant.v1", "uc-organizer.v1", "zoom-oauth.v1", "zoom-sdk.v1", "teams-oauth.v1"]);
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 const CYRILLIC_LOOKALIKES = Object.freeze({ А: "A", В: "B", С: "C", Е: "E", Н: "H",
@@ -128,7 +128,8 @@ export function validateTunnelHello(document, vendorPublicKeys, now = Date.now()
     return value === true || Boolean(value && typeof value === "object" && value.enabled !== false); };
   const remoteLicensed = entitled("remoteAccessCore");
   const zoomAllowed = entitled("ucCore") && entitled("ucAdapter.zoom");
-  if (!remoteLicensed && !zoomAllowed) {
+  const teamsAllowed = entitled("ucCore") && entitled("ucAdapter.microsoft-teams");
+  if (!remoteLicensed && !zoomAllowed && !teamsAllowed) {
     return fail("not_entitled");
   }
   const installationId = String(license.installation?.id ?? "").toLowerCase();
@@ -139,14 +140,14 @@ export function validateTunnelHello(document, vendorPublicKeys, now = Date.now()
   if (!signedBy(document, document.installationPublicKey)) return fail("signature_invalid");
   const { publicIp, portMin, portMax } = document.media ?? {};
   const remoteAllowed = remoteLicensed && document.media != null;
-  if (remoteLicensed && !remoteAllowed && !zoomAllowed) return fail("media_endpoint_invalid");
+  if (remoteLicensed && !remoteAllowed && !zoomAllowed && !teamsAllowed) return fail("media_endpoint_invalid");
   if (remoteAllowed && (!isPublicIpv4(publicIp) || !Number.isInteger(portMin) || !Number.isInteger(portMax) ||
       portMin < 1024 || portMax > 65535 || portMin > portMax || portMax - portMin > 1000)) {
     return fail("media_endpoint_invalid");
   }
   return { ok: true, installationId, installationPublicKey: document.installationPublicKey,
     licenseRevision: Number(license.revision ?? 1), licenseExpiresAt: license.expiresAt ?? null,
-    remoteAllowed, zoomAllowed,
+    remoteAllowed, zoomAllowed, teamsAllowed,
     media: remoteAllowed ? { publicIp, portMin, portMax } : null, issuedAt, nonce: document.nonce };
 }
 
