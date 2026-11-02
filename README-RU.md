@@ -117,9 +117,11 @@ Zoom Marketplace: `https://connect.voxordia.com/oauth/zoom/callback` (точно
 Одно приложение VOXORDIA регистрируется как многоклиентское для рабочих и
 учебных учётных записей Entra. В регистрации укажите Redirect URI
 `https://connect.voxordia.com/oauth/teams/callback` и делегированные права
-`User.Read`, `OnlineMeetings.ReadWrite`, `offline_access`. Секрет приложения
-хранится только в переменных шлюза `TEAMS_OAUTH_CLIENT_ID` и
-`TEAMS_OAUTH_CLIENT_SECRET`. При отсутствии этих переменных шлюз не объявляет
+`User.Read`, `Calendars.ReadWrite`; `offline_access` запрашивается в OAuth.
+Зарегистрированное приложение имеет Client ID
+`0a7b15ef-7e61-4e69-ac16-106f67b277f7`. Client ID и секрет приложения
+задаются в переменных шлюза `TEAMS_OAUTH_CLIENT_ID` и
+`TEAMS_OAUTH_CLIENT_SECRET`; секрет не хранится в Git. При отсутствии этих переменных шлюз не объявляет
 `teams-oauth.v1` и не выдаёт ссылку на подключение.
 
 Организатор проходит вход и MFA у Microsoft. Шлюз допускает только endpoint
