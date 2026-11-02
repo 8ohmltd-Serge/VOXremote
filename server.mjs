@@ -33,6 +33,7 @@ const pool = new pg.Pool({ connectionString: databaseUrl, ssl: process.env.PGSSL
 await pool.query(readFileSync(path.join(base, "schema.sql"), "utf8"));
 
 const live = new Map();
+const mediaAuthAttempts = new Map();
 const zoomOAuth = createZoomOAuth({ clientId: process.env.ZOOM_OAUTH_CLIENT_ID,
   clientSecret: process.env.ZOOM_OAUTH_CLIENT_SECRET,
   onLinked: (userId, installationId) => pool.query(`INSERT INTO zoom_links(user_hash,installation_id) VALUES($1,$2)
@@ -268,8 +269,29 @@ function handleConnectorFrame(socket, installationId, message) {
 const handleHttp = async (request, response) => {
   securityHeaders(response);
   const url = new URL(request.url, "https://connect.voxordia.com");
+  if (url.pathname.startsWith("/teams-media/") || url.pathname.startsWith("/api/teams-media/")) {
+    response.setHeader("x-frame-options", "DENY");
+    response.setHeader("cache-control", "no-store");
+    response.setHeader("content-security-policy", "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; form-action 'none'");
+  }
   if (request.method === "GET" && url.pathname === "/health") {
     return json(response, 200, { service: "voxordia-remote-gateway", ready: true });
+  }
+  if (request.method === "POST" && /^\/api\/teams-media\/(?:claim|view|input|complete|cancel)$/.test(url.pathname)) {
+    response.setHeader("cache-control", "no-store");
+    if (!allowAttempt(mediaAuthAttempts, clientIp(request), { limit: 300 })) return json(response, 429, { error: "Слишком много действий. Подождите минуту." });
+    try {
+      const body = JSON.parse((await readBody(request, 8192)).toString("utf8"));
+      const { installationId, token, input } = body;
+      if (!/^[a-z0-9-]{3,64}$/.test(installationId ?? "") || !/^[A-Za-z0-9_-]{43}$/.test(token ?? "")) return json(response, 400, { error: "Недействительная сессия входа" });
+      const socket = live.get(installationId);
+      if (!socket?.voxEntitlements?.teams) return json(response, 503, { error: "Сервер VOX-S недоступен" });
+      const action = url.pathname.split("/").pop();
+      sendRequest(installationId, { method: "POST", path: `/api/v1/uc-media-auth/${action}`,
+        headers: { "content-type": "application/json", "x-vox-client-address": clientIp(request) },
+        bodyBase64: Buffer.from(JSON.stringify({ token, input })).toString("base64") }, response);
+    } catch { json(response, 400, { error: "Не удалось передать действие. Повторите подключение из VOX-S." }); }
+    return;
   }
   if (request.method === "POST" && url.pathname === "/oauth/zoom/deauthorize") {
     try {
@@ -520,6 +542,7 @@ wss.on("connection", (socket) => {
       socket.send(JSON.stringify({ type: "welcome", installationId,
         capabilities: GATEWAY_CAPABILITIES.filter((name) => ["zoom-oauth.v1", "zoom-sdk.v1"].includes(name) ? result.zoomAllowed :
           name === "teams-oauth.v1" ? result.teamsAllowed && teamsOAuth.configured :
+          name === "teams-media-auth.v1" ? result.teamsAllowed :
           name === "uc-organizer.v1" ? result.remoteAllowed || result.zoomAllowed || result.teamsAllowed : result.remoteAllowed) }));
       for (const [id, item] of pending) {
         if (item.installationId === installationId && item.awaitingReconnect) item.retryWithSocket(socket);
