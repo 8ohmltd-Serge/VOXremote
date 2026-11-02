@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createTeamsOAuth } from "./teamsOAuth.mjs";
+import { teamsCallbackPage } from "./teamsCallbackPage.mjs";
 
 const guid = "11111111-2222-4333-8444-555555555555";
 const person = "22222222-3333-4444-8555-666666666666";
@@ -30,7 +31,8 @@ test("Teams OAuth accepts an organization account only through the live installa
   assert.equal(url.pathname, "/organizations/oauth2/v2.0/authorize");
   assert.equal(url.searchParams.get("redirect_uri"), "https://connect.voxordia.com/oauth/teams/callback");
   assert.equal(url.searchParams.get("code_challenge_method"), "S256");
-  assert.match(url.searchParams.get("scope"), /OnlineMeetings\.ReadWrite/);
+  assert.match(url.searchParams.get("scope"), /Calendars\.ReadWrite/);
+  assert.doesNotMatch(url.searchParams.get("scope"), /OnlineMeetings\.ReadWrite/);
   const state = url.searchParams.get("state");
   assert.equal(await oauth.callback(state, "code", () => null), false);
   assert.equal(calls.length, 0);
@@ -58,4 +60,13 @@ test("Teams refresh requires the licensed installation", async () => {
   socket.voxEntitlements.teams = false;
   await oauth.refresh(socket, "denied", "old");
   assert.equal(sent.at(-1).ok, false);
+});
+
+test("Teams callback uses Connect branding and contains no OAuth parameters", () => {
+  const connected = teamsCallbackPage("connected");
+  assert.match(connected, /<h1 id="result">Teams подключён<\/h1>/);
+  assert.match(connected, /\/assets\/logo\.svg/);
+  assert.match(connected, /в его календаре/);
+  assert.doesNotMatch(connected, /(?:access_token|refresh_token|state=|code=)/);
+  assert.match(teamsCallbackPage("expired"), /начните подключение снова/);
 });

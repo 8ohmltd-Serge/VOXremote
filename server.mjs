@@ -12,6 +12,7 @@ import { resolveStaticPath } from "./staticPath.mjs";
 import { clientIp, closeAtLicenseExpiry, rateAllowed as allowAttempt } from "./gatewayLimits.mjs";
 import { createZoomOAuth } from "./zoomOAuth.mjs";
 import { createTeamsOAuth } from "./teamsOAuth.mjs";
+import { teamsCallbackPage } from "./teamsCallbackPage.mjs";
 import { createZoomWebhook, zoomUserHash } from "./zoomWebhook.mjs";
 
 const base = path.dirname(fileURLToPath(import.meta.url));
@@ -302,11 +303,10 @@ const handleHttp = async (request, response) => {
       const ok = await teamsOAuth.callback(url.searchParams.get("state"), url.searchParams.get("code"),
         (id) => live.get(id));
       response.writeHead(ok ? 200 : 409);
-      response.end(ok ? "<!doctype html><html lang=ru><meta charset=utf-8><title>Teams подключён</title><body><h1>Teams подключён</h1><p>Вернитесь в служебный интерфейс VOX-S.</p></body></html>" :
-        "<!doctype html><html lang=ru><meta charset=utf-8><title>Повторите подключение</title><body><h1>Подключение не завершено</h1><p>Вернитесь в VOX-S и повторите подключение Teams.</p></body></html>");
+      response.end(teamsCallbackPage(ok ? "connected" : "expired"));
     } catch {
       response.writeHead(502);
-      response.end("<!doctype html><html lang=ru><meta charset=utf-8><title>Ошибка Teams</title><body><h1>Teams не ответил</h1><p>Вернитесь в VOX-S и повторите попытку.</p></body></html>");
+      response.end(teamsCallbackPage("error"));
     }
     return;
   }

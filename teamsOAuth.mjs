@@ -2,7 +2,9 @@ import { createHash, randomBytes } from "node:crypto";
 
 const REDIRECT = "https://connect.voxordia.com/oauth/teams/callback";
 const AUTHORITY = "https://login.microsoftonline.com/organizations/oauth2/v2.0";
-const SCOPES = "openid profile offline_access User.Read OnlineMeetings.ReadWrite";
+// Calendar events create Teams meetings in the organizer's Outlook calendar.
+// OnlineMeetings.ReadWrite is unnecessary for this delegated path.
+const SCOPES = "openid profile offline_access User.Read Calendars.ReadWrite";
 const TTL = 5 * 60_000;
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
