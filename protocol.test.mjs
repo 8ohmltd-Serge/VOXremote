@@ -49,3 +49,24 @@ test("Teams-only installation opens the control tunnel without a public media ad
   assert.equal(verified.zoomAllowed, false);
   assert.equal(verified.remoteAllowed, false);
 });
+
+test("VOX-S v2 licence opens the outbound control tunnel", () => {
+  const vendor = generateKeyPairSync("ed25519");
+  const installation = generateKeyPairSync("ed25519");
+  const publicKey = installation.publicKey.export({ format: "pem", type: "spki" });
+  const vendorKey = vendor.publicKey.export({ format: "pem", type: "spki" });
+  const license = { schema: "vox-s.license.v2", installation: { id: "customer-v2",
+    publicKeySha256: createHash("sha256").update(publicKey.replace(/\r/g, "").trim()).digest("hex") },
+    entitlements: { remoteAccessCore: true }, updates: { channels: ["pilot"] } };
+  license.signature = { algorithm: "Ed25519", value: sign(null,
+    Buffer.from(canonicalJson(license)), vendor.privateKey).toString("base64") };
+  const hello = { schema: "voxordia.remote-tunnel.hello.v1", type: "hello",
+    issuedAt: new Date().toISOString(), nonce: "c".repeat(48),
+    media: { publicIp: "88.86.215.158", portMin: 40000, portMax: 40100 },
+    license, installationPublicKey: publicKey };
+  hello.signature = { algorithm: "Ed25519", value: sign(null,
+    Buffer.from(canonicalJson(hello)), installation.privateKey).toString("base64") };
+  const verified = validateTunnelHello(hello, [vendorKey]);
+  assert.equal(verified.ok, true);
+  assert.equal(verified.remoteAllowed, true);
+});

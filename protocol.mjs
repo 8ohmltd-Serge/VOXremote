@@ -15,6 +15,7 @@ export const ENROLL_SCHEMA = "voxordia.remote-gateway-enrollment.v1";
 export const TUNNEL_HELLO_SCHEMA = "voxordia.remote-tunnel.hello.v1";
 export const PROOF_PURPOSE = "voxordia-remote-connector-proof";
 export const GATEWAY_CAPABILITIES = Object.freeze(["remote-participant.v1", "uc-organizer.v1", "zoom-oauth.v1", "zoom-sdk.v1", "teams-oauth.v1", "teams-media-auth.v1"]);
+const LICENSE_SCHEMAS = new Set(["edge-s.license.v1", "vox-s.license.v2"]);
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 const CYRILLIC_LOOKALIKES = Object.freeze({ А: "A", В: "B", С: "C", Е: "E", Н: "H",
@@ -65,7 +66,7 @@ export function validateEnrollment(document, vendorPublicKeys, now = Date.now())
   const issuedAt = Date.parse(document.issuedAt);
   if (!Number.isFinite(issuedAt) || Math.abs(now - issuedAt) > 600_000) return fail("stale_enrollment");
   const license = document.license;
-  if (license?.schema !== "edge-s.license.v1" ||
+  if (!LICENSE_SCHEMAS.has(license?.schema) ||
       !vendorPublicKeys.some((key) => signedBy(license, key))) return fail("license_invalid");
   if (license.notBefore && (!Number.isFinite(Date.parse(license.notBefore)) ||
       Date.parse(license.notBefore) > now)) return fail("license_not_yet_valid");
@@ -117,7 +118,7 @@ export function validateTunnelHello(document, vendorPublicKeys, now = Date.now()
   const issuedAt = Date.parse(document.issuedAt);
   if (!Number.isFinite(issuedAt) || Math.abs(now - issuedAt) > 600_000) return fail("stale_hello");
   const license = document.license;
-  if (license?.schema !== "edge-s.license.v1" || !vendorPublicKeys.some((key) => signedBy(license, key))) {
+  if (!LICENSE_SCHEMAS.has(license?.schema) || !vendorPublicKeys.some((key) => signedBy(license, key))) {
     return fail("license_invalid");
   }
   if (license.notBefore && (!Number.isFinite(Date.parse(license.notBefore)) ||
