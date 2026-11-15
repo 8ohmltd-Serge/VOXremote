@@ -19,10 +19,10 @@ const catalogs = Object.freeze({
     "nav.mobile.translation": "Перевод",
     "nav.mobile.chat": "Чат",
     "nav.mobile.operations": "Сервис",
-    "nav.mobile.roomcontrol": "Зал",
+    "nav.mobile.roomcontrol": "Пульт",
     "nav.mobile.settings": "Ещё",
     "settings.language.title": "Язык интерфейса",
-    "settings.language.note": "Язык интерфейса выбирается для этого браузера. Перевод внедряется по разделам; непереведённые строки остаются на русском.",
+    "settings.language.note": "Язык интерфейса сохраняется для этого браузера.",
     "service.title": "Сервисные запросы",
     "service.description": "Чай, вода, принадлежности, техническая или экстренная помощь",
     "service.empty": "Очередь обращений пуста.",
@@ -62,10 +62,10 @@ const catalogs = Object.freeze({
     "nav.mobile.translation": "Interpret",
     "nav.mobile.chat": "Chat",
     "nav.mobile.operations": "Service",
-    "nav.mobile.roomcontrol": "Room",
+    "nav.mobile.roomcontrol": "Panel",
     "nav.mobile.settings": "More",
     "settings.language.title": "Interface language",
-    "settings.language.note": "The interface language is saved in this browser. Translation is being added section by section; untranslated text remains in Russian.",
+    "settings.language.note": "The interface language is saved in this browser.",
     "service.title": "Service requests",
     "service.description": "Refreshments, supplies, technical or urgent assistance",
     "service.empty": "No service requests.",
@@ -80,9 +80,9 @@ const catalogs = Object.freeze({
     "nav.operations": "Service", "nav.roomcontrol": "Saalsteuerung", "nav.settings": "Einstellungen", "nav.interpreter": "Dolmetscher-Arbeitsplatz",
     "nav.mobile.conference": "Saal", "nav.mobile.streams": "Kameras", "nav.mobile.voting": "Wahl",
     "nav.mobile.content": "Dateien", "nav.mobile.translation": "Sprache", "nav.mobile.chat": "Chat",
-    "nav.mobile.operations": "Service", "nav.mobile.roomcontrol": "Saal", "nav.mobile.settings": "Mehr",
+    "nav.mobile.operations": "Service", "nav.mobile.roomcontrol": "Pult", "nav.mobile.settings": "Mehr",
     "settings.language.title": "Sprache der Oberfläche",
-    "settings.language.note": "Die Sprache wird in diesem Browser gespeichert. Nicht übersetzte Texte bleiben auf Russisch.",
+    "settings.language.note": "Die Sprache wird in diesem Browser gespeichert.",
     "service.title": "Serviceanfragen", "service.description": "Getränke, Material, technische oder dringende Hilfe",
     "service.empty": "Keine Serviceanfragen.", "service.accept": "Annehmen", "service.start": "Bearbeiten",
     "service.complete": "Erledigt", "service.close": "Schließen"
@@ -93,9 +93,9 @@ const catalogs = Object.freeze({
     "nav.operations": "Service", "nav.roomcontrol": "Commande de salle", "nav.settings": "Paramètres", "nav.interpreter": "Poste d’interprétation",
     "nav.mobile.conference": "Salle", "nav.mobile.streams": "Caméras", "nav.mobile.voting": "Vote",
     "nav.mobile.content": "Fichiers", "nav.mobile.translation": "Langues", "nav.mobile.chat": "Chat",
-    "nav.mobile.operations": "Service", "nav.mobile.roomcontrol": "Salle", "nav.mobile.settings": "Plus",
+    "nav.mobile.operations": "Service", "nav.mobile.roomcontrol": "Pupitre", "nav.mobile.settings": "Plus",
     "settings.language.title": "Langue de l’interface",
-    "settings.language.note": "La langue est enregistrée dans ce navigateur. Les textes non traduits restent en russe.",
+    "settings.language.note": "La langue est enregistrée dans ce navigateur.",
     "service.title": "Demandes de service", "service.description": "Boissons, fournitures, aide technique ou urgente",
     "service.empty": "Aucune demande de service.", "service.accept": "Accepter", "service.start": "Traiter",
     "service.complete": "Terminé", "service.close": "Fermer"
@@ -106,9 +106,9 @@ const catalogs = Object.freeze({
     "nav.operations": "Servicio", "nav.roomcontrol": "Control de sala", "nav.settings": "Ajustes", "nav.interpreter": "Puesto de interpretación",
     "nav.mobile.conference": "Sala", "nav.mobile.streams": "Cámaras", "nav.mobile.voting": "Voto",
     "nav.mobile.content": "Archivos", "nav.mobile.translation": "Idiomas", "nav.mobile.chat": "Chat",
-    "nav.mobile.operations": "Servicio", "nav.mobile.roomcontrol": "Sala", "nav.mobile.settings": "Más",
+    "nav.mobile.operations": "Servicio", "nav.mobile.roomcontrol": "Panel", "nav.mobile.settings": "Más",
     "settings.language.title": "Idioma de la interfaz",
-    "settings.language.note": "El idioma se guarda en este navegador. Los textos sin traducir permanecen en ruso.",
+    "settings.language.note": "El idioma se guarda en este navegador.",
     "service.title": "Solicitudes de servicio", "service.description": "Bebidas, material, ayuda técnica o urgente",
     "service.empty": "No hay solicitudes de servicio.", "service.accept": "Aceptar", "service.start": "Atender",
     "service.complete": "Completado", "service.close": "Cerrar"
@@ -119,9 +119,9 @@ const catalogs = Object.freeze({
     "nav.operations": "Servizio", "nav.roomcontrol": "Controllo sala", "nav.settings": "Impostazioni", "nav.interpreter": "Postazione interprete",
     "nav.mobile.conference": "Sala", "nav.mobile.streams": "Camere", "nav.mobile.voting": "Voto",
     "nav.mobile.content": "File", "nav.mobile.translation": "Lingue", "nav.mobile.chat": "Chat",
-    "nav.mobile.operations": "Servizio", "nav.mobile.roomcontrol": "Sala", "nav.mobile.settings": "Altro",
+    "nav.mobile.operations": "Servizio", "nav.mobile.roomcontrol": "Pannello", "nav.mobile.settings": "Altro",
     "settings.language.title": "Lingua dell’interfaccia",
-    "settings.language.note": "La lingua viene salvata in questo browser. I testi non tradotti restano in russo.",
+    "settings.language.note": "La lingua viene salvata in questo browser.",
     "service.title": "Richieste di servizio", "service.description": "Bevande, materiali, assistenza tecnica o urgente",
     "service.empty": "Nessuna richiesta di servizio.", "service.accept": "Accetta", "service.start": "Gestisci",
     "service.complete": "Completato", "service.close": "Chiudi"
@@ -361,16 +361,18 @@ export function applyParticipantLanguage(userId) {
   const language = participantLanguage(userId);
   document.documentElement.lang = language;
   document.documentElement.dir = customCatalogs[language]?.direction ?? "ltr";
+  globalThis.VoxLocale?.use(language, { direction: document.documentElement.dir });
   return language;
 }
 
 export function setParticipantLanguage(userId, language) {
   const normalized = normalizeParticipantLanguage(language);
   if (!enabledLanguages.includes(normalized)) return participantLanguage(userId);
-  try { localStorage.setItem("edge-s-interface-language", normalized); }
+  try { localStorage.setItem("edge-s-interface-language", normalized); localStorage.setItem("vx-lang", normalized); }
   catch { systemInterfaceLanguage = normalized; }
   document.documentElement.lang = normalized;
   document.documentElement.dir = customCatalogs[normalized]?.direction ?? "ltr";
+  globalThis.VoxLocale?.use(normalized, { direction: document.documentElement.dir });
   return normalized;
 }
 

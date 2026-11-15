@@ -38,7 +38,7 @@ export function createWaitingRoom({ escapeHtml, openDocumentViewer, connectWithP
   }
 
   async function poll() {
-    if (!api || !profile || polling) return;
+    if (!api || !profile || polling || document.hidden) return;
     polling = true;
     try {
       const meetingId = encodeURIComponent(profile.meetingId);
@@ -64,6 +64,9 @@ export function createWaitingRoom({ escapeHtml, openDocumentViewer, connectWithP
     render(meeting, await api.get(`/meetings/${encodeURIComponent(profile.meetingId)}/documents`).catch(() => []));
     timer = setInterval(() => { void poll(); }, 4000);
   }
+
+  // The waiting screen checks at once when the tablet wakes up.
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && timer) void poll(); });
 
   $("#waitingLeave").addEventListener("click", () => { stop(); onLeave(); });
   $("#waitingMaterials").addEventListener("click", (event) => {

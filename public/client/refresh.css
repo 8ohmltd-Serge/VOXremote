@@ -186,6 +186,26 @@ body:not([data-role="admin"]):not([data-role="technician"]):not([data-role="oper
 
 /* ---------- Conference workspace (constructor) for participant and technical roles ---------- */
 .workspace-grid { grid-auto-rows: 10px; row-gap: 0 !important; column-gap: 10px; grid-auto-flow: row dense; align-items: start; }
+.workspace-grid.is-pixel-grid{grid-template-columns:repeat(auto-fill,10px);column-gap:0!important}
+.workspace-grid.is-pixel-grid>.secretary-layout-panel{width:var(--layout-width);max-width:100%}
+.conference-program-panel .program-fullscreen-button{position:absolute;z-index:8;right:8px;top:8px;display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:5px 9px;border:1px solid #ffffff70;border-radius:7px;background:#111d;color:#fff;font:inherit;font-size:11px;cursor:pointer}
+.conference-program-panel .program-fullscreen-button:hover,.conference-program-panel .program-fullscreen-button:focus-visible{background:#111;color:#fff;border-color:#fff}
+.program-fullscreen-mode .conference-program-panel{position:fixed!important;inset:0;z-index:10020;width:100vw!important;height:100dvh!important;max-width:none!important;aspect-ratio:auto!important;border:0;border-radius:0;background:#070707}
+.program-fullscreen-mode .conference-program-panel .program-stage-large{width:100%!important;height:100%!important;max-height:none!important;aspect-ratio:auto!important}
+.conference-program-panel:fullscreen,.conference-program-panel:-webkit-full-screen{display:grid!important;grid-template-rows:minmax(0,1fr)!important;position:fixed!important;inset:0!important;width:100vw!important;height:100dvh!important;max-width:none!important;max-height:none!important;min-height:0!important;aspect-ratio:auto!important;padding:0!important;margin:0!important;border:0!important;border-radius:0!important;background:#070707!important}
+.conference-program-panel:fullscreen .program-stage-large,.conference-program-panel:-webkit-full-screen .program-stage-large{width:100%!important;height:100%!important;max-height:none!important;min-height:0!important;aspect-ratio:auto!important}
+.workspace-grid .panel :is(p:not(.service-note),.floor-name,.service-request-place strong,.secretary-speakers strong,.service-assignee strong){font-size:var(--workspace-body-font-size,14px)}
+.workspace-grid .panel :is(.material-name,.active-material-name,.vote-question,.voter-names,.queue-index,.service-request-place span,.service-request .list-item-head h4,.option-row > span){font-size:var(--workspace-body-font-size,14px)!important}
+.workspace-grid .panel .panel-title{font-size:var(--workspace-title-font-size,18px)!important}
+.service-assignee-control{display:flex;flex-wrap:wrap;align-items:end;gap:8px;margin:8px 0}
+.service-assignee-control label{display:grid;gap:4px;min-width:min(220px,100%);font-size:12px;color:var(--vx-muted,#746f69)}
+.service-assignee-control select{width:100%;min-height:38px}
+.service-assignee-control button{min-height:38px}
+.workspace-font-field{display:grid;gap:4px;padding:4px 8px;color:#eee;font-size:12px;line-height:1.3}
+.workspace-font-field input{width:100%;height:36px;box-sizing:border-box;font-size:16px}
+.page-content:has(.workspace-area){max-width:none;padding-inline:10px}
+.conference-screen-fit:has(.workspace-area){padding-top:4px;padding-bottom:4px}
+.conference-screen-fit:has(.workspace-area) .conference-agenda-bar{margin-bottom:6px;padding:7px 9px}
 .conference-screen-fit:has(.workspace-area){overflow-y:auto!important;overscroll-behavior:contain}
 /* Keep the scroll track above the fixed microphone dock on iPad and desktop.
    The dock height is measured by ResizeObserver, including the safe area. */
@@ -203,7 +223,13 @@ body:not([data-role="admin"]):not([data-role="technician"]):not([data-role="oper
 .workspace-grid .workspace-stack > .panel { margin: 0; }
 .workspace-metrics .grid-3 { gap: 8px; }
 .workspace-metrics .metric { padding: 8px 10px; border-radius: 8px; background: var(--paper); }
-@media (max-width: 900px) { .workspace-grid > .secretary-layout-panel { grid-column: span 12 !important; } }
+@media (max-width: 900px) { .workspace-grid > .secretary-layout-panel { grid-column: span 12 !important; }.workspace-grid.is-pixel-grid>.secretary-layout-panel{grid-column:1/-1!important;width:100%} }
+@media (max-width: 760px) {
+  #appView[data-role="service"] .workspace-grid,
+  #appView[data-role="technician"] .workspace-grid{grid-template-columns:minmax(0,1fr)!important;grid-auto-rows:auto!important;row-gap:10px!important}
+  #appView[data-role="service"] .workspace-grid>.secretary-layout-panel,
+  #appView[data-role="technician"] .workspace-grid>.secretary-layout-panel{grid-column:1!important;grid-row:auto!important;width:100%!important;height:auto!important;min-height:0!important}
+}
 
 .workspace-grid .conference-vote-status h3.vote-status-question { font-size: 16px !important; line-height: 1.3; }
 .workspace-grid .conference-vote-status .action-strip .button { min-height: 34px; padding: 6px 10px; font-size: 12px; }
@@ -410,3 +436,225 @@ body:not([data-role="admin"]):not([data-role="technician"]):not([data-role="oper
   #appView .translation-channel-choices { grid-template-columns: 1fr; }
 }
 .conference-screen-fit .conference-dashboard,.conference-screen-fit .conference-main-column,.conference-screen-fit .conference-side-stack,.conference-screen-fit .conference-below,.conference-screen-fit .secretary-extra-panels{gap:10px}
+
+/* ===== Audit 2026-10-27, group A fixes (FA). Client-only stylesheet; selectors carry #appView/body
+   specificity where legibility.css or controls.css (linked later) would otherwise win. ===== */
+
+/* A-17: toast stack, one live role per toast, no side stripe, never over a dialog close button */
+.notice-stack { position: fixed; z-index: 1600; top: max(16px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right));
+  width: min(420px, calc(100vw - 32px)); display: grid; gap: 8px; pointer-events: none; }
+.notice-stack[hidden] { display: none; }
+.notice-stack .notice { position: relative; inset: auto; width: auto; pointer-events: auto; align-items: center;
+  padding: 8px 6px 8px 14px; border: 1px solid #d9d3cc; border-radius: 8px; color: var(--vx-ink, #111); font-size: 14px; line-height: 1.42; }
+.notice-stack .notice-error { border-color: #d97a74; background: #fff4f3; color: #6f1d1a; }
+.notice-stack .notice-close { flex: 0 0 40px; width: 40px; height: 40px; margin: 0; padding: 0; border: 0; border-radius: 8px;
+  background: transparent; color: inherit; font-size: 22px; line-height: 1; cursor: pointer; }
+.notice-stack .notice-close:hover { background: rgb(17 17 17 / 7%); }
+.notice-stack .notice-action { flex: none; white-space: nowrap; }
+body.has-modal .notice-stack { top: auto; bottom: max(16px, env(safe-area-inset-bottom)); }
+@media (max-width: 760px) { .notice-stack { top: max(10px, env(safe-area-inset-top)); right: max(10px, env(safe-area-inset-right)); width: calc(100vw - 20px); } }
+
+/* A-15, A-18: dialogs sit above every fixed strip of the page, the headphone banner included */
+.form-dialog-backdrop { z-index: 1000; }
+body.has-modal .headphone-warning { z-index: 1; }
+.form-dialog .form-error { margin: 0; padding: 10px 12px; border: 1px solid #d97a74; border-radius: 8px; background: #fff4f3; color: #6f1d1a; font-size: 14px; }
+.form-dialog .form-error[hidden] { display: none; }
+.form-dialog .form-hint, .form-dialog label > small { margin: 0; color: var(--vx-muted, #746f69); font-size: 12px; font-weight: 400; }
+.form-dialog [aria-busy="true"], .room-seat-dialog.is-busy { cursor: progress; opacity: .7; }
+[data-action][aria-busy="true"] { cursor: progress; opacity: .6; pointer-events: none; }
+/* Danger is filled red only inside a confirmation dialog (UI-TYPOGRAPHY 8) */
+.confirm-dialog .actions .button-danger { background: #c62f2a !important; border-color: #c62f2a !important; color: #fff !important; }
+.confirm-dialog .actions .button-danger:hover { background: #a92520 !important; border-color: #a92520 !important; }
+.session-lost-dialog p { margin: 0; }
+
+/* A-18: a short banner that does not eat the phone screen */
+.headphone-warning span { font-size: 14px; line-height: 1.3; }
+@media (max-width: 520px) { .headphone-warning { gap: 8px; padding-block: 5px; } .headphone-warning span { font-size: 13px; } }
+
+/* A-33: the traffic-light colours belong to the microphone only */
+#appView .media-access { background: #fff; color: var(--vx-ink, #111); border: 1px solid #c9c5c1; }
+#appView .media-access:hover { background: #efede9; }
+#microphoneDock .secretary-record-toggle { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+#microphoneDock .secretary-record-toggle.is-off, #microphoneDock .secretary-record-toggle.is-recording { background: #fff; color: var(--vx-ink, #111); border: 1px solid #c9c5c1; }
+#microphoneDock .secretary-record-toggle.is-recording { background: #111; color: #fff; border-color: #111; }
+#microphoneDock .secretary-record-toggle .record-dot { width: 10px; height: 10px; flex: none; border-radius: 50%; border: 2px solid currentColor; }
+#microphoneDock .secretary-record-toggle.is-recording .record-dot { border-color: #ff6a5f; background: #ff6a5f; }
+
+/* A-07: chair buttons keep a one-line caption; the long one gives way to a short one on phones */
+#microphoneDock .mic-button b { font-size: 14px; }
+#microphoneDock .mic-button small { font-size: 12px; }
+.mic-button .label-short { display: none; }
+@media (max-width: 760px) {
+  .microphone-dock:has(.chair-mic-button) { flex-wrap: wrap; overflow-x: visible; row-gap: 6px; }
+  #microphoneDock .chair-mic-button { flex: 1 1 0; min-width: 0; width: auto; padding-inline: 6px; gap: 4px; }
+  #microphoneDock .chair-mic-button svg { width: 22px; height: 22px; flex: none; }
+  #microphoneDock .chair-mic-button .label-full { display: none; }
+  #microphoneDock .chair-mic-button .label-short { display: inline; }
+  #microphoneDock .chair-mic-button b { overflow: visible; text-overflow: clip; }
+  .microphone-dock:has(.chair-mic-button) > :is(.secretary-record-toggle, .on-air-tag, .document-viewer-badge-group) { flex: 1 0 100%; justify-content: center; }
+}
+
+/* A-08: phone agenda bar: actions drop under the title, the dangerous one stands apart */
+.conference-agenda-danger { display: inline-flex; margin-left: 10px; padding-left: 10px; border-left: 1px solid #ded9d3; }
+@media (max-width: 760px) {
+  #appView .conference-agenda-bar { grid-template-columns: 34px minmax(0, 1fr); row-gap: 8px; }
+  #appView .conference-agenda-bar .conference-agenda-actions { grid-column: 1 / -1; justify-content: flex-start; flex-wrap: wrap; }
+  #appView .conference-agenda-bar .conference-agenda-actions .button { white-space: nowrap; }
+  #appView .conference-agenda-danger { margin-left: auto; }
+}
+
+/* A-09: the protocol block scrolls inside instead of cutting its buttons */
+#appView .secretary-layout-panel[data-layout-panel="protocol"] .secretary-workspace { height: 100%; overflow: auto; box-sizing: border-box; }
+#appView .secretary-editor-actions small { font-size: 12px; }
+#appView[data-role="secretary"] .secretary-layout-panel .panel-title { font-size: 16px; }
+
+/* A-23: agenda editor in one column on phones; nothing runs off the right edge */
+@media (max-width: 600px) {
+  .agenda-dialog .agenda-editor-row { grid-template-columns: 1fr; }
+  .agenda-dialog .agenda-editor-row > *, .agenda-dialog .agenda-editor-main, .agenda-dialog .agenda-editor-main * { min-width: 0; max-width: 100%; }
+  .agenda-dialog .agenda-editor-row .agenda-order { justify-self: start; }
+  .agenda-dialog .agenda-editor-row > .button, .agenda-dialog .agenda-current-mark { grid-column: 1; justify-self: start; }
+  .agenda-dialog .actions { flex-wrap: wrap; }
+}
+
+/* A-24: compact document viewer header on phones; colours scroll inside their strip */
+.document-viewer-pending { display: grid; justify-items: center; gap: 14px; padding: 24px 28px; border-radius: 12px; background: #fff; color: #111; box-shadow: 0 24px 80px #0005; }
+.document-viewer-pending p { margin: 0; font-size: 14px; }
+.document-viewer-progress { position: absolute; inset: 24px 0 auto; margin: 0; color: #5d5852; font-size: 14px; }
+.document-viewer-title small { text-transform: uppercase; }
+.document-text-dialog form { position: relative; }
+.document-text-dialog .dialog-icon-close { position: absolute; top: 8px; right: 8px; }
+.document-text-dialog label { padding-right: 44px; }
+.document-text-error { margin: 8px 0 0; color: #a92520; font-size: 12px; }
+@media (max-width: 800px) {
+  .document-viewer-header { position: relative; flex-direction: row !important; flex-wrap: wrap; align-items: center !important; gap: 6px; padding: 6px 54px 6px 8px; }
+  .document-viewer-title { flex: 1 1 0 !important; }
+  .document-viewer-title small { display: none; }
+  .document-viewer-controls { flex: 1 1 100%; flex-wrap: nowrap; justify-content: space-between !important; gap: 4px; }
+  .document-viewer-controls .dialog-icon-close { position: absolute !important; top: 6px !important; right: 8px !important; }
+  .document-viewer-controls span { min-width: 40px; }
+  .document-viewer-controls button { padding-inline: 8px; }
+  .document-viewer-tools { flex-wrap: nowrap; overflow-x: auto; padding: 6px 8px; gap: 4px; }
+  .document-viewer-tools [data-viewer-colors] { flex: none; }
+  .document-viewer-tools aside { display: none; }
+}
+
+/* A-35: phone navigation fits seven sections with readable captions */
+@media (max-width: 760px) {
+  #appView .mobile-nav { grid-auto-columns: minmax(52px, 1fr); }
+  #appView .mobile-nav .nav-item { font-size: 12px; padding-inline: 2px; letter-spacing: -.01em; }
+}
+
+/* A-30: caps are a stylesheet decision, never typed into the source */
+.eyebrow, .vote-timer small, .conference-agenda-bar small, .fixed-meeting-state, .waiting-state,
+.metric .metric-tag, .auto-director-state, .studio-monitor header span { text-transform: uppercase; }
+/* A-34: the brand label is muted (accent red fails 4.5:1 at 11 px) */
+#connectView .eyebrow { color: var(--vx-muted, #746f69); }
+
+/* A-34: no thick one-sided stripes or coloured glow */
+.agenda-active { border: 1px solid #b7dccd; border-radius: 8px; padding-left: 12px; background: #f1f8f5; }
+.conference-vote-status, .conference-side-stack .conference-vote-status { border-left: 1px solid var(--line, #ded9d3); }
+.vote-outcome, .vote-card .vote-outcome { border-left: 1px solid transparent; }
+.vote-card .vote-outcome.is-accepted { border-color: #b8dcc6; }
+.vote-card .vote-outcome.is-rejected { border-color: #ecb9b5; }
+.vote-card .vote-outcome.is-undetermined { border-color: #ded9d3; }
+.stream-card-on-air { box-shadow: none; }
+.participant-cell.participant-self { box-shadow: none; }
+/* A-34 (FA): block headings stay on the 18-20 px step of the scale */
+.vote-status-question { font-size: 18px; }
+@media (min-width: 1280px) { .vote-status-question { font-size: 20px; } }
+/* Owner remark 20 (2026-10-28): «Изменить место» and «Вызвать персонал» share one width.
+   Equal grid columns instead of content-sized buttons; the actions drop under the text when the card is narrow. */
+#appView .list-item-head:has(> .service-card-actions) { flex-wrap: wrap; align-items: flex-start; }
+#appView .list-item-head:has(> .service-card-actions) > div:first-child { flex: 1 1 180px; min-width: 0; }
+#appView .service-card-actions { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px;
+  flex: 1 1 auto; min-width: 0; max-width: min(100%, 380px); margin-top: 0; }
+#appView .service-card-actions > .button { width: 100%; min-width: 0; padding-inline: 8px; white-space: normal; }
+
+/* UC prestart preview: the picture, then one column of equal buttons level with its top. */
+#appView .uc-control-row .uc-preview { align-items: flex-start; flex-wrap: wrap; gap: 12px; }
+#appView .uc-control-row .uc-preview-actions { display: grid; grid-auto-rows: min-content; gap: 8px;
+  width: 232px; max-width: 100%; align-items: stretch; justify-items: stretch; }
+#appView .uc-control-row .uc-preview-actions > .button { width: 100%; min-height: 40px; margin: 0;
+  justify-content: center; white-space: normal; }
+
+/* Dialog checkboxes: one line, the box then its text. */
+.form-dialog label.form-check { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.form-dialog label.form-check input[type="checkbox"] { flex: none; width: 22px; height: 22px; margin: 0; }
+.form-dialog label.form-check > small { flex-basis: 100%; }
+/* Virtual hall: binding a Zoom participant to a prepared participant. */
+.uc-member-bind { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 13px; }
+.uc-member-bind select { min-height: 34px; max-width: 100%; }
+
+/* Document show pointer ("указка"): the arrow tip sits at the pointed spot. */
+.document-viewer-paper .document-pointer { position: absolute; left: 0; top: 0; z-index: 3; width: 0; height: 0;
+  pointer-events: none; will-change: transform; }
+.document-viewer-paper .document-pointer[hidden] { display: none; }
+.document-viewer-paper .document-pointer svg { position: absolute; inset: auto; left: -2px; top: -2px; width: 27px; height: 38px;
+  overflow: visible; filter: drop-shadow(1px 2px 3px rgb(0 0 0 / 40%)); }
+.document-viewer:has([data-tool="pointer"].selected) :is(.document-viewer-overlay, .document-viewer-stage) {
+  cursor: default; touch-action: none; user-select: none; -webkit-user-select: none; }
+/* Beacon: a red dot that pops, then two rings spread and fade (~1.2 s). */
+.document-viewer-paper .document-beacon { position: absolute; z-index: 2; width: 0; height: 0; pointer-events: none; }
+.document-beacon > * { position: absolute; left: -11px; top: -11px; width: 22px; height: 22px; box-sizing: border-box;
+  border-radius: 50%; }
+.document-beacon b { background: #e03446; border: 3px solid #fff; box-shadow: 0 1px 4px rgb(0 0 0 / 35%);
+  animation: document-beacon-dot var(--beacon-ms, 1200ms) cubic-bezier(.23, 1, .32, 1) forwards; }
+.document-beacon i { border: 3px solid #e03446; opacity: 0;
+  animation: document-beacon-ring var(--beacon-ms, 1200ms) cubic-bezier(.23, 1, .32, 1) forwards; }
+.document-beacon i + i { animation-delay: calc(var(--beacon-ms, 1200ms) * .3); }
+@keyframes document-beacon-ring { 0% { opacity: .95; transform: scale(1); } 100% { opacity: 0; transform: scale(6.5); } }
+@keyframes document-beacon-dot { 0% { transform: scale(.4); } 18% { transform: scale(1.2); } 32% { transform: scale(1); }
+  75% { opacity: 1; } 100% { opacity: 0; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .document-beacon i { display: none; }
+  .document-beacon b { animation: none; }
+}
+.document-viewer-stage.pointer-live .document-viewer-overlay { cursor: none; }
+.document-pointer-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 16px;
+  background: #fff; border-bottom: 1px solid #ded9d4; font-size: 13px; line-height: 1.2; color: var(--vx-ink, #111); }
+.document-pointer-status[hidden] { display: none; }
+.document-pointer-status strong { font-weight: 650; }
+.document-pointer-holder, .document-pointer-request { display: inline-flex; align-items: center; gap: 6px; }
+.document-pointer-holder i { width: 10px; height: 10px; border-radius: 50%; background: #e03446; flex: none; }
+.document-pointer-wait { color: var(--vx-muted, #746f69); }
+.document-pointer-status button { min-height: 32px; padding: 6px 10px; border: 1px solid #111; border-radius: 8px;
+  background: #111; color: #fff; font: inherit; font-size: 13px; font-weight: 600; line-height: 1.2; cursor: pointer; }
+.document-pointer-status button:hover { background: #35312f; border-color: #35312f; }
+.document-pointer-status button.secondary { background: #fff; color: #111; border-color: #cfc9c3; }
+.document-pointer-status button.secondary:hover { background: #f2efeb; color: #111; border-color: #b9b2ab; }
+.document-pointer-status button:disabled { opacity: .5; cursor: progress; }
+.document-viewer-tools button[data-tool]:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 760px) {
+  .document-pointer-status { padding: 6px 8px; }
+  .document-pointer-status button { min-height: 40px; }
+}
+/* Annotation palette as a drop-down: one swatch in the toolbar, colours in a menu. */
+.document-color-picker { display: inline-flex; }
+.document-color-picker[hidden] { display: none; }
+.document-viewer-tools button[data-viewer="palette"] { display: inline-grid; place-items: center; width: 38px; min-width: 38px;
+  height: 38px; min-height: 38px; padding: 0; background: #fff; border-color: #cfc9c3; }
+.document-viewer-tools button[data-viewer="palette"]:hover { background: #f2efeb; border-color: #b9b2ab; }
+.document-viewer-tools button[data-viewer="palette"] i { width: 22px; height: 22px; border-radius: 50%;
+  background: var(--swatch, #ddd); box-shadow: 0 0 0 1px #bbb, inset 0 0 0 2px #fff; }
+.document-viewer-tools [data-viewer-colors] { position: fixed; z-index: 10003; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px; width: min(360px, calc(100vw - 16px)); max-height: min(420px, calc(100dvh - 16px)); overflow-y: auto;
+  padding: 8px; background: #fff; border: 1px solid #ded9d4; border-radius: 10px; box-shadow: 0 12px 32px rgb(0 0 0 / 20%);
+  animation: document-palette-in 140ms cubic-bezier(.23, 1, .32, 1); }
+.document-viewer-tools [data-viewer-colors][hidden] { display: none; }
+.document-viewer-tools [data-viewer-colors] button.document-color { display: flex; align-items: center; gap: 7px; width: 100%; min-width: 0;
+  height: auto; min-height: 38px; padding: 4px 6px; border: 0; border-radius: 6px; background: transparent; color: #171717;
+  box-shadow: none; text-align: left; font-size: 11px; line-height: 1.2; white-space: normal; }
+.document-viewer-tools [data-viewer-colors] button.document-color:hover:not(:disabled),
+.document-viewer-tools [data-viewer-colors] button.document-color.selected { background: #f2efeb; box-shadow: none; }
+.document-viewer-tools [data-viewer-colors] button.document-color i { flex: 0 0 24px; width: 24px; height: 24px; border: 2px solid #fff;
+  border-radius: 50%; background: var(--swatch); box-shadow: 0 0 0 1px #aaa; }
+.document-viewer-tools [data-viewer-colors] button.document-color span { min-width: 0; overflow-wrap: anywhere; }
+.document-viewer-tools [data-viewer-colors] button.document-color:disabled { opacity: .7; }
+@media (max-width: 420px) { .document-viewer-tools [data-viewer-colors] { grid-template-columns: 1fr; width: min(260px, calc(100vw - 16px)); } }
+@keyframes document-palette-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .document-viewer-tools [data-viewer-colors] { animation: none; } }
+.document-annotate-grant { display: inline-flex; align-items: center; gap: 6px; }
+/* Layout typography wins over older fixed font sizes in content widgets. */
+#appView .workspace-grid .panel :is(p,.material-name,.active-material-name,.vote-question,.vote-status-question,.voter-names,.queue-index,.floor-name,.service-request-place strong,.service-request-place span,.service-request .list-item-head h4,.option-row > span){font-size:var(--workspace-body-font-size,14px)!important}
+#appView .workspace-grid .panel .panel-title{font-size:var(--workspace-title-font-size,18px)!important}

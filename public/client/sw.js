@@ -1,4 +1,4 @@
-const CACHE = "vox-s-client-v0.7.96-1";
+const CACHE = "vox-s-client-v0.8.24";
 const SHELL = [
   "/client/",
   "/client/styles.css",
@@ -38,7 +38,7 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))
+    caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith("vox-s-client-v") && key !== CACHE).map((key) => caches.delete(key))))
   );
   self.clients.claim();
 });

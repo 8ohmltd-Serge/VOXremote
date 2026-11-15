@@ -11,26 +11,26 @@
     <title>VOXORDIA · Конференция</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-<link rel="stylesheet" href="./styles.css?v=0.7.96" />
-<link rel="stylesheet" href="./refresh.css?v=0.7.96-1" />
-  <link rel="stylesheet" href="/client/legibility.css?v=0.7.0.42"><link rel="stylesheet" href="/client/controls.css?v=0.7.0.43"></head>
+<link rel="stylesheet" href="./styles.css?v=0.8.24" />
+<link rel="stylesheet" href="./refresh.css?v=0.8.24" />
+  <link rel="stylesheet" href="/client/legibility.css?v=0.7.0.42"><link rel="stylesheet" href="/client/controls.css?v=0.7.0.43"><script src="/client/uiLocale.js"></script></head>
   <body>
     <div id="secureWarning" class="secure-warning" hidden>
       Камера браузера требует HTTPS. Откройте клиент по защищённому адресу VOX-S.
     </div>
     <div id="headphoneWarning" class="headphone-warning" hidden>
-      <span>Подключите наушники — после подключения на них автоматически поступит ваш Mix-minus и звук линейных источников.</span>
+      <span>Наденьте наушники: так вы услышите зал без эха.</span>
       <button id="headphonesReadyBtn" type="button">Наушники подключены</button>
     </div>
 
     <main id="connectView" class="connect-view">
       <section class="connect-card" aria-labelledby="connectTitle">
         <img class="brand-logo" src="./assets/voxordia-logo.svg" alt="VOXORDIA" />
-        <p class="eyebrow">CONFERENCE PLATFORM</p>
+        <p class="eyebrow">Платформа конференций</p>
         <h1 id="connectTitle">Подключение к конференции</h1>
         <p class="lead" id="connectLead">Вход выполняется на странице конференций.</p>
         <div id="waitingPanel" class="waiting-panel" hidden>
-          <div class="waiting-overview"><span class="waiting-state">ПОДГОТОВЛЕНА К ЗАПУСКУ</span><strong id="waitingTitle"></strong><span id="waitingTime"></span>
+          <div class="waiting-overview"><span class="waiting-state">Ожидает запуска</span><strong id="waitingTitle"></strong><span id="waitingTime"></span>
             <p id="waitingStatus" role="status" aria-live="polite">Ожидаем запуска конференции организатором. Подключение начнётся автоматически.</p></div>
           <section class="waiting-section" aria-labelledby="waitingAgendaHeading"><h2 id="waitingAgendaHeading">План мероприятия</h2><ol id="waitingAgenda"></ol></section>
           <section class="waiting-section" aria-labelledby="waitingMaterialsHeading"><h2 id="waitingMaterialsHeading">Материалы для просмотра</h2><div id="waitingMaterials"></div></section>
@@ -38,7 +38,7 @@
         </div>
         <p id="connectError" class="form-error" role="alert"></p>
         <a id="connectEntryLink" class="button button-primary" href="/conference/">Перейти ко входу</a>
-        <div class="connect-footer"><span id="loginBuildLabel">VOX-S v0.7 · build 0.7.96</span></div>
+        <div class="connect-footer"><span id="loginBuildLabel">VOX-S</span></div>
       </section>
     </main>
 
@@ -59,12 +59,15 @@
         <button id="secretaryLayoutBtn" class="side-layout-button" type="button" data-action="secretary-layout-edit" title="Настроить рабочее место" aria-label="Настроить рабочее место" hidden><svg class="side-layout-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M17.5 13v8M13.5 17h8"/></svg><span class="side-layout-label">Настроить</span></button>
         <div id="secretaryLayoutActions" class="side-layout-actions" aria-label="Настройка рабочего места" hidden>
           <strong>Раскладка</strong>
+          <label class="workspace-font-field">Основной текст <input type="number" data-layout-font="bodyFontSize" min="10" max="18" step="1" value="14" aria-label="Основной текст блоков, пиксели"></label>
+          <label class="workspace-font-field">Заголовки блоков <input type="number" data-layout-font="titleFontSize" min="14" max="24" step="1" value="18" aria-label="Заголовки блоков, пиксели"></label>
+          <button type="button" data-action="layout-font-reset" title="Сбросить размеры текста" aria-label="Сбросить размеры текста">Сбросить 14/18</button>
           <details id="workspaceAddMenu" class="workspace-add-menu" hidden><summary title="Добавить блок" aria-label="Добавить блок"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 4v16M4 12h16"/></svg><span class="side-layout-action-label">Добавить блок</span></summary><div class="workspace-add-options"></div></details>
           <button type="button" data-action="secretary-layout-reset" title="По умолчанию" aria-label="По умолчанию"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11a8 8 0 1 1 2.2 5.5M4 4v7h7"/></svg><span class="side-layout-action-label">По умолчанию</span></button>
           <button type="button" data-action="secretary-layout-cancel" title="Отмена" aria-label="Отмена"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 5l14 14M19 5 5 19"/></svg><span class="side-layout-action-label">Отмена</span></button>
           <button type="button" data-action="secretary-layout-save" title="Сохранить" aria-label="Сохранить"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 12 5 5L20 6"/></svg><span class="side-layout-action-label">Сохранить</span></button>
         </div>
-        <div id="appBuildLabel" class="side-foot">VOX-S v0.7<br />build 0.7.96</div>
+        <div id="appBuildLabel" class="side-foot">VOX-S</div>
       </aside>
 
       <section class="workspace">
@@ -74,7 +77,7 @@
             <p id="currentPageTitle" class="current-page-title">Конференция</p>
           </div>
           <div class="top-actions">
-            <button id="mediaAccessBtn" class="icon-button media-access" type="button" aria-label="Разрешить камеру и микрофон" title="Разрешить камеру и микрофон" hidden>AV</button>
+            <button id="mediaAccessBtn" class="icon-button media-access" type="button" aria-label="Разрешить камеру и микрофон" title="Разрешить камеру и микрофон" hidden><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3Z"/><path d="M4 11a5 5 0 0 0 10 0M9 16v4"/><path d="M17 8h5M19.5 5.5v5"/></svg></button>
             <button id="cameraToggleBtn" class="icon-button camera-toggle camera-off" type="button" data-action="toggle-camera-publish" aria-label="Включить и опубликовать свою камеру" title="Включить свою камеру"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3z"/></svg></button>
             <button id="chatNoticeBtn" class="icon-button chat-notice" type="button" title="Открыть личный чат" aria-label="Открыть личный чат">✉<b id="chatNoticeBadge" hidden>0</b></button>
             <div class="connection-pill"><i></i><span class="participant-identity"><small id="participantRole">Участник</small><b id="participantName">Участник</b></span></div>
@@ -84,14 +87,14 @@
           </div>
         </header>
 
-        <div id="notice" class="notice" hidden></div>
+        <div id="notice" class="notice-stack" hidden></div>
         <section id="pageContent" class="page-content" aria-live="polite"></section>
       </section>
 
       <div id="bottomControls" class="bottom-controls">
         <section id="microphoneDock" class="microphone-dock" aria-label="Управление микрофоном" hidden></section>
         <div class="fixed-utility-controls">
-          <div id="meetingState" class="fixed-meeting-state">ПОДКЛЮЧЕНИЕ</div>
+          <div id="meetingState" class="fixed-meeting-state">Подключение</div>
         </div>
         <button id="enableAudioBtn" type="button" hidden>🔊 Включить звук конференции</button>
         <nav id="mobileNav" class="mobile-nav" aria-label="Разделы">
@@ -101,7 +104,7 @@
         <button class="nav-item" data-tab="translation"><span>Перевод</span></button>
         <button class="nav-item" data-tab="chat"><span>Чат</span></button>
         <button class="nav-item" data-tab="operations"><span>Сервис</span></button>
-        <button class="nav-item" data-tab="roomcontrol" hidden><span>Зал</span></button>
+        <button class="nav-item" data-tab="roomcontrol" hidden><span>Пульт</span></button>
         <button class="nav-item" data-tab="streams"><span>Камеры</span></button>
         <button class="nav-item" data-tab="settings"><span>Ещё</span></button>
         </nav>
@@ -110,7 +113,7 @@
 
     <script src="./vendor/hls.min.js"></script>
     <script src="./vendor/mediasoup-client.js"></script>
-    <script src="./notificationLocale.js?v=0.7.0.40-notifications-1"></script>
-    <script type="module" src="./app.js"></script>
+    <script src="./notificationLocale.js?v=0.8.24"></script>
+    <script type="module" src="./app.js?v=0.8.24"></script>
   </body>
 </html>

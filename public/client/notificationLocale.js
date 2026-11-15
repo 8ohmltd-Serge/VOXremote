@@ -68,6 +68,7 @@
     ,"Системная камера удалена": "System camera deleted"
     ,"HLS Media Worker запущен": "HLS Media Worker started"
     ,"Источник направлен в Preview": "Source sent to Preview"
+    ,"Источник выведен в предпросмотр": "Source sent to preview"
     ,"CUT выполнен": "CUT completed"
     ,"FADE выполнен": "FADE completed"
     ,"Автоматическое управление PGM восстановлено": "Automatic PGM control restored"
@@ -218,8 +219,36 @@
     return message;
   }
 
+  // Server messages that need an explanation of what to do, not a generic retry.
+  const knownServerMessages = {
+    "Participant is already active on another device": {
+      ru: "Вы уже подключены к конференции с другого устройства. Выйдите на нём или подождите 2 минуты и войдите снова.",
+      en: "You are already connected to the conference from another device. Leave there or wait 2 minutes and sign in again."
+    },
+    "Entitlement already has an active lease": {
+      ru: "Вы уже подключены к конференции с другого устройства или вкладки. Выйдите там или подождите 2 минуты и войдите снова.",
+      en: "You are already connected from another device or tab. Leave there or wait 2 minutes and sign in again."
+    },
+    "VOX-S concurrent seat capacity is exhausted": {
+      ru: "Все лицензионные места заняты. Обратитесь к оператору конференции.",
+      en: "All licensed seats are in use. Contact the conference operator."
+    },
+    "VOX-S remote seat capacity is exhausted": {
+      ru: "Все места для удалённого подключения заняты. Обратитесь к оператору конференции.",
+      en: "All remote seats are in use. Contact the conference operator."
+    },
+    "Lease belongs to another device": {
+      ru: "Это место уже занято на другом устройстве. Выйдите на нём или подождите 2 минуты и войдите снова.",
+      en: "This seat is in use on another device. Leave there or wait 2 minutes and sign in again."
+    }
+  };
+
   function error(code, message, status, locale = language()) {
     const supportedLocale = locale === "en" ? "en" : "ru";
+    if (knownServerMessages[message]) return knownServerMessages[message][supportedLocale];
+    if (status === 403 && (/^Required role/u.test(message) || /[A-Za-z]/u.test(message) && !/[А-Яа-яЁё]/u.test(message))) {
+      return supportedLocale === "en" ? "You do not have permission for this action." : "Недостаточно прав для этого действия. Обратитесь к оператору конференции.";
+    }
     if (code === "security_lockout") return errorMessages[supportedLocale].security_lockout;
     if (code === "conflict" && message === "Participant presence is no longer active") {
       return errorMessages[supportedLocale].presence_inactive;
@@ -227,6 +256,22 @@
     if (code === "internal_error") return errorMessages[supportedLocale].internal_error;
     if (code === "unauthorized" && /^(?:Identity is required|Invalid username or password)$/u.test(message)) {
       return errorMessages[supportedLocale].unauthorized;
+    }
+    // A readable server message is shown as is; a technical (English-only) one is
+    // replaced by what the status means and what to do, not by "try again".
+    const technical = !message || (/[A-Za-z]/u.test(message) && !/[А-Яа-яЁё]/u.test(message));
+    if (technical && [400, 404, 409, 422].includes(status)) {
+      const byStatus = {
+        ru: { 400: "Сервер не принял данные. Проверьте заполнение полей и повторите.",
+          422: "Сервер не принял данные. Проверьте заполнение полей и повторите.",
+          404: "Объект не найден: он уже удалён или недоступен. Обновите данные.",
+          409: "Действие не выполнено: состояние уже изменилось. Обновите данные и повторите." },
+        en: { 400: "The server rejected the data. Check the fields and try again.",
+          422: "The server rejected the data. Check the fields and try again.",
+          404: "Not found: it was removed or is unavailable. Refresh the data.",
+          409: "Not done: the state has already changed. Refresh and try again." }
+      };
+      return byStatus[supportedLocale][status];
     }
     const translated = localize(message, locale);
     if (locale === "en" && translated === "Action update received.") {

@@ -20,6 +20,9 @@ function paintButton(button, item, value) {
     if (source) image.src = source;
   }
   const color = validControlColor(hover?.color) ? hover.color : selected?.color;
+  const fill = selected?.color;
+  button.closest(".room-control-tile")?.classList.toggle("fill-passthrough", button.dataset.hit === "touch-on-fill" &&
+    (!validControlColor(fill) || fill.length === 9 && fill.slice(7).toLowerCase() === "00"));
   const fontColor = hover?.fontColor || selected?.fontColor || item.fontColor;
   const fontSize = hover?.fontSize || selected?.fontSize || item.fontSize;
   if (validControlColor(color)) {
@@ -55,30 +58,16 @@ export function createRoomControlEvents(page, getState, notify, navigate) {
     pressed.delete(id);
     void send(id, gesture.held ? "holdrelease" : "release", false);
   }
-  function opaqueHit(event, button) {
-    const image = button.querySelector("img.room-control-icon");
-    if (!image?.complete || !image.naturalWidth) return false;
-    const rect = image.getBoundingClientRect();
-    if (event.clientX < rect.left || event.clientY < rect.top ||
-        event.clientX >= rect.right || event.clientY >= rect.bottom) return false;
-    try {
-      const canvas = document.createElement("canvas");
-      canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
-      const context = canvas.getContext("2d", { willReadFrequently: true });
-      context.drawImage(image, 0, 0);
-      return context.getImageData(Math.floor((event.clientX - rect.left) / rect.width * canvas.width),
-        Math.floor((event.clientY - rect.top) / rect.height * canvas.height), 1, 1).data[3] > 24;
-    } catch { return false; }
-  }
   function begin(button, event) {
     const id = button.dataset.roomControlButton;
     if (pressed.has(id) || button.dataset.hit === "passthrough" ||
-        event.type === "pointerdown" && (event.button !== 0 ||
-          button.dataset.hit === "touch-on-fill" && !opaqueHit(event, button))) return;
+        event.type === "pointerdown" && event.button !== 0) return;
     event.preventDefault();
     const item = getState().roomControl?.panel.controls.find((control) => control.id === id);
-    if (item?.action === "navigate") {
-      navigate(item.targetPageId);
+    const action = item?.eventActions?.press ?? { action: item?.action, targetPageId: item?.targetPageId };
+    if (action?.action === "none") return;
+    if (["navigate", "popup-open", "popup-close", "popup-toggle"].includes(action?.action)) {
+      navigate(action.targetPageId, action.action);
       return;
     }
     if (event.pointerId !== undefined) button.setPointerCapture(event.pointerId);
@@ -91,7 +80,48 @@ export function createRoomControlEvents(page, getState, notify, navigate) {
       void send(id, "hold", item?.type === "button" ? item.value ?? true : true);
     }, 600);
   }
+  function paintCompound(item, value) {
+    for (const group of page.querySelectorAll(`[data-compound-id="${CSS.escape(item.id)}"]`)) {
+      for (const button of group.querySelectorAll("[data-sub-id]")) {
+        const enabled = Boolean(value && typeof value === "object" && value[button.dataset.subId]);
+        const style = item.states?.[Number(enabled)] ?? {};
+        button.setAttribute("aria-pressed", String(enabled));
+        button.style.backgroundColor = validControlColor(style.color) ? style.color : "";
+        button.style.color = validControlColor(style.fontColor) ? style.fontColor : "";
+        button.style.fontSize = Number.isInteger(style.fontSize) ? `${style.fontSize}px` : "";
+      }
+    }
+  }
+  page.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-room-control-sub]");
+    if (!button) return;
+    const context = getState();
+    const item = context.roomControl?.panel.controls.find((entry) => entry.id === button.dataset.roomControlSub);
+    if (!item || !["keypad", "updown"].includes(item.type)) return;
+    const current = context.roomControl.state?.[item.stateKey];
+    let payload;
+    if (item.type === "keypad") {
+      payload = { keyId: button.dataset.subId };
+      if (item.feedbackMode !== "channel") {
+        context.roomControl.state[item.stateKey] = { ...(current && typeof current === "object" ? current : {}),
+          [payload.keyId]: !Boolean(current?.[payload.keyId]) };
+      }
+    } else {
+      const base = Number(current && typeof current === "object" ? current.value : current);
+      const step = button.dataset.subId === "up" ? item.step : -item.step;
+      const value = button.dataset.subId === "stop" ? "stop" : Math.max(item.min,
+        Math.min(item.max, Number(((Number.isFinite(base) ? base : item.min) + step).toFixed(8))));
+      payload = { buttonId: button.dataset.subId, value };
+      if (value !== "stop" && item.feedbackMode !== "channel") {
+        context.roomControl.state[item.stateKey] = { ...(current && typeof current === "object" ? current : {}), value };
+      }
+    }
+    if (item.feedbackMode !== "channel") paintCompound(item, context.roomControl.state[item.stateKey]);
+    void send(item.id, "press", payload);
+  });
   page.addEventListener("pointerdown", (event) => {
+    const close = event.target.closest("[data-room-control-popup-close]");
+    if (close) { event.preventDefault(); navigate(close.dataset.roomControlPopupClose, "popup-close"); return; }
     const button = event.target.closest("[data-room-control-button]");
     if (button) begin(button, event);
   });
@@ -118,7 +148,7 @@ export function createRoomControlEvents(page, getState, notify, navigate) {
     const item = context.roomControl?.panel.controls.find((entry) => entry.id === button.dataset.roomControlButton);
     if (item) paintButton(button, item, context.roomControl.state?.[item.stateKey]);
   });
-  return { send };
+  return { send, paintCompound };
 }
 
 export function applyRoomControlPush(state, payload) {
@@ -130,6 +160,18 @@ export function applyRoomControlPush(state, payload) {
   if (state.activeTab !== "roomcontrol") return;
   const item = state.roomControl.panel.controls.find((entry) => entry.id === payload.controlId);
   if (!item) return;
+  if (["keypad", "updown"].includes(item.type)) {
+    for (const group of document.querySelectorAll(`[data-compound-id="${CSS.escape(item.id)}"]`)) {
+      for (const button of group.querySelectorAll("[data-sub-id]")) {
+        const enabled = Boolean(payload.value && typeof payload.value === "object" && payload.value[button.dataset.subId]);
+        const style = item.states?.[Number(enabled)] ?? {};
+        button.setAttribute("aria-pressed", String(enabled));
+        button.style.backgroundColor = validControlColor(style.color) ? style.color : "";
+        button.style.color = validControlColor(style.fontColor) ? style.fontColor : "";
+      }
+    }
+    return;
+  }
   const tile = document.querySelector(`.room-control-tile:has([data-room-control-button="${CSS.escape(item.id)}"], [data-room-control-slider="${CSS.escape(item.id)}"])`);
   if (!tile) return;
   const button = tile.querySelector("[data-room-control-button]");

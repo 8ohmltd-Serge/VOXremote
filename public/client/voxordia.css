@@ -5,7 +5,7 @@
 @font-face{font-family:Geologica;src:url("/client/assets/fonts/geologica-latin.woff2") format("woff2");font-style:normal;font-weight:300 800;font-display:swap}
 
 :root{
-  --vx-ink:#111111;--vx-ink-2:#292725;--vx-muted:#746f69;--vx-paper:#f4f2ef;
+  --vx-ink:#111111;--vx-ink-2:#292725;--vx-muted:#716c66;--vx-paper:#f4f2ef;
   --vx-surface:#ffffff;--vx-soft:#eeebe7;--vx-line:#ded9d3;--vx-red:#e5322d;
   --vx-red-dark:#bd2521;--vx-green:#2e7d4f;--vx-amber:#b97812;--vx-blue:#315f86;
   --vx-action:#111111;--vx-action-hover:#f4c9c7;--vx-action-hover-ink:#6f1d1a;

@@ -3,12 +3,11 @@ import {
   MEDIA_DEVICE_KEY, TRANSLATION_VOLUME_KEY, CLIENT_BUILD, interfaceLocale, uiText, BUILD_RELOAD_KEY,
   TECHNICAL_CONFERENCE_ROLES, CONFERENCE_ROLE_LABELS, TAB_TITLES, SECRETARY_LAYOUT_DEFAULT, TAB_ID_KEY,
   THUMBNAIL_FPS, RESOURCE_CONSTRAINED_CLIENT, THUMBNAIL_DECODE_BUDGET, PRESENCE_ID, TAB_ID, state,
-  EdgeHttpError, EdgeApi, escapeHtml, formatBytes, saveProfile, loadMediaDevicePreferences, saveMediaDevicePreferences,
+  EdgeHttpError, EdgeApi, escapeHtml, formatBytes, uuid, openModal, mediaAccessError, withActionBusy, forgetFormDrafts, saveProfile, loadMediaDevicePreferences, saveMediaDevicePreferences,
   refreshMediaDevices, deviceConstraint, mediaDeviceOptions, applyAudioOutputSelection, changeMediaDevice,
   saveActiveSession, clearActiveSession, enterApplication, voteStorageKey, loadVoteSelections,
-  saveVoteSelections, connectError, notify, httpForm, voteElectorateCandidates, voteCreationForm,
-  formatAgendaTime, agendaTimeline, agendaStatusHtml, openAgendaDialog, confirmDialog, roomSeatScheme,
-  offerRoomStation, maybeOfferRoomStation, connectWithProfile, consumeConferenceHandoff, autoPublishOwnCamera,
+  saveVoteSelections, connectError, notify, roomSeatScheme,
+  maybeOfferRoomStation, connectWithProfile, consumeConferenceHandoff, autoPublishOwnCamera,
   queryCapturePermission, installLocalVideoTrack, isAppleMobile, scheduleVideoRecovery, recoverSuspendedVideo,
   enableLocalAv, toggleParticipantVideo, toggleLocalMediaPreference, hasLocalVideo, restoreActiveSession,
   startTimers, clearTimers, schedulePushRefresh, refreshFloorState, updateSourceWallFloorState,
@@ -30,24 +29,558 @@ import {
   contentHtml, partnerFor, chatPartnerId, isLiveChatSession, closeChatSessionLocally, reconcileChatSessions,
   chatHtml, requestItemsText, operationsHtml, settingsHtml, encodeIdentityHeader, observeBottomControls,
   serviceRequestCategoryLabel, serviceRequestStatusLabel, serviceRequestCategoryOptions, eventRetryDelay,
-  PARTICIPANT_LANGUAGES, participantLanguage, setParticipantLanguage, participantText, openDocumentViewer,
+  PARTICIPANT_LANGUAGES, participantLanguage, setParticipantLanguage, participantText, participantFormatTime, openDocumentViewer,
   closeDocumentViewer, expandPresentationViewer, updateDocumentViewerRights, documentSceneEvent
-} from "./app.js";
+} from "./app.js?v=0.8.24";
+import { roomSeatDialog } from "./roomSeatScheme.js";
+import { startFaceFraming } from "./faceFraming.js?v=0.8.24";
+
+// Dialog builders and roster flows live here, not in the participant bootstrap (app.js budget).
+const VoxNoticeLocale = globalThis.VoxNoticeLocale;
+// Producer ids the server allowed face framing for (answer to POST /mcu/producers).
+const faceFramingProducers = new Set();
+// Own camera producers that may be face framed: { producer, framing }. PGM can
+// switch framing on or off during the meeting (syncFaceFraming).
+const faceFramingCameras = new Map();
+function startCameraFraming(entry) {
+  const { producer } = entry;
+  entry.framing = startFaceFraming(producer, (box) => state.api.post(`/mcu/producers/${encodeURIComponent(producer.id)}/face`, {
+    meetingId: state.profile.meetingId, participantId: state.participantId, box }));
+}
+function syncFaceFraming(enabled) {
+  for (const [id, entry] of faceFramingCameras) {
+    if (entry.producer.closed) { entry.framing?.stop(); faceFramingCameras.delete(id); continue; }
+    if (!enabled) { entry.framing?.stop(); entry.framing = null; continue; }
+    if (!entry.framing || entry.framing.stopped && !entry.framing.refused) startCameraFraming(entry);
+  }
+}
+
+function fieldControlHtml(field) {
+  const name = escapeHtml(field.name);
+  if (field.type === "select") {
+    return `<select name="${name}">${field.options.map((option) => `<option value="${escapeHtml(option.value)}" ${option.value === field.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select>`;
+  }
+  if (field.type === "textarea") return `<textarea name="${name}" rows="4" ${field.placeholder ? `placeholder="${escapeHtml(field.placeholder)}"` : ""}>${escapeHtml(field.value ?? "")}</textarea>`;
+  if (field.type === "checkbox") return `<input name="${name}" type="checkbox" ${field.value ? "checked" : ""}>`;
+  return `<input name="${name}" type="${escapeHtml(field.type ?? "text")}" value="${escapeHtml(field.value ?? "")}" ${field.min ? `min="${escapeHtml(field.min)}"` : ""} ${field.maxLength ? `maxlength="${Number(field.maxLength)}"` : ""} ${field.placeholder ? `placeholder="${escapeHtml(field.placeholder)}"` : ""} ${field.inputmode ? `inputmode="${escapeHtml(field.inputmode)}"` : ""} ${field.pattern ? `pattern="${escapeHtml(field.pattern)}"` : ""} ${field.autocomplete ? `autocomplete="${escapeHtml(field.autocomplete)}"` : ""} ${field.required === false ? "" : "required"}>`;
+}
+
+// options.onSubmit keeps the dialog open while the request runs: a server
+// error is shown inside the dialog and the typed values stay for a retry.
+function httpForm(title, fields, submitLabel = "Сохранить", { onSubmit = null, description = "" } = {}) {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement("div"); backdrop.className = "form-dialog-backdrop";
+    const form = document.createElement("form"); form.className = "form-dialog";
+    // A checkbox reads as one line, box then text, like every other check in VOX-S.
+    const controls = fields.map((field) => `<label data-field="${escapeHtml(field.name)}" ${field.type === "checkbox" ? 'class="form-check"' : ""} ${field.visibleWhen ? `data-visible-rules="${escapeHtml(JSON.stringify(Array.isArray(field.visibleWhen) ? field.visibleWhen : [field.visibleWhen]))}" hidden` : ""}>${field.type === "checkbox" ? `${fieldControlHtml(field)}<span>${escapeHtml(field.label)}</span>` : `<span>${escapeHtml(field.label)}</span>${fieldControlHtml(field)}`}${field.hint ? `<small class="form-hint">${escapeHtml(field.hint)}</small>` : ""}</label>`).join("");
+    form.innerHTML = `<button type="button" class="dialog-icon-close" data-dialog-close data-cancel aria-label="Закрыть">×</button><h3>${escapeHtml(title)}</h3>${description ? `<p class="form-hint">${escapeHtml(description)}</p>` : ""}<p class="form-error" data-form-error role="alert" hidden></p>${controls}<div class="actions"><button type="button" class="button button-quiet" data-cancel>Отмена</button><button type="submit" class="button button-primary">${escapeHtml(submitLabel)}</button></div>`;
+    backdrop.append(form); document.body.append(backdrop);
+    const updateVisibility = () => {
+      form.querySelectorAll("[data-visible-rules]").forEach((label) => {
+        const visible = JSON.parse(label.dataset.visibleRules).every((rule) => {
+          const control = form.elements[rule.name];
+          return rule.values.includes(control?.type === "checkbox" ? (control.checked ? "on" : "") : control?.value);
+        });
+        label.hidden = !visible;
+        const control = label.querySelector("input,select,textarea");
+        if (control) control.disabled = !visible;
+      });
+    };
+    form.addEventListener("change", updateVisibility); updateVisibility();
+    let dirty = false; let busy = false; let finished = false;
+    form.addEventListener("input", () => { dirty = true; });
+    const done = (value) => {
+      if (finished) return;
+      finished = true; release(); backdrop.remove(); resolve(value);
+    };
+    const release = openModal(form, { onEscape: () => { if (!busy) done(null); } });
+    form.querySelectorAll("[data-cancel]").forEach((button) => { button.onclick = () => { if (!busy) done(null); }; });
+    // A stray tap outside must not throw away typed values.
+    backdrop.addEventListener("click", (event) => { if (event.target === backdrop && !dirty && !busy) done(null); });
+    const errorBox = form.querySelector("[data-form-error]");
+    const submit = form.querySelector('[type="submit"]');
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      if (busy) return;
+      const values = Object.fromEntries(new FormData(form));
+      if (!onSubmit) { done(values); return; }
+      busy = true; submit.disabled = true; submit.setAttribute("aria-busy", "true"); errorBox.hidden = true;
+      try {
+        const result = await onSubmit(values);
+        done(result === undefined ? values : result);
+      } catch (error) {
+        errorBox.textContent = VoxNoticeLocale.localize(error?.message ?? String(error), interfaceLocale());
+        errorBox.hidden = false;
+        errorBox.scrollIntoView?.({ block: "nearest" });
+      } finally {
+        busy = false;
+        if (!finished) { submit.disabled = false; submit.removeAttribute("aria-busy"); }
+      }
+    };
+  });
+}
+
+// Participants marked "Подключение UC" in preparation join through the
+// external meeting and never vote in VOX-S; VoteCore drops them as well.
+function voteUcParticipantIds() {
+  const ids = new Set();
+  const personal = new Set((state.meeting.ucConnections ?? []).filter((plan) => plan?.kind === "personal" && plan.participantId)
+    .map((plan) => String(plan.participantId)));
+  for (const person of state.meeting.preparedParticipants ?? []) {
+    if (person?.uc !== true && !personal.has(String(person?.id))) continue;
+    ids.add(String(person.id));
+    if (person.accountId) ids.add(String(person.accountId));
+  }
+  for (const id of personal) ids.add(id);
+  return ids;
+}
+
+function voteElectorateCandidates() {
+  const deniedRoles = new Set(["observer", "auditor", "interpreter", "translator", "service", "signage"]);
+  const ucIds = voteUcParticipantIds();
+  const isUc = (item) => item?.uc === true || item?.source === "external-uc" ||
+    [item?.id, item?.userId, item?.preparedParticipantId, item?.accountId].some((value) => value != null && ucIds.has(String(value)));
+  const prepared = (state.meeting.preparedParticipants ?? []).filter((item) => !item.excludedAt);
+  const source = state.meeting.quick
+    ? Object.values(state.meeting.participants ?? {}).filter((item) => item.state === "joined")
+    : (prepared.length
+      ? prepared
+      : Object.values(state.meeting.participants ?? {}).filter((item) => item.state === "joined"));
+  const unique = new Map();
+  for (const item of source) {
+    if (!item?.id || item.permissions?.canVote === false || deniedRoles.has(item.role) || isUc(item)) continue;
+    unique.set(item.id, {
+      id: item.id,
+      displayName: item.displayName || item.id,
+      role: item.role || "delegate",
+      weight: item.voteWeight != null && Number.isFinite(Number(item.voteWeight)) && Number(item.voteWeight) >= 0 ? Number(item.voteWeight) : 1,
+      group: item.voteGroup || item.jurisdiction || "ungrouped",
+      online: state.meeting.quick || Object.values(state.meeting.participants ?? {}).some((live) =>
+        live.state === "joined" && (live.preparedParticipantId === item.id || live.userId === item.accountId || live.displayName === item.displayName))
+    });
+  }
+  return [...unique.values()];
+}
+
+function voteCreationForm(title, fields, candidates, pro, governance = {}, submitLabel = "Создать проект", { onSubmit = null } = {}) {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement("div"); backdrop.className = "form-dialog-backdrop";
+    const form = document.createElement("form"); form.className = "form-dialog vote-creation-dialog";
+    const controls = fields.map((field) => `<label data-field="${escapeHtml(field.name)}" ${field.visibleWhen ? `data-visible-source="${escapeHtml(field.visibleWhen.name)}" data-visible-values="${escapeHtml(field.visibleWhen.values.join(","))}" hidden` : ""}><span>${escapeHtml(field.label)}</span>${field.type === "select"
+      ? `<select name="${escapeHtml(field.name)}">${field.options.map((option) => `<option value="${escapeHtml(option.value)}" ${option.value === field.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select>`
+      : field.type === "textarea" ? `<textarea name="${escapeHtml(field.name)}" rows="4">${escapeHtml(field.value ?? "")}</textarea>`
+      : `<input name="${escapeHtml(field.name)}" type="${escapeHtml(field.type ?? "text")}" value="${escapeHtml(field.value ?? "")}" ${field.required === false ? "" : "required"}>`}</label>`).join("");
+    const groups = [...new Set(["ungrouped", ...candidates.map((item) => item.group), "group-1", "group-2", "group-3"])]
+      .map((value) => ({ value, label: value === "ungrouped" ? "Без группы" : value.replace(/^group-/, "Группа ") }));
+    const weightUnit = String(governance?.unitLabel ?? "голосов").trim() || "голосов";
+    const governanceTotal = Number(governance?.totalWeight);
+    const weightBasis = governanceTotal > 0
+      ? `${governanceTotal.toLocaleString("ru-RU")} ${weightUnit}`
+      : `не задана · единица: ${weightUnit}`;
+    const rows = candidates.map((item) => `<div class="vote-elector-row" data-voter-id="${escapeHtml(item.id)}">
+      <label class="vote-elector-person"><input type="checkbox" data-voter-enabled checked><span><strong>${escapeHtml(item.displayName)}</strong><small>${escapeHtml(CONFERENCE_ROLE_LABELS[item.role] ?? "Участник")} · ${item.online ? "в сети" : "запланирован"}</small></span></label>
+      <label class="vote-elector-weight"><span>Вес, ${escapeHtml(weightUnit)}</span><input type="number" data-voter-weight min="0" step="0.01" value="${escapeHtml(item.weight)}" ${pro ? "" : "disabled"}><small>База расчёта: ${escapeHtml(weightBasis)}</small></label>
+      <label><span>Группа</span><select data-voter-group ${pro ? "" : "disabled"}>${groups.map((group) => `<option value="${escapeHtml(group.value)}" ${group.value === item.group ? "selected" : ""}>${escapeHtml(group.label)}</option>`).join("")}</select></label>
+    </div>`).join("");
+    form.innerHTML = `<button type="button" class="dialog-icon-close" data-dialog-close data-cancel aria-label="Закрыть">×</button><h3>${escapeHtml(title)}</h3><p class="form-error" data-form-error role="alert" hidden></p>${controls}<fieldset class="vote-electorate"><legend>Избиратели</legend><div class="vote-elector-toolbar"><span>${state.meeting.quick ? "Текущие участники быстрой конференции" : "Все запланированные участники"}</span><div class="action-strip compact"><button type="button" class="button button-quiet" data-select-voters>Выбрать всех</button><button type="button" class="button button-quiet" data-clear-voters>Снять все</button></div></div>${pro ? "" : '<p class="form-hint">Вес и группы доступны в расширенной лицензии голосования.</p>'}<div class="vote-elector-list">${rows || '<div class="empty">Участников с правом голосования нет.</div>'}</div></fieldset><div class="actions"><button type="button" class="button button-quiet" data-cancel>Отмена</button><button type="submit" class="button button-primary">${escapeHtml(submitLabel)}</button></div>`;
+    backdrop.append(form); document.body.append(backdrop);
+    const updateVisibility = () => {
+      form.querySelectorAll("[data-visible-source]").forEach((label) => {
+        const selected = form.elements[label.dataset.visibleSource]?.value;
+        const visible = label.dataset.visibleValues.split(",").includes(selected);
+        label.hidden = !visible;
+        const control = label.querySelector("input,select,textarea");
+        if (control) control.disabled = !visible;
+      });
+      form.querySelectorAll(".vote-elector-weight").forEach((label) => {
+        label.hidden = !pro || form.elements.weightMode?.value !== "weighted";
+      });
+    };
+    form.addEventListener("change", updateVisibility); updateVisibility();
+    form.querySelector("[data-select-voters]").onclick = () => form.querySelectorAll("[data-voter-enabled]").forEach((item) => { item.checked = true; });
+    form.querySelector("[data-clear-voters]").onclick = () => form.querySelectorAll("[data-voter-enabled]").forEach((item) => { item.checked = false; });
+    let dirty = false; let busy = false; let finished = false;
+    form.addEventListener("input", () => { dirty = true; });
+    const done = (value) => { if (finished) return; finished = true; release(); backdrop.remove(); resolve(value); };
+    const release = openModal(form, { onEscape: () => { if (!busy) done(null); } });
+    form.querySelectorAll("[data-cancel]").forEach((button) => { button.onclick = () => { if (!busy) done(null); }; });
+    backdrop.addEventListener("click", (event) => { if (event.target === backdrop && !dirty && !busy) done(null); });
+    const errorBox = form.querySelector("[data-form-error]");
+    const submit = form.querySelector('[type="submit"]');
+    const showError = (message) => {
+      errorBox.textContent = VoxNoticeLocale.localize(message, interfaceLocale());
+      errorBox.hidden = false;
+      errorBox.scrollIntoView?.({ block: "nearest" });
+    };
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      if (busy) return;
+      errorBox.hidden = true;
+      const electorate = [...form.querySelectorAll(".vote-elector-row")].filter((row) => row.querySelector("[data-voter-enabled]").checked).map((row) => ({
+        id: row.dataset.voterId,
+        weight: Number(row.querySelector("[data-voter-weight]").value === "" ? 1 : row.querySelector("[data-voter-weight]").value),
+        group: row.querySelector("[data-voter-group]").value || "ungrouped"
+      }));
+      if (!electorate.length) { showError("Выберите хотя бы одного избирателя"); return; }
+      const values = { ...Object.fromEntries(new FormData(form)), electorate };
+      if (!onSubmit) { done(values); return; }
+      busy = true; submit.disabled = true; submit.setAttribute("aria-busy", "true");
+      try { await onSubmit(values); done(values); }
+      catch (error) { showError(error?.message ?? String(error)); }
+      finally { busy = false; if (!finished) { submit.disabled = false; submit.removeAttribute("aria-busy"); } }
+    };
+  });
+}
+
+function formatAgendaTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return participantFormatTime(date, interfaceLocale(), { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function agendaTimeline() {
+  const events = (state.meeting?.timeline ?? [])
+    .filter((event) => event.type === "agenda.activated" && event.agendaItemId && event.at)
+    .sort((left, right) => Date.parse(left.at) - Date.parse(right.at));
+  return (state.meeting?.agenda ?? []).map((item, index) => {
+    const starts = events.filter((event) => event.agendaItemId === item.id);
+    const started = starts.length ? starts[starts.length - 1] : null;
+    const ended = started && item.id !== state.meeting.activeAgendaItemId
+      ? events.find((event) => Date.parse(event.at) > Date.parse(started.at)) ?? null
+      : null;
+    const phase = item.id === state.meeting.activeAgendaItemId ? "current"
+      : item.status === "completed" ? "past" : "upcoming";
+    return { item, index, phase, startedAt: started?.at ?? null, endedAt: ended?.at ?? null };
+  });
+}
+
+function agendaStatusHtml(record) {
+  if (record.phase === "current") return `<span class="agenda-status agenda-status-current">Обсуждается сейчас · с ${formatAgendaTime(record.startedAt)}</span>`;
+  if (record.phase === "past") return `<span class="agenda-status agenda-status-past">Завершён · ${formatAgendaTime(record.startedAt)}–${formatAgendaTime(record.endedAt)}</span>`;
+  return `<span class="agenda-status agenda-status-upcoming">Предстоящий</span>`;
+}
+
+function openAgendaDialog({ editable = false } = {}) {
+  const backdrop = document.createElement("div");
+  backdrop.className = "form-dialog-backdrop";
+  const dialog = document.createElement("div");
+  dialog.className = "form-dialog agenda-dialog";
+  backdrop.append(dialog);
+  document.body.append(backdrop);
+
+  let release = () => {};
+  const close = () => { release(); backdrop.remove(); };
+  const personalDocuments = () => state.documents.filter((item) => !item.agendaItemId && item.uploadedBy === state.profile.userId);
+  const editorRow = (record, nextIndex = 0) => `<div class="agenda-editor-row" data-agenda-id="${escapeHtml(record?.item?.id ?? "")}">
+    <span class="agenda-order">${(record?.index ?? nextIndex) + 1}</span>
+    <div class="agenda-editor-main"><textarea class="agenda-title-input" rows="3" maxlength="1000" aria-label="Название вопроса повестки" required>${escapeHtml(record?.item?.title ?? "")}</textarea>${record ? agendaStatusHtml(record) : `<span class="agenda-status agenda-status-upcoming">Новый вопрос</span>`}<label>Добавить из личных документов<select class="agenda-personal-document"><option value="">Не добавлять</option>${personalDocuments().map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.fileName)}</option>`).join("")}</select></label></div>
+    ${record?.phase === "current" ? `<span class="agenda-current-mark">Сейчас</span>` : `<button type="button" class="button button-secondary" data-agenda-dialog-action="activate" title="Сохраняет повестку и делает этот вопрос текущим">Сделать текущим</button>`}
+  </div>`;
+
+  const render = () => {
+    const records = agendaTimeline();
+    const rows = records.map((record) => {
+      if (editable) return editorRow(record);
+      // Match the Materials visibility rules, including unpublished agenda
+      // attachments that privileged roles may otherwise receive from the API.
+      const documents = state.documents.filter((item) => item.agendaItemId === record.item.id &&
+        (canViewFiles() || item.uploadedBy === state.profile.userId) &&
+        (item.availableImmediately === true || item.agendaItemId === state.meeting.activeAgendaItemId ||
+          state.presentations.some((show) => show.documentId === item.id && show.status === "active")));
+      const materials = documents.length ? `<div class="agenda-document-links"><span>Материалы · ${documents.length}</span>${documents.map((item) => `<a href="#materials-document-${escapeHtml(item.id)}" data-agenda-dialog-action="view-material" data-document-id="${escapeHtml(item.id)}">${escapeHtml(item.fileName)}</a>`).join("")}</div>` : "";
+      return `<div class="agenda-view-row agenda-${record.phase}"><span class="agenda-order">${record.index + 1}</span><div><strong>${escapeHtml(record.item.title)}</strong>${agendaStatusHtml(record)}${materials}</div></div>`;
+    }).join("") || `<div class="empty">Повестка пока не сформирована.</div>`;
+    dialog.innerHTML = `<div class="agenda-dialog-head"><div><p class="eyebrow">Повестка</p><h3>${editable ? "Управление повесткой" : "Вопросы конференции"}</h3></div><button type="button" class="dialog-icon-close" data-dialog-close data-agenda-dialog-action="close" aria-label="Закрыть">×</button></div>
+      <div class="agenda-dialog-list">${rows}</div>
+      <div class="actions">${editable ? `<button type="button" class="button button-quiet" data-agenda-dialog-action="add">+ Добавить вопрос</button><button type="button" class="button button-secondary" data-agenda-dialog-action="save">Сохранить</button>` : ""}<button type="button" data-agenda-dialog-action="close">Закрыть</button></div>`;
+  };
+
+  const saveRows = async () => {
+    const rows = [...dialog.querySelectorAll(".agenda-editor-row")];
+    const existing = new Map((state.meeting.agenda ?? []).map((item) => [item.id, item]));
+    const agenda = rows.map((row, index) => {
+      const title = row.querySelector(".agenda-title-input")?.value.trim();
+      if (!title) throw new Error(`Введите название вопроса ${index + 1}`);
+      const previous = existing.get(row.dataset.agendaId);
+      return { ...(previous?.id ? { id: previous.id } : {}), title, status: previous?.status ?? "planned", voteId: previous?.voteId ?? null };
+    });
+    state.meeting = await state.api.put(`/meetings/${state.profile.meetingId}/agenda`, { agenda });
+    for (const [index, row] of rows.entries()) {
+      const documentId = row.querySelector(".agenda-personal-document")?.value;
+      if (!documentId) continue;
+      const agendaItemId = state.meeting.agenda?.[index]?.id;
+      if (!agendaItemId) throw new Error("Не удалось связать документ с вопросом повестки");
+      await state.api.post(`/documents/${encodeURIComponent(documentId)}/attach`, { agendaItemId, availableImmediately: true });
+    }
+    state.documents = await state.api.get(`/meetings/${state.profile.meetingId}/documents`);
+    renderPage();
+    return state.meeting;
+  };
+
+  dialog.addEventListener("click", async (event) => {
+    const control = event.target.closest("[data-agenda-dialog-action]");
+    if (!control) return;
+    const action = control.dataset.agendaDialogAction;
+    if (action === "close") { close(); return; }
+    if (action === "view-material") {
+      event.preventDefault();
+      const documentId = control.dataset.documentId;
+      close();
+      try {
+        await selectTab("content");
+        const row = [...document.querySelectorAll("[data-material-document-id]")].find((item) => item.dataset.materialDocumentId === documentId);
+        if (!row) { notify("Документ больше не доступен в материалах"); return; }
+        row?.scrollIntoView({ block: "center" });
+        row?.focus({ preventScroll: true });
+      } catch (error) { notify(error); }
+      return;
+    }
+    if (action === "add") {
+      const list = dialog.querySelector(".agenda-dialog-list");
+      list.querySelector(".empty")?.remove();
+      list.insertAdjacentHTML("beforeend", editorRow(null, list.querySelectorAll(".agenda-editor-row").length));
+      list.querySelector(".agenda-editor-row:last-child .agenda-title-input")?.focus();
+      return;
+    }
+    if (action === "activate") {
+      const row = control.closest(".agenda-editor-row");
+      const title = row?.querySelector(".agenda-title-input")?.value.trim() || "выбранный вопрос";
+      if (!await confirmDialog(`Сделать текущим вопрос «${title}»? Изменения повестки будут сохранены.`, "Сделать текущим", "Отмена")) return;
+    }
+    try {
+      dialog.classList.add("agenda-dialog-busy");
+      if (action === "save") {
+        await saveRows();
+        notify("Повестка сохранена");
+      }
+      if (action === "activate") {
+        const row = control.closest(".agenda-editor-row");
+        const index = [...dialog.querySelectorAll(".agenda-editor-row")].indexOf(row);
+        const meeting = await saveRows();
+        const agendaItemId = meeting.agenda?.[index]?.id;
+        if (!agendaItemId) throw new Error("Не удалось определить вопрос повестки");
+        await activateAgenda(agendaItemId);
+        renderPage();
+        notify("Следующий вопрос повестки активирован");
+      }
+      render();
+    } catch (error) {
+      notify(error);
+    } finally {
+      dialog.classList.remove("agenda-dialog-busy");
+    }
+  });
+  backdrop.addEventListener("click", (event) => { if (event.target === backdrop) close(); });
+  render();
+  release = openModal(dialog, { onEscape: close, initialFocus: () => dialog.querySelector("[data-dialog-close]") });
+}
+
+function confirmDialog(title, yesLabel = "Подтвердить", noLabel = "Отмена") {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement("div");
+    backdrop.className = "form-dialog-backdrop";
+    const dialog = document.createElement("div");
+    dialog.className = "form-dialog confirm-dialog";
+    dialog.innerHTML = `<button type="button" class="dialog-icon-close" data-dialog-close data-confirm-no aria-label="Закрыть">×</button><h3>${escapeHtml(title)}</h3><div class="actions"><button type="button" class="button button-secondary" data-confirm-no>${escapeHtml(noLabel)}</button><button type="button" class="button button-danger" data-confirm-yes>${escapeHtml(yesLabel)}</button></div>`;
+    backdrop.append(dialog);
+    document.body.append(backdrop);
+    let finished = false;
+    const done = (value) => { if (finished) return; finished = true; release(); backdrop.remove(); resolve(value); };
+    const release = openModal(dialog, { onEscape: () => done(false),
+      initialFocus: () => dialog.querySelector(".actions [data-confirm-no]") });
+    dialog.querySelectorAll("[data-confirm-no]").forEach((button) => { button.onclick = () => done(false); });
+    dialog.querySelector("[data-confirm-yes]").onclick = () => done(true);
+    backdrop.addEventListener("click", (event) => { if (event.target === backdrop) done(false); });
+  });
+}
+
+async function editLiveRoster() {
+  const people = (state.meeting.preparedParticipants ?? []).filter((item) => !item.excludedAt);
+  const directory = await state.api.get(`/meetings/${encodeURIComponent(state.profile.meetingId)}/roster-candidates`);
+  const available = directory.filter((person) => !people.some((item) => item.regularParticipantId === person.id));
+  const candidates = people.filter((item) => item.reports !== true && !(item.reports === undefined && item.role === "presenter"));
+  const scheduled = people.filter((item) => (item.reports === true || item.reports === undefined && item.role === "presenter") &&
+    !["completed", "called", "confirmed", "active"].includes(item.status));
+  const seatOptions = [{ value: "", label: "Без доклада" }, { value: "@own", label: "С собственного места" },
+    ...state.sharedSeats.map((seat) => ({ value: seat.id, label: `${seat.name} (${seat.id})` }))];
+  const occupiedStationIds = new Set([...people, ...Object.values(state.meeting.participants ?? {})]
+    .map((item) => item.roomStationId).filter(Boolean));
+  // The seat directory is optional for the roster ("Выбор при входе" stays
+  // available). A role without access to the room planner must still edit it.
+  const stationDirectory = await state.api.get(`/room-planner/stations?meetingId=${encodeURIComponent(state.profile.meetingId)}`).catch((error) => {
+    if (![401, 403, 404].includes(error?.status)) throw error;
+    return { stations: [] };
+  });
+  const roomStationOptions = [{ value: "", label: "Выбор при входе" },
+    ...(stationDirectory.stations ?? []).filter((station) => !occupiedStationIds.has(station.id))
+      .map((station) => ({ value: station.id, label: `${station.number}. ${station.name}` }))];
+  const rosterAdd = { name: "rosterAction", values: ["add"] };
+  const reportAdd = { name: "rosterAction", values: ["report-add"] };
+  const reportFields = [rosterAdd, { name: "reports", values: ["on"] }];
+  const values = await httpForm("Состав конференции", [
+    { name: "rosterAction", label: "Действие с составом конференции и очередью докладов", type: "select", value: "", options: [
+      { value: "", label: "Не выбрано" }, { value: "add", label: "Добавить участника" },
+      { value: "exclude", label: "Исключить из конференции" },
+      { value: "report-add", label: "Добавить участника в очередь" },
+      { value: "report-remove", label: "Исключить из очереди докладчиков" }] },
+    { name: "excludeParticipantId", label: "Участник", type: "select", value: people[0]?.id ?? "",
+      visibleWhen: { name: "rosterAction", values: ["exclude"] },
+      options: people.map((item) => ({ value: item.id, label: `${item.displayName} · ${CONFERENCE_ROLE_LABELS[item.role] ?? "Участник"}` })) },
+    { name: "reportParticipantId", label: "Участник из состава", type: "select", value: candidates[0]?.id ?? "",
+      visibleWhen: reportAdd, options: candidates.map((item) => ({ value: item.id, label: item.displayName })) },
+    { name: "scheduledReportOrder", label: "Позиция в очереди", type: "number", value: "1", visibleWhen: reportAdd },
+    { name: "scheduledAgendaTitle", label: "Тема доклада", value: "", required: false, visibleWhen: reportAdd },
+    { name: "scheduledSeatId", label: "Место докладчика", type: "select", value: "@own", visibleWhen: reportAdd,
+      options: seatOptions.filter((seat) => seat.value) },
+    { name: "removeReportParticipantId", label: "Докладчик", type: "select", value: scheduled[0]?.id ?? "",
+      visibleWhen: { name: "rosterAction", values: ["report-remove"] },
+      options: scheduled.map((item) => ({ value: item.id, label: item.displayName })) },
+    { name: "source", label: "Источник", type: "select", value: "manual", visibleWhen: rosterAdd, options: [
+      { value: "manual", label: "Разовый участник" },
+      ...(available.length ? [{ value: "directory", label: "Из справочника постоянных участников" }] : [])] },
+    { name: "regularParticipantId", label: "Постоянный участник", type: "select", value: available[0]?.id ?? "",
+      visibleWhen: [rosterAdd, { name: "source", values: ["directory"] }],
+      options: available.map((person) => ({ value: person.id, label: `${person.displayName} · ${CONFERENCE_ROLE_LABELS[person.role] ?? person.role}` })) },
+    { name: "displayName", label: "ФИО", value: "", visibleWhen: [rosterAdd, { name: "source", values: ["manual"] }] },
+    { name: "position", label: "Должность", value: "", visibleWhen: [rosterAdd, { name: "source", values: ["manual"] }], required: false },
+    { name: "company", label: "Компания", value: "", visibleWhen: [rosterAdd, { name: "source", values: ["manual"] }], required: false },
+    { name: "role", label: "Роль", type: "select", value: "delegate", visibleWhen: [rosterAdd, { name: "source", values: ["manual"] }], options: [
+      { value: "delegate", label: "Делегат" }, { value: "chair", label: "Председатель" },
+      { value: "presenter", label: "Приглашённый докладчик" }, { value: "observer", label: "Наблюдатель" },
+      { value: "interpreter", label: "Переводчик" }] },
+    { name: "attendance", label: "Участие", type: "select", value: "local", visibleWhen: [rosterAdd, { name: "source", values: ["manual"] }],
+      options: [{ value: "local", label: "В зале" }, { value: "remote", label: "Удалённо" }] },
+    { name: "roomStationId", label: "Место в зале", type: "select", value: "",
+      visibleWhen: [rosterAdd, { name: "attendance", values: ["local"] }], options: roomStationOptions },
+    { name: "reports", label: "Выступает с докладом", type: "checkbox", value: false, visibleWhen: rosterAdd },
+    { name: "newReportOrder", label: "Позиция среди будущих докладов", type: "number", value: "1", visibleWhen: reportFields },
+    { name: "newAgendaTitle", label: "Тема доклада", value: "", required: false, visibleWhen: reportFields },
+    { name: "presenterSeatId", label: "Место докладчика", type: "select", value: "",
+      visibleWhen: [...reportFields, { name: "attendance", values: ["local"] }], options: seatOptions }
+  ], "Применить", { onSubmit: (values) => applyLiveRoster(values, { people, candidates, scheduled, available }) });
+  return values && values !== false ? undefined : false;
+}
+
+async function applyLiveRoster(values, { people, candidates, scheduled, available }) {
+  if (!values.rosterAction) throw new Error("Выберите действие");
+  if (values.rosterAction === "exclude") {
+    if (!people.length) throw new Error("В составе нет участников");
+    const person = people.find((item) => item.id === values.excludeParticipantId);
+    if (!await confirmDialog(`Исключить «${person?.displayName ?? "участника"}» из дальнейшего участия? История сохранится.`, "Исключить", "Отмена")) return false;
+    await state.api.delete(`/meetings/${encodeURIComponent(state.profile.meetingId)}/roster/${encodeURIComponent(values.excludeParticipantId)}`);
+    return values;
+  }
+  if (values.rosterAction === "report-remove") {
+    if (!scheduled.length) throw new Error("В очереди нет докладчиков, ожидающих выступления");
+    await state.api.delete(`/meetings/${encodeURIComponent(state.profile.meetingId)}/roster/${encodeURIComponent(values.removeReportParticipantId)}/report`);
+    return values;
+  }
+  if (values.rosterAction === "report-add") {
+    if (!candidates.length) throw new Error("Все участники уже включены в очередь докладов");
+    await state.api.patch(`/meetings/${encodeURIComponent(state.profile.meetingId)}/roster/${encodeURIComponent(values.reportParticipantId)}/report`,
+      { reportOrder: Number(values.scheduledReportOrder), presenterSeatId: values.scheduledSeatId,
+        agendaTitle: values.scheduledAgendaTitle });
+    return values;
+  }
+  if (values.rosterAction !== "add") return false;
+  const selectedRegular = available.find((person) => person.id === values.regularParticipantId);
+  if (values.source === "directory" && selectedRegular?.role === "presenter" && values.reports !== "on") {
+    throw new Error("Для приглашённого докладчика включите «Выступает с докладом» и назначьте место");
+  }
+  const reports = (values.source === "directory" ? selectedRegular?.role : values.role) === "presenter" || values.reports === "on";
+  const remote = values.source === "directory" ? selectedRegular?.remote === true : values.attendance === "remote";
+  await state.api.post(`/meetings/${encodeURIComponent(state.profile.meetingId)}/roster`, {
+    regularParticipantId: values.source === "directory" ? selectedRegular?.id : null,
+    displayName: values.source === "directory" ? selectedRegular?.displayName : values.displayName,
+    position: values.position, company: values.company, role: values.role,
+    reports, reportOrder: reports ? Number(values.newReportOrder) : null,
+    agendaTitle: reports ? values.newAgendaTitle : null,
+    presenterSeatId: reports && !remote ? values.presenterSeatId : null, roomStationId: remote ? null : values.roomStationId || null,
+    remote, reportSeatMode: remote ? "remote" : values.presenterSeatId === "@own" ? "own" : "shared"
+  });
+  return values;
+}
+
+async function moveLiveReport(presenterId, direction) {
+  const pending = (state.meeting.preparedParticipants ?? []).filter((item) => !item.excludedAt &&
+    (item.reports || item.role === "presenter") && item.status !== "completed")
+    .sort((a, b) => Number(a.reportOrder) - Number(b.reportOrder));
+  const index = pending.findIndex((item) => item.id === presenterId);
+  const target = index + direction;
+  if (index < 0 || target < 0 || target >= pending.length) return;
+  [pending[index], pending[target]] = [pending[target], pending[index]];
+  await state.api.patch(`/meetings/${encodeURIComponent(state.profile.meetingId)}/report-order`,
+    { presenterIds: pending.map((item) => item.id) });
+}
+
+async function offerRoomStation({ force = false } = {}) {
+  if (state.roomSeatPromptOpen || !state.meeting) return;
+  if (state.profile?.remote === true) {
+    state.roomSeatDismissed = true;
+    return;
+  }
+  const quickCreatorNeedsSeat = state.meeting.quick === true && state.profile.role === "operator";
+  if (TECHNICAL_CONFERENCE_ROLES.has(state.profile.role) && !quickCreatorNeedsSeat && !(force && state.profile.role === "operator")) return;
+  if (!force && state.roomSeatDismissed) return;
+  const participant = state.meeting.participants?.[state.participantId];
+  if (!participant || participant.state !== "joined" || participant.permissions?.canSpeak === false) return;
+  if (!force && (participant.roomStationId || participant.presenterSessionId)) return;
+  // Claim the prompt before the request: two refreshes must not open two dialogs.
+  state.roomSeatPromptOpen = true;
+  let selection;
+  try {
+    selection = await state.api.get(`/meetings/${encodeURIComponent(state.profile.meetingId)}/participants/${encodeURIComponent(state.participantId)}/room-seats`);
+  } catch (error) { state.roomSeatPromptOpen = false; throw error; }
+  if ((!force && !selection.needsSelection) || !state.api) { state.roomSeatPromptOpen = false; return; }
+  const backdrop = document.createElement("div"); backdrop.className = "form-dialog-backdrop room-seat-backdrop";
+  const dialog = document.createElement("div"); dialog.className = "form-dialog room-seat-dialog";
+  dialog.innerHTML = roomSeatDialog(selection);
+  backdrop.append(dialog); document.body.append(backdrop);
+  let choosing = false;
+  const close = (dismissed = false) => {
+    if (choosing) return;
+    state.roomSeatPromptOpen = false; state.roomSeatDismissed = dismissed; release(); backdrop.remove();
+  };
+  const release = openModal(dialog, { onEscape: () => close(true) });
+  const choose = async (stationId) => {
+    // The scheme's <g> marker carries no disabled state; the list button does.
+    const button = dialog.querySelector(`button[data-seat-id="${CSS.escape(stationId)}"]`);
+    if (choosing || !button || button.disabled) return;
+    choosing = true; dialog.setAttribute("aria-busy", "true"); dialog.classList.add("is-busy");
+    try {
+      await state.api.post(`/meetings/${encodeURIComponent(state.profile.meetingId)}/participants/${encodeURIComponent(state.participantId)}/room-seats`, { stationId });
+      choosing = false; close(); notify("Рабочее место назначено"); await refreshAll();
+    } catch (error) { notify(error); }
+    finally { choosing = false; dialog.removeAttribute("aria-busy"); dialog.classList.remove("is-busy"); }
+  };
+  dialog.addEventListener("click", (event) => { const target = event.target.closest("[data-seat-id]"); if (target) void choose(target.dataset.seatId); });
+  dialog.querySelectorAll("[data-seat-later]").forEach((button) => { button.onclick = () => close(true); });
+  backdrop.addEventListener("click", (event) => { if (event.target === backdrop) close(true); });
+}
+
 
 function inMcu(stream) {
   return ["webrtc", "external_uc"].includes(stream.protocol) ||
     (state.programDescriptor?.mcuVideoStreamIds ?? []).includes(stream.id);
 }
 
+// The control that started the action (set by the page click dispatcher) is
+// held busy until the request settles, so a double tap sends one request.
 async function runAction(action, success = null) {
-  try {
-    const result = await action();
-    if (result === false) return;
-    if (success) notify(success);
-    await refreshAll();
-  } catch (error) {
-    notify(error.message);
-  }
+  const trigger = state.actionTrigger;
+  state.actionTrigger = null;
+  const run = async () => {
+    try {
+      const result = await action();
+      if (result === false) return;
+      if (success) notify(success);
+      await refreshAll();
+    } catch (error) {
+      notify(error);
+    }
+  };
+  return trigger ? withActionBusy(trigger, run) : run();
 }
 
 async function toggleUcMute(sessionId) {
@@ -55,6 +588,63 @@ async function toggleUcMute(sessionId) {
   if (!session) throw Error("Подключение UCCore уже завершено");
   return state.api.patch(`/meetings/${encodeURIComponent(state.profile.meetingId)}/uc-sessions/${encodeURIComponent(session.id)}/mute`,
     { muted: !session.muted });
+}
+
+// A UC participant asks to show their screen: allow it (straight to Program
+// or only into cameras and streams) or decline.
+async function decideUcShare(sessionId, allow = null) {
+  const session = state.ucSessions.find((item) => item.id === sessionId);
+  if (!session?.shareRequestedAt) return false;
+  const url = `/meetings/${encodeURIComponent(state.profile.meetingId)}/uc-sessions/${encodeURIComponent(sessionId)}/share`;
+  if (allow === false) return state.api.patch(url, { allow: false });
+  const name = session.displayName?.trim() || "Участник внешней встречи";
+  const values = await httpForm("Показ экрана", [{ name: "program", label: "Сразу в PGM", type: "checkbox", value: false, required: false }],
+    "Разрешить", { description: `${name} хочет показать свой экран. Если не отправлять сразу в PGM, экран появится в камерах и потоках.` });
+  if (!values) return false;
+  return state.api.patch(url, { allow: true, program: values.program === "on" });
+}
+
+// Talkback: the operator speaks to one UC connection only; the hall and PGM
+// do not hear it. A second press ends it. The microphone is published first.
+async function toggleUcTalkback(sessionId) {
+  const url = (id) => `/meetings/${encodeURIComponent(state.profile.meetingId)}/uc-sessions/${encodeURIComponent(id)}/talkback`;
+  // The server knows who talks: a reloaded page or a second console can end it too.
+  const sessions = [...(state.ucSessions ?? []), ...(state.ucControl?.sessions ?? [])];
+  const talking = (id) => sessions.some((item) => item.id === id && item.talkbackBy) || state.ucTalkbackSessionId === id;
+  const on = !talking(sessionId);
+  if (on) {
+    await ensureMicrophone();
+    await ensurePublishedMedia();
+    for (const other of new Set(sessions.filter((item) => item.id !== sessionId && talking(item.id)).map((item) => item.id))) {
+      await state.api.put(url(other), { on: false }).catch(() => {});
+    }
+  }
+  await state.api.put(url(sessionId), { on });
+  state.ucTalkbackSessionId = on ? sessionId : null;
+  for (const item of sessions) {
+    if (item.id === sessionId) item.talkbackBy = on ? state.profile.participantId ?? "me" : null;
+    else if (on) item.talkbackBy = null;
+  }
+  return on;
+}
+
+// Virtual hall: the operator says which prepared participant a Zoom participant is.
+async function bindUcMember(sessionId, user, participantId) {
+  if (!participantId) return null;
+  return state.api.patch(`/meetings/${encodeURIComponent(state.profile.meetingId)}/uc-sessions/${encodeURIComponent(sessionId)}/members/${encodeURIComponent(user)}/participant`,
+    { participantId });
+}
+
+// Virtual hall: one Zoom participant's microphone (muted also declines a request).
+async function setUcMemberMute(sessionId, user, muted) {
+  return state.api.patch(`/meetings/${encodeURIComponent(state.profile.meetingId)}/uc-sessions/${encodeURIComponent(sessionId)}/members/${encodeURIComponent(user)}/mute`,
+    { muted });
+}
+
+// Keeping a UC participant muted declines their request for the floor.
+async function declineUcFloor(sessionId) {
+  return state.api.patch(`/meetings/${encodeURIComponent(state.profile.meetingId)}/uc-sessions/${encodeURIComponent(sessionId)}/mute`,
+    { muted: true });
 }
 
 const canConnectUc = () => ["operator", "secretary", "admin"].includes(state.profile.role) &&
@@ -67,7 +657,7 @@ async function startPreparedConference() {
     await state.api.post(`/meetings/${encodeURIComponent(state.profile.meetingId)}/start`, {});
     await refreshAll();
     await autoPublishOwnCamera();
-  } catch (error) { notify(error.message); }
+  } catch (error) { notify(error); }
 }
 
 async function connectPlannedUc(button) {
@@ -78,7 +668,7 @@ async function connectPlannedUc(button) {
     await refreshAll();
     if (state.meeting.status === "active") await autoPublishOwnCamera();
     notify(state.meeting.status === "ready" ? "Внешняя встреча подключена для подготовки. Конференция ещё не начата" : "Внешняя встреча подключена");
-  } catch (error) { await refreshAll().catch(() => {}); notify(error.message); }
+  } catch (error) { await refreshAll().catch(() => {}); notify(error); }
   finally { button.disabled = false; }
 }
 
@@ -86,16 +676,15 @@ async function connectLiveUc(button) {
   if (!canConnectUc() || state.meeting.status !== "active") return;
   const adapters = (state.ucControl?.adapters ?? []).filter((item) => item.capabilities?.join);
   if (!adapters.length) return notify("Лицензированный UC-адаптер для подключения не настроен");
-  const form = await httpForm("Подключиться к идущей UC-встрече", [
-    { name: "providerId", label: "Платформа", type: "select", options: adapters.map((item) => ({ value: item.id, label: item.name })) },
-    { name: "target", label: "Ссылка на встречу", type: "url", maxLength: 2048 }
-  ], "Подключить");
-  if (!form) return;
   button.disabled = true;
   try {
-    await state.api.post(`/meetings/${encodeURIComponent(state.profile.meetingId)}/uc-control/connect`, form);
+    const form = await httpForm("Подключиться к идущей внешней встрече", [
+      { name: "providerId", label: "Платформа", type: "select", options: adapters.map((item) => ({ value: item.id, label: item.name })) },
+      { name: "target", label: "Ссылка на встречу", type: "url", maxLength: 2048, placeholder: "https://" }
+    ], "Подключить", { onSubmit: (values) => state.api.post(`/meetings/${encodeURIComponent(state.profile.meetingId)}/uc-control/connect`, values) });
+    if (!form) return;
     await refreshAll(); notify("Внешняя встреча подключена");
-  } catch (error) { notify(error.message); }
+  } catch (error) { notify(error); }
   finally { button.disabled = false; }
 }
 
@@ -106,7 +695,7 @@ async function disconnectUc(button) {
   try {
     await state.api.delete(`/meetings/${encodeURIComponent(state.profile.meetingId)}/uc-control/sessions/${encodeURIComponent(button.dataset.ucSessionId)}`);
     await refreshAll(); notify("Внешняя встреча отключена");
-  } catch (error) { notify(error.message); }
+  } catch (error) { notify(error); }
   finally { button.disabled = false; }
 }
 
@@ -114,7 +703,7 @@ async function requestFloor() {
   // Safari/iPadOS may reject or postpone getUserMedia even after a visible
   // tap.  A media permission error must never swallow the floor request.
   const microphonePreparation = ensureMicrophone().catch((error) => {
-    notify(`Запрос слова принят; микрофон пока недоступен: ${error.message}`);
+    notify(`Запрос слова принят, но микрофон не подключён. ${mediaAccessError(error, "microphone").message}`, 9000, { tone: "error" });
     return null;
   });
   const participant = await state.api.post(`/meetings/${state.profile.meetingId}/floor/request`, { participantId: state.participantId });
@@ -122,7 +711,7 @@ async function requestFloor() {
   // permission prompt, complete that recovery in the background: the floor
   // command and its button feedback must not wait on media negotiation.
   microphonePreparation.then((track) => track && ensurePublishedMedia())
-    .catch((error) => notify(`Микрофон пока недоступен: ${error.message}`));
+    .catch((error) => notify(`Микрофон не подключён. ${mediaAccessError(error, "microphone").message}`, 9000, { tone: "error" }));
   return participant;
 }
 
@@ -152,7 +741,7 @@ async function runMicrophoneAction(action, success = null) {
     applyLocalFloorResult(participant);
     if (success) notify(success);
   } catch (error) {
-    notify(error.message);
+    notify(error);
     refreshAll().catch(() => {});
   }
 }
@@ -221,11 +810,11 @@ async function revealAccessPin() {
 }
 
 async function editAccessPin() {
-  const values = await httpForm("ПИН конференции", [{
-    name: "accessPin", label: "Новый ПИН (4-8 цифр)", type: "text", value: state.accessPin ?? "", required: true
-  }]);
-  if (!values) return;
-  const result = await state.api.patch(`/meetings/${state.profile.meetingId}/access-pin`, { accessPin: values.accessPin });
+  const result = await httpForm("ПИН конференции", [{
+    name: "accessPin", label: "Новый ПИН", type: "text", value: state.accessPin ?? "", required: true,
+    inputmode: "numeric", pattern: "[0-9]{4,8}", autocomplete: "off", hint: "От 4 до 8 цифр"
+  }], "Сохранить", { onSubmit: (values) => state.api.patch(`/meetings/${state.profile.meetingId}/access-pin`, { accessPin: values.accessPin }) });
+  if (!result) return false;
   state.accessPin = result.accessPin;
 }
 
@@ -247,13 +836,15 @@ async function changeParticipantRole(participantId, currentRole) {
   const values = await httpForm("Роль участника", [{
     name: "role", label: "Роль", type: "select", value: currentRole,
     options: roleOptions
-  }]);
-  if (!values) return;
-  if (values.role === "av_operator") {
-    await state.api.put(`/meetings/${state.profile.meetingId}/av-operator/${encodeURIComponent(participantId)}`, {});
-    return;
-  }
-  state.meeting = await state.api.patch(`/meetings/${state.profile.meetingId}/participants/${encodeURIComponent(participantId)}`, { role: values.role });
+  }], "Сохранить", { onSubmit: async (form) => {
+    if (form.role === "av_operator") {
+      await state.api.put(`/meetings/${state.profile.meetingId}/av-operator/${encodeURIComponent(participantId)}`, {});
+      return form;
+    }
+    state.meeting = await state.api.patch(`/meetings/${state.profile.meetingId}/participants/${encodeURIComponent(participantId)}`, { role: form.role });
+    return form;
+  } });
+  if (!values) return false;
 }
 
 async function toggleIncomingAudio(participantId, currentlyEnabled) {
@@ -269,15 +860,24 @@ async function removeParticipant(participantId) {
 }
 
 async function confirmRemoveParticipant(participantId, participantName) {
-  const confirmed = await confirmDialog(`Отключить «${participantName}»?`, "Да", "Нет");
+  const confirmed = await confirmDialog(`Отключить «${participantName}» от конференции?`, "Отключить участника", "Отмена");
   if (!confirmed) return;
   await runAction(() => removeParticipant(participantId), "Участник отключён");
 }
 
-async function ensureMicrophone() {
+// Concurrent callers (auto-publish on join, "Запросить слово", the camera
+// button) share one getUserMedia request instead of capturing twice.
+function ensureMicrophone() {
   const existing = state.localMedia?.getAudioTracks().find((track) => track.readyState === "live");
-  if (existing) return existing;
-  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error("Микрофон требует доверенного HTTPS");
+  if (existing) return Promise.resolve(existing);
+  if (!state.microphonePromise) {
+    state.microphonePromise = openMicrophone().finally(() => { state.microphonePromise = null; });
+  }
+  return state.microphonePromise;
+}
+
+async function openMicrophone() {
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error("Микрофон работает только по защищённому адресу (HTTPS). Откройте пульт по HTTPS.");
   const audio = await navigator.mediaDevices.getUserMedia({
     audio: {
       ...deviceConstraint(state.selectedAudioInputId),
@@ -286,9 +886,9 @@ async function ensureMicrophone() {
       autoGainControl: true
     },
     video: false
-  });
+  }).catch((error) => { throw mediaAccessError(error, "microphone"); });
   const track = audio.getAudioTracks()[0];
-  if (!track) throw new Error("Браузер не вернул аудиотрек");
+  if (!track) throw new Error("Браузер не открыл микрофон. Проверьте разрешение и повторите.");
   state.localMedia ??= new MediaStream();
   state.localMedia.addTrack(track);
   // Capture remains live from join so AudioCore owns the mute gate and keeps
@@ -307,8 +907,13 @@ async function syncLocalMicrophone() {
 
 async function startCamera() {
   if (state.localMedia?.getVideoTracks().some((track) => track.readyState === "live")) return;
+  if (!state.cameraPromise) state.cameraPromise = openCamera().finally(() => { state.cameraPromise = null; });
+  return state.cameraPromise;
+}
+
+async function openCamera() {
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-    throw new Error("Камера недоступна: откройте VOX-S по доверенному HTTPS.");
+    throw new Error("Камера работает только по защищённому адресу (HTTPS). Откройте пульт по HTTPS.");
   }
   let media;
   try {
@@ -319,19 +924,19 @@ async function startCamera() {
       video: {
         ...deviceConstraint(state.selectedVideoInputId),
         facingMode: state.selectedVideoInputId ? undefined : { ideal: "user" },
-        width: { ideal: state.profile?.remote ? 640 : 1280 },
-        height: { ideal: state.profile?.remote ? 360 : 720 },
-        frameRate: { ideal: state.profile?.remote ? 15 : 24, max: state.profile?.remote ? 20 : 30 }
+        width: { ideal: state.profile?.remote ? 960 : 1280 },
+        height: { ideal: state.profile?.remote ? 540 : 720 },
+        frameRate: { ideal: state.profile?.remote ? 20 : 24, max: state.profile?.remote ? 24 : 30 }
       }
     });
   } catch (preferredError) {
     if (["NotAllowedError", "SecurityError", "PermissionDeniedError"].includes(preferredError?.name)) {
-      throw new Error("Доступ к камере не разрешён в браузере. Разрешите камеру для этого сайта.");
+      throw mediaAccessError(preferredError, "camera");
     }
     try {
       media = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
     } catch (fallbackError) {
-      throw new Error(`Камера ноутбука не открылась: ${fallbackError.message || preferredError.message}`);
+      throw mediaAccessError(fallbackError?.name ? fallbackError : preferredError, "camera");
     }
   }
   const track = media.getVideoTracks()[0];
@@ -368,8 +973,16 @@ async function startPublishing() {
   renderPage();
 }
 
-async function ensurePublishedMedia() {
-  if (!state.localMedia?.getTracks().length) throw new Error("Нет локальных аудио/видеодорожек для публикации");
+// Publications run one after another: two parallel first calls used to POST
+// two streams and create two send transports, leaking the first one.
+function ensurePublishedMedia() {
+  const next = (state.publishChain ?? Promise.resolve()).catch(() => {}).then(publishLocalMedia);
+  state.publishChain = next;
+  return next;
+}
+
+async function publishLocalMedia() {
+  if (!state.localMedia?.getTracks().length) throw new Error("Камера и микрофон не подключены: публиковать нечего.");
   const hasVideo = state.localMedia.getVideoTracks().some((track) => track.readyState === "live");
   const hasAudio = state.localMedia.getAudioTracks().some((track) => track.readyState === "live");
   const description = { label: state.profile.displayName,
@@ -396,6 +1009,8 @@ async function ensurePublishedMedia() {
 }
 
 async function registerSystemCamera() {
+  const roomId = await cameraRegistrationRoomId();
+  if (!roomId) return;
   const values = await httpForm("Добавить системный видеопоток", [
     { name:"label", label:"Название", value:"Обзор зала" },
     { name:"protocol", label:"Тип потока", type:"select", value:"rtsp", options:["rtsp","hls","mjpeg","ndi"].map((value)=>({value,label:value.toUpperCase()})) },
@@ -416,9 +1031,9 @@ async function registerSystemCamera() {
   }
   const camera = await state.api.post("/cameras", protocol === "ndi" ? {
     name:label, protocol:"ndi", ndiSourceName, ndiAddress,
-    roomId:state.meeting?.roomId ?? "default-room", autoAttachToQuick:false, required:false
+    roomId, autoAttachToQuick:false, required:false
   } : {
-    name:label, protocol:"rtsp", rtspUrl, roomId:state.meeting?.roomId ?? "default-room", probe:false,
+    name:label, protocol:"rtsp", rtspUrl, roomId, probe:false,
     autoAttachToQuick:false, required:false, cameraPosition
   });
   if (!state.cameras.some((item) => item.id === camera.id)) state.cameras.push(camera);
@@ -447,7 +1062,7 @@ async function editStream(streamId) {
 async function deleteStream(streamId) {
   const stream = state.streams.find((item) => item.id === streamId);
   if (!stream) return; const accepted = await httpForm("Удаление источника", [{name:"confirmation",label:`Введите УДАЛИТЬ для «${stream.label}»`,value:""}]);
-  if (accepted?.confirmation !== "УДАЛИТЬ") return;
+  if (![ "УДАЛИТЬ", globalThis.VoxLocale?.t("УДАЛИТЬ") ].includes(String(accepted?.confirmation ?? "").trim().toUpperCase())) return;
   await state.api.delete(`/streams/${encodeURIComponent(streamId)}`);
   if (state.selectedStream?.id === streamId) state.selectedStream = null;
 }
@@ -456,7 +1071,7 @@ async function deleteCamera(cameraId) {
   const camera = state.cameras.find((item) => item.id === cameraId);
   if (!camera) return;
   const accepted = await httpForm("Удаление системной камеры", [{ name:"confirmation", label:`Введите УДАЛИТЬ для «${camera.name}»`, value:"" }]);
-  if (accepted?.confirmation !== "УДАЛИТЬ") return;
+  if (![ "УДАЛИТЬ", globalThis.VoxLocale?.t("УДАЛИТЬ") ].includes(String(accepted?.confirmation ?? "").trim().toUpperCase())) return;
   await state.api.delete(`/cameras/${encodeURIComponent(cameraId)}`);
 }
 
@@ -472,12 +1087,25 @@ async function discoverOnvifCameras() {
 }
 
 async function addOnvifCamera() {
+  const roomId = await cameraRegistrationRoomId();
+  if (!roomId) return;
   const suggested = state.onvifDiscoveries[0]?.xaddrs?.[0] ?? "http://192.168.1.100/onvif/device_service";
   const values = await httpForm("Добавить ONVIF-камеру", [{name:"serviceUrl",label:"Device Service URL",value:suggested},{name:"username",label:"Пользователь",value:"admin",required:false},{name:"password",label:"Пароль",type:"password",value:"",required:false},{name:"name",label:"Название",value:"Камера зала"}]);
   if (!values) return; const { serviceUrl, username, password, name } = values;
-  const camera = await state.api.post("/cameras", { serviceUrl, username, password, name, roomId: state.meeting?.roomId ?? "default-room", probe: true });
+  const camera = await state.api.post("/cameras", { serviceUrl, username, password, name, roomId, probe: true });
   state.cameras.push(camera);
   await quickProbeCamera(camera.id);
+}
+
+async function cameraRegistrationRoomId() {
+  if (state.meeting?.roomId) return state.meeting.roomId;
+  const plans = await state.api.get("/room-planner/plans");
+  const rooms = plans.items ?? [];
+  if (!rooms.length) throw Error("Сначала создайте зал в служебном интерфейсе");
+  const selected = await httpForm("Выберите зал для камеры", [{ name: "roomId", label: "Зал",
+    type: "select", value: plans.activeRoomId ?? rooms[0].id,
+    options: rooms.map((room) => ({ value: room.id, label: room.name })) }]);
+  return selected?.roomId ?? null;
 }
 
 async function quickProbeCamera(cameraId) {
@@ -716,7 +1344,7 @@ async function savePgmMode() {
     idleMode: $("#pgmIdleMode").value,
     singleMode: $("#pgmSingleMode").value,
     multiMode: $("#pgmMultiMode").value,
-    agendaUseSlate: $("#pgmAgendaUseSlate").checked
+    faceFraming: $("#pgmFaceFraming").checked, agendaUseSlate: false
   });
 }
 
@@ -811,7 +1439,10 @@ async function createMcuTransport(direction) {
           kind,
           rtpParameters,
           captureProcessing: appData.captureProcessing
-        }).then((session) => callback({ id: session.id })).catch(errback);
+        }).then((session) => {
+          if (session.faceFraming === true) faceFramingProducers.add(session.id);
+          callback({ id: session.id });
+        }).catch(errback);
       });
     }
     return transport;
@@ -866,7 +1497,7 @@ async function publishMediaToMcu(stream, media) {
       // input retries and visible PGM freezes.  Publish one bounded 720p layer
       // on iOS; the server still produces every required Preview/PGM raster.
       const simulcast = track.kind === "video" ? state.profile?.remote === true && stream.sourceType === "client_camera"
-        ? { encodings: [{ maxBitrate: 450_000, maxFramerate: 15 }], codecOptions: { videoGoogleStartBitrate: 250 } }
+        ? { encodings: [{ maxBitrate: 900_000, maxFramerate: 24 }], codecOptions: { videoGoogleStartBitrate: 600 } }
         : iosCamera
         ? { encodings: [{ maxBitrate: 900_000, maxFramerate: 24 }], codecOptions: { videoGoogleStartBitrate: 600 } }
         : { encodings: [
@@ -877,6 +1508,14 @@ async function publishMediaToMcu(stream, media) {
       const producer = await transport.produce({ track, stopTracks: false, ...simulcast,
         appData: { streamId: stream.id, captureProcessing } });
       producers.set(track.kind, producer);
+      // The server allows face framing for a participant's own camera when
+      // PGM settings ask for it; the box follows replaced tracks too.
+      if (track.kind === "video" && stream.sourceType === "client_camera") {
+        const entry = { producer, framing: null };
+        faceFramingCameras.set(producer.id, entry);
+        if (faceFramingProducers.has(producer.id)) startCameraFraming(entry);
+      }
+      faceFramingProducers.delete(producer.id);
     }
     if (generation !== (state.mediaGeneration ?? 0)) throw new Error("Публикация отменена: сессия закрыта");
     if (!entry) transport.on("connectionstatechange", (connectionState) => {
@@ -1265,7 +1904,9 @@ async function pollSignaling() {
     await pollChatSignaling();
     state.signalFailures = 0;
   } catch (error) {
-    notify(`WebRTC: ${error.message}`, 2500);
+    // A short Wi-Fi drop is shown by the connection indicator; a stream of
+    // technical toasts would only cover useful messages.
+    if (error?.status) console.warn("Chat signaling failed", error);
     state.signalFailures += 1;
     // Keep published camera/content tracks alive during a temporary signaling
     // outage. Existing peer connections can continue carrying media.
@@ -1328,7 +1969,9 @@ const mobileAudioEndpoint = () => /iPad|iPhone|iPod|Android/i.test(navigator.use
 
 async function updateHeadphoneWarning() {
   const banner = $("#headphoneWarning");
-  const nonTechnical = !TECHNICAL_CONFERENCE_ROLES.has(state.profile?.role);
+  // Before sign-in the role is unknown: technical roles must never see it.
+  const nonTechnical = !TECHNICAL_CONFERENCE_ROLES.has(state.profile?.role) && Boolean(state.profile?.role) &&
+    !["signage"].includes(state.profile.role);
   if (!banner || !nonTechnical) { if (banner) banner.hidden = true; return; }
   let detected = false;
   try {
@@ -1547,7 +2190,7 @@ function newChatPeer(session, initiator) {
       participantId: state.participantId,
       type: "ice",
       payload: event.candidate.toJSON()
-    }).catch((error) => notify(`P2P chat: ${error.message}`));
+    }).catch((error) => console.warn("Chat ICE candidate was not delivered", error));
   };
   pc.ondatachannel = (event) => bindChatChannel(session.id, event.channel);
   pc.onconnectionstatechange = () => {
@@ -1734,7 +2377,7 @@ async function deviceCommand(deviceId) {
 
 async function publishRoom(status) {
   const roomId = state.meeting.roomId ?? "default-room";
-  const playerId = document.querySelector("#signageTargetPlayer")?.value;
+  const playerId = state.signageForm.playerId;
   const players = state.signagePlayers.filter((player) => player.roomId === roomId);
   if (!players.length) throw new Error("В этом зале нет зарегистрированных информационных экранов");
   if (playerId && !players.some((player) => player.id === playerId)) {
@@ -1752,28 +2395,33 @@ async function publishRoom(status) {
 
 async function publishSignageScene() {
   const type = document.querySelector("#signageSceneType")?.value;
-  if (!["text", "schedule", "document"].includes(type)) throw new Error("Выберите контент для вывески");
+  if (!["text", "schedule", "document", "room-status", "conference-status", "active-agenda", "participant-call"].includes(type)) throw new Error("Выберите контент для вывески");
   const roomId = state.meeting.roomId ?? "default-room";
-  const playerId = document.querySelector("#signageTargetPlayer")?.value;
   const players = state.signagePlayers.filter((player) => player.roomId === roomId);
   if (!players.length) throw new Error("В этом зале нет зарегистрированных информационных экранов");
-  if (playerId && !players.some((player) => player.id === playerId)) throw new Error("Выбранный экран больше не относится к этому залу");
+  const playerIds = state.signageForm.playerIds ?? [];
+  if (!playerIds.length) throw new Error("Выберите хотя бы один экран");
+  if (playerIds.some((id) => !players.some((player) => player.id === id))) {
+    throw new Error("Выбранный экран больше не относится к этому залу");
+  }
   const documentId = document.querySelector("#signageSceneDocument")?.value;
   const item = type === "document" ? state.documents.find((entry) => entry.id === documentId) : null;
   if (type === "document" && !item) throw new Error("Выберите доступный документ");
-  const title = type === "document" ? item.fileName : document.querySelector("#signageSceneTitle")?.value.trim();
-  const body = type === "document" ? "" : document.querySelector("#signageSceneBody")?.value.trim();
-  if (!title) throw new Error("Укажите заголовок");
+  const derived = ["schedule", "room-status", "conference-status", "active-agenda"].includes(type);
+  const title = type === "document" ? item.fileName : derived ? "" : document.querySelector("#signageSceneTitle")?.value.trim();
+  const body = ["text", "participant-call"].includes(type) ? document.querySelector("#signageSceneBody")?.value.trim() : "";
+  if (!derived && type !== "document" && !title) throw new Error(type === "participant-call" ? "Укажите ФИО" : "Укажите заголовок");
   const result = await state.api.post(`/signage/scenes?meetingId=${encodeURIComponent(state.profile.meetingId)}`, {
     type, title, body, ...(item ? { documentId: item.id } : {}),
-    target: playerId ? { playerIds: [playerId] } : { roomId }
+    ...(type === "participant-call" ? { participant: { displayName: title }, roomStatus: "busy" } : {}),
+    target: { roomId, playerIds }
   });
   state.signageFeedback = `Контент отправлен на ${result.playerIds?.length ?? 0} экран(а)`;
 }
 
 async function callParticipant() {
   const roomId = state.meeting?.roomId ?? "default-room";
-  const playerId = document.querySelector("#signageTargetPlayer")?.value;
+  const playerId = state.signageForm.playerId;
   const players = state.signagePlayers.filter((player) => player.roomId === roomId);
   if (!players.length) throw new Error("В этом зале нет зарегистрированных информационных экранов");
   const source = state.meeting.quick ? Object.values(state.meeting.participants ?? {}).filter((item) => item.state === "joined") : [
@@ -1808,16 +2456,33 @@ async function stopAes67() {
 }
 
 async function createServiceRequest() {
-  const values=await httpForm("Сервисный запрос",[{name:"category",label:"Категория",type:"select",value:"water",options:serviceRequestCategoryOptions(interfaceLocale())},{name:"quantity",label:"Количество",type:"number",value:"1",visibleWhen:{name:"category",values:["tea","coffee","water","stationery"]}},{name:"comment",label:"Комментарий",type:"textarea",value:"",required:false}]);if(!values)return false;const category=values.category;
-  const quantity = Number(values.quantity || 1); const comment=values.comment||"";
-  const cameraSnapshot = await captureServiceCameraSnapshot();
-  const request = await state.api.post("/service/requests", {
-    meetingId: state.profile.meetingId,
-    participantId: state.participantId,
-    roomId: state.meeting?.roomId ?? "default-room",
-    items: [{ category, label: serviceRequestCategoryLabel({ category }, "ru"), quantity }],
-    comment, cameraSnapshot
-  });
+  // Where the participant is: the taken seat, or one of the room's seats
+  // chosen here (works without a Room Planner licence), plus own words.
+  let seating = null;
+  try {
+    seating = await state.api.get(`/meetings/${encodeURIComponent(state.profile.meetingId)}/participants/${encodeURIComponent(state.participantId)}/room-seats`);
+  } catch { seating = null; }
+  const stations = seating?.stations ?? [];
+  const seatField = stations.length ? [{ name: "stationId", label: "Где вы", type: "select",
+    value: seating.selectedStationId ?? "", required: !seating.selectedStationId,
+    options: [...(seating.selectedStationId ? [] : [{ value: "", label: "Выберите место" }]),
+      ...stations.map((station, index) => ({ value: station.id, label: `${station.number ?? index + 1}. ${station.name}` }))] }] : [];
+  const request = await httpForm("Вызов персонала",[{name:"category",label:"Что нужно",type:"select",value:"water",options:serviceRequestCategoryOptions(interfaceLocale())},{name:"quantity",label:"Количество",type:"number",value:"1",visibleWhen:{name:"category",values:["tea","coffee","water","stationery"]}},
+    ...seatField, {name:"locationNote",label:"Уточнение места",value:"",required:false,placeholder:"Например: у окна, третий ряд"},
+    {name:"comment",label:"Комментарий",type:"textarea",value:"",required:false}],
+    "Отправить запрос", { onSubmit: async (values) => {
+      const category = values.category;
+      const quantity = Number(values.quantity || 1); const comment = values.comment || "";
+      const cameraSnapshot = await captureServiceCameraSnapshot();
+      return state.api.post("/service/requests", {
+        meetingId: state.profile.meetingId,
+        participantId: state.participantId,
+        roomId: state.meeting?.roomId ?? "default-room",
+        items: [{ category, label: serviceRequestCategoryLabel({ category }, "ru"), quantity }],
+        comment, cameraSnapshot, stationId: values.stationId || null, locationNote: values.locationNote || ""
+      });
+    } });
+  if (!request) return false;
   state.serviceRequests.unshift(request);
 }
 
@@ -1839,11 +2504,38 @@ async function captureServiceCameraSnapshot() {
 }
 
 async function serviceStatus(requestId, status) {
-  await state.api.patch(`/service/requests/${requestId}`, { status, assignedTo: state.profile.displayName });
+  // A question or a refusal goes to the participant: ask the staff for its text.
+  let note;
+  if (["needs-clarification", "rejected"].includes(status)) {
+    const values = await httpForm(status === "rejected" ? "Отклонить заявку" : "Уточнить у участника",
+      [{ name: "note", label: status === "rejected" ? "Причина" : "Вопрос участнику", type: "textarea", value: "",
+        required: status === "needs-clarification" }], status === "rejected" ? "Отклонить" : "Отправить вопрос");
+    if (!values) return false;
+    note = values.note;
+  }
+  const row = [...document.querySelectorAll("[data-service-request]")]
+    .find((item) => item.dataset.serviceRequest === requestId);
+  const assignedToId = status === "accepted" ? row?.querySelector("[data-service-assignee]")?.value : null;
+  await state.api.patch(`/service/requests/${requestId}`, { status, note, ...(assignedToId ? { assignedToId } : {}) });
+}
+
+async function serviceReassign(requestId) {
+  const row = [...document.querySelectorAll("[data-service-request]")]
+    .find((item) => item.dataset.serviceRequest === requestId);
+  const assignedToId = row?.querySelector("[data-service-assignee]")?.value;
+  if (!assignedToId) throw new Error("Выберите исполнителя");
+  await state.api.post(`/service/requests/${requestId}/assign`, { assignedToId });
+}
+
+// The participant confirms a delivery, reports it missing, or cancels.
+async function serviceConfirm(requestId, status) {
+  if (status === "cancelled" && !await confirmDialog("Отменить заявку?", "Отменить заявку", "Оставить")) return false;
+  const updated = await state.api.post(`/service/requests/${encodeURIComponent(requestId)}/participant-status`, { status });
+  state.serviceRequests = state.serviceRequests.map((item) => item.id === updated.id ? { ...item, ...updated } : item);
 }
 
 async function assignSeat(seatId) {
-  const values=await httpForm("Назначить общее место",[{name:"userId",label:"ID сотрудника",value:"reporter-1"},{name:"displayName",label:"ФИО",value:"Иванов Сергей Петрович"}]);if(!values)return;const {userId,displayName}=values;
+  const values=await httpForm("Назначить общее место",[{name:"userId",label:"Учётная запись сотрудника",value:"",placeholder:"Например, ivanov"},{name:"displayName",label:"ФИО",value:"",placeholder:"Фамилия Имя Отчество",autocomplete:"off"}]);if(!values)return false;const {userId,displayName}=values;
   const session = await state.api.post(`/shared-seats/${seatId}/assign`, {
     userId, displayName, meetingId: state.profile.meetingId, ttlMinutes: 30
   });
@@ -1858,18 +2550,19 @@ async function assignPresenterWorkplace(presenterId) {
     !["pending", "active", "finishing"].includes(item.session.status));
   if (!seats.length) throw new Error("Нет свободного логического места. Создайте его в служебном интерфейсе.");
   const values = await httpForm(`Место докладчика: ${presenter.displayName}`, [{
-    name: "presenterSeatId", label: "Логическое рабочее место", type: "select",
+    name: "presenterSeatId", label: "Рабочее место", type: "select",
     value: presenter.presenterSeatId ?? seats[0].id,
     options: seats.map((seat) => ({ value: seat.id,
-      label: `${seat.name} (${seat.id})${seat.online ? " · устройство в сети" : " · устройство не в сети"}` }))
-  }], "Назначить");
-  if (!values) return;
-  const selected = seats.find((seat) => seat.id === values.presenterSeatId);
-  if (values.presenterSeatId === presenter.presenterSeatId && !selected?.online) {
-    throw new Error("Устройство этого места не в сети. Привяжите его на странице входа либо выберите другое место.");
-  }
-  state.meeting = await state.api.patch(`/meetings/${encodeURIComponent(state.profile.meetingId)}/presenters/${encodeURIComponent(presenterId)}/workplace`,
-    { presenterSeatId: values.presenterSeatId });
+      label: `${seat.name}${seat.online ? " · устройство в сети" : " · устройство не в сети"}` }))
+  }], "Назначить", { onSubmit: async (form) => {
+    const selected = seats.find((seat) => seat.id === form.presenterSeatId);
+    if (form.presenterSeatId === presenter.presenterSeatId && !selected?.online) {
+      throw new Error("Устройство этого места не в сети. Привяжите его на странице входа либо выберите другое место.");
+    }
+    state.meeting = await state.api.patch(`/meetings/${encodeURIComponent(state.profile.meetingId)}/presenters/${encodeURIComponent(presenterId)}/workplace`,
+      { presenterSeatId: form.presenterSeatId });
+  } });
+  if (!values) return false;
 }
 
 async function releaseSeat(seatId) {
@@ -1877,7 +2570,7 @@ async function releaseSeat(seatId) {
 }
 
 async function claimSeat() {
-  const values=await httpForm("Войти на общее место",[{name:"seatId",label:"ID места",value:"report-seat-01"},{name:"pin",label:"Одноразовый PIN",value:""}]);if(!values)return;const {seatId,pin}=values;
+  const values=await httpForm("Войти на общее место",[{name:"seatId",label:"Номер места",value:"",placeholder:"Указан на месте докладчика"},{name:"pin",label:"Одноразовый ПИН",value:"",inputmode:"numeric",autocomplete:"one-time-code"}]);if(!values)return false;const {seatId,pin}=values;
   state.claimedSeat = await state.api.post(`/shared-seats/${seatId}/claim`, { pin });
 }
 
@@ -1885,32 +2578,32 @@ async function createVote() {
   const voteCore = await state.api.get("/vote-core/status");
   const pro = voteCore.licenseTier === "pro";
   const ruleLabels = { "standard-majority":"Обычное большинство", "supermajority-two-thirds":"Квалифицированное большинство 2/3",
-    "double-majority":"Двойное большинство", "cumulative-board":"Кумулятивное", "ranked-choice-irv":"Рейтинговое IRV",
-    "stv-droop":"STV / квота Друпа", "veto-consensus":"Вето" };
+    "double-majority":"Двойное большинство", "cumulative-board":"Кумулятивное", "ranked-choice-irv":"Рейтинговое с выбыванием",
+    "stv-droop":"Пропорциональное по квоте Друпа", "veto-consensus":"Вето" };
   const ruleOptions = (voteCore.ruleSets ?? []).map((item) => ({ value:item.id, label:item.name ?? ruleLabels[item.id] ?? item.id }));
   const electorate = voteElectorateCandidates();
   const fields = [
     {name:"topic",label:"Тема",value:"Принятие решения"}, {name:"question",label:"Вопрос",type:"textarea",value:"Утвердить решение?"},
     {name:"raw",label:"Варианты через ;",type:"textarea",value:(voteCore.defaults?.quickOptions ?? ["За","Против","Воздержался"]).join("; ")},
-    {name:"mode",label:"Режим",type:"select",value:"named",options:[{value:"named",label:"Поимённое"},{value:"secret",label:"Тайное"}]},
+    {name:"mode",label:"Режим",type:"select",value:"named",options:[{value:"named",label:"Открытое (поимённое)"},{value:"secret",label:"Тайное"}]},
     ...(pro ? [{name:"weightMode",label:"Подсчёт голоса участника",type:"select",
       value:state.meeting?.quick ? "one-person" : voteCore.defaults?.governance?.profile === "board" ? "one-person" : "weighted",
-      options:[{value:"one-person",label:"1 участник = 1 голос, даже при весе 0"},{value:"weighted",label:"По весу из состава совещания, включая 0"}]}] : []),
-    {name:"durationSeconds",label:"Длительность, секунд",type:"number",value:voteCore.defaults?.durationSeconds ?? 60},
+      options:[{value:"one-person",label:"1 участник = 1 голос, даже при весе 0"},{value:"weighted",label:"По весу из состава конференции, включая 0"}]}] : []),
+    {name:"durationSeconds",label:"Длительность, с",type:"number",value:voteCore.defaults?.durationSeconds ?? 60},
     {name:"ruleSetId",label:"Набор правил",type:"select",value:voteCore.defaults?.ruleSetId ?? "standard-majority",options:ruleOptions},
     {name:"quorumKind",label:"Кворум",type:"select",value:state.meeting?.quick ? "majority" : voteCore.defaults?.quorumRule?.kind ?? "majority",options:[{value:"majority",label:"50% + 1"},{value:"percent",label:"Процент"},{value:"governance-percent-plus-one",label:"% + 1 от общего объёма голосов/мандатов"},{value:"fixed",label:"Фиксированное число"}]},
     {name:"quorumValue",label:"Значение кворума",type:"number",value:voteCore.defaults?.quorumRule?.value ?? 50,visibleWhen:{name:"quorumKind",values:["percent","governance-percent-plus-one","fixed"]}},
     {name:"quorumParticipation",label:"Источник участия",type:"select",value:voteCore.defaults?.quorumRule?.participation ?? "connected-at-open",options:[{value:"connected-at-open",label:"Подключённые при открытии"},{value:"ballots-cast",label:"Фактически проголосовавшие"}]}
   ];
   if (can("pgm.tiles")) fields.push(
-    {name:"autoTakePgm",label:"Показ хода голосования в PGM",type:"select",value:"false",options:[{value:"false",label:"Нет"},{value:"true",label:"Да"}]},
-    {name:"resultTarget",label:"Итоги после закрытия",type:"select",value:"none",options:[{value:"none",label:"Не отправлять в PGM"},{value:"tiles",label:"Плиткой в PGM"},{value:"program",label:"Во весь PGM"}]},
-    {name:"resultHoldSeconds",label:"Показывать итоги, сек.",type:"number",value:voteCore.defaults?.displayPolicy?.resultHoldSeconds ?? 30}
+    {name:"autoTakePgm",label:"Ход голосования в трансляции зала",type:"select",value:"false",options:[{value:"false",label:"Не показывать"},{value:"true",label:"Показывать автоматически"}]},
+    {name:"resultTarget",label:"Итоги после закрытия",type:"select",value:"none",options:[{value:"none",label:"Не показывать в трансляции"},{value:"tiles",label:"Плиткой в трансляции"},{value:"program",label:"Во весь экран трансляции"}]},
+    {name:"resultHoldSeconds",label:"Показывать итоги, с",type:"number",value:voteCore.defaults?.displayPolicy?.resultHoldSeconds ?? 30}
   );
   if (pro) fields.push(
     {name:"customize",label:"Изменить параметры выбранного шаблона",type:"select",value:"false",options:[{value:"false",label:"Нет"},{value:"true",label:"Да"}]},
     {name:"ballotType",label:"Тип бюллетеня",type:"select",value:"single",options:[{value:"single",label:"Один вариант"},{value:"approval",label:"Одобрение нескольких"},{value:"cumulative",label:"Кумулятивный"},{value:"ranked",label:"Рейтинговый"},{value:"veto",label:"Вето"}],visibleWhen:{name:"customize",values:["true"]}},
-    {name:"decisionKind",label:"Метод подсчёта",type:"select",value:"simple-majority",options:[{value:"simple-majority",label:"Простое большинство"},{value:"absolute-majority",label:"Абсолютное большинство"},{value:"plurality",label:"Относительное большинство"},{value:"supermajority",label:"Квалифицированное большинство"},{value:"double-majority",label:"Двойное большинство"},{value:"ranked-choice",label:"IRV"},{value:"stv",label:"STV"},{value:"veto",label:"Вето"}],visibleWhen:{name:"customize",values:["true"]}},
+    {name:"decisionKind",label:"Метод подсчёта",type:"select",value:"simple-majority",options:[{value:"simple-majority",label:"Простое большинство"},{value:"absolute-majority",label:"Абсолютное большинство"},{value:"plurality",label:"Относительное большинство"},{value:"supermajority",label:"Квалифицированное большинство"},{value:"double-majority",label:"Двойное большинство"},{value:"ranked-choice",label:"Рейтинговое с выбыванием"},{value:"stv",label:"Пропорциональное по квоте"},{value:"veto",label:"Вето"}],visibleWhen:{name:"customize",values:["true"]}},
     {name:"thresholdPercent",label:"Порог решения, %",type:"number",value:66.67,visibleWhen:{name:"customize",values:["true"]}},
     {name:"groupThresholdPercent",label:"Порог каждой группы, %",type:"number",value:50,visibleWhen:{name:"customize",values:["true"]}},
     {name:"seats",label:"Количество избираемых мест",type:"number",value:1,visibleWhen:{name:"customize",values:["true"]}},
@@ -1919,7 +2612,11 @@ async function createVote() {
     {name:"maxRounds",label:"Максимум туров",type:"number",value:voteCore.defaults?.multiRound?.maxRounds ?? 2,visibleWhen:{name:"multiRound",values:["true"]}},
     {name:"advanceCount",label:"Проходит в следующий тур",type:"number",value:voteCore.defaults?.multiRound?.advanceCount ?? 2,visibleWhen:{name:"multiRound",values:["true"]}}
   );
-  const values=await voteCreationForm(pro ? "Новое голосование · VoteCore Pro" : "Новое голосование · VoteCore Basic",fields,electorate,pro,voteCore.defaults?.governance ?? {},"Создать проект");if(!values)return false;
+  const values=await voteCreationForm("Новое голосование",fields,electorate,pro,voteCore.defaults?.governance ?? {},"Создать проект",{ onSubmit: (form) => submitNewVote(form, pro) });
+  if(!values)return false;
+}
+
+async function submitNewVote(values, pro) {
   const {topic,question,raw,mode,ruleSetId}=values;
   const options = raw?.split(";").map((item) => item.trim()).filter(Boolean) || [];
   if (options.length < 2) throw new Error("Нужно не менее двух вариантов.");
@@ -1961,7 +2658,8 @@ async function castVote(voteId, optionId) {
     state.voteSelections.set(voteId, optionId);
     saveVoteSelections();
   } catch (error) {
-    if (error.status !== 409 || error.serverMessage !== "Participant has already voted") throw error;
+    if (error.status !== 409 || (error.details?.reason !== "already-voted" &&
+        error.serverMessage !== "Participant has already voted")) throw error;
     const vote = state.votes.find((item) => item.id === voteId);
     if (vote) vote.hasVoted = true;
     notify("Ваш голос уже принят");
@@ -2005,10 +2703,9 @@ async function uploadDocument(file, agendaItemId = null) {
         body: file.slice(offset, offset + chunkBytes)
       });
     }
-    await state.api.post(`${base}/${encodeURIComponent(uploadId)}/finish`, {});
-    return;
+    return state.api.post(`${base}/${encodeURIComponent(uploadId)}/finish`, {});
   }
-  await state.api.request(`/meetings/${state.profile.meetingId}/documents`, {
+  return state.api.request(`/meetings/${state.profile.meetingId}/documents`, {
     method: "POST",
     headers: { "Content-Type": file.type || "application/octet-stream", "X-File-Name": encodeIdentityHeader(file.name), ...(agendaItemId ? { "X-Agenda-Item-Id": agendaItemId } : {}) },
     body: file
@@ -2020,17 +2717,19 @@ async function importArchivedDocument() {
   if (!entries.length) throw new Error("В сохранённом архиве завершённых конференций нет документов");
   const values = await httpForm("Документ из завершённой конференции", [{ name: "documentId", label: "Исходный документ",
     type: "select", value: entries[0].id, options: entries.map((item) => ({ value: item.id,
-      label: `${item.sourceMeetingTitle || item.sourceMeetingId} · ${item.fileName}` })) }], "Добавить в мои документы");
-  if (values) await state.api.post(`/meetings/${encodeURIComponent(state.profile.meetingId)}/documents/import-archive`,
-    { documentId: values.documentId });
+      label: `${item.sourceMeetingTitle || "Завершённая конференция"} · ${item.fileName}` })) }], "Добавить в мои документы",
+    { onSubmit: (form) => state.api.post(`/meetings/${encodeURIComponent(state.profile.meetingId)}/documents/import-archive`,
+      { documentId: form.documentId }) });
+  if (!values) return false;
 }
 
 async function uploadAgendaDocument(file) {
   if (!file) return;
   const items = state.meeting.agenda ?? [];
   if (!items.length) throw new Error("Сначала добавьте вопросы повестки");
-  const values = await httpForm("Прикрепить документ к повестке", [{ name: "agendaItemId", label: "Вопрос повестки", type: "select", value: state.meeting.activeAgendaItemId ?? items[0].id, options: items.map((item) => ({ value: item.id, label: item.title })) }], "Прикрепить");
-  if (values) await uploadDocument(file, values.agendaItemId);
+  const values = await httpForm("Прикрепить документ к повестке", [{ name: "agendaItemId", label: "Вопрос повестки", type: "select", value: state.meeting.activeAgendaItemId ?? items[0].id, options: items.map((item) => ({ value: item.id, label: item.title })) }], "Прикрепить",
+    { onSubmit: (form) => uploadDocument(file, form.agendaItemId) });
+  if (!values) return false;
 }
 
 async function openDocument(documentId, presentationId = null) {
@@ -2051,6 +2750,11 @@ async function openDocument(documentId, presentationId = null) {
       (me?.permissions?.canAnnotatePresentation === true || canManageContent())) ||
       (!presentation && item.uploadedBy === state.profile.userId),
     canControl: Boolean(presentation && canManageContent()),
+    canModerate: Boolean(presentation && (state.profile.role === "admin" ||
+      state.profile.roles?.includes?.("admin"))),
+    canProgram: Boolean(presentation && (item.uploadedBy === state.profile.userId ||
+      ["operator", "secretary", "admin", "av_operator"].some((role) =>
+        state.profile.roles?.includes?.(role) || me?.role === role))),
     onStopPresentation: async (id) => {
       await state.api.post(`/presentations/${encodeURIComponent(id)}/stop`);
       state.presentations = state.presentations.map((entry) =>
@@ -2065,8 +2769,8 @@ async function openDocument(documentId, presentationId = null) {
       const updated = await state.api.post(`/presentations/${id}/${route}`);
       const index = state.presentations.findIndex((entry) => entry.id === id);
       if (index >= 0) state.presentations[index] = updated;
-      notify(target.startsWith("remove-") ? "Трансляция документа завершена" :
-        target === "program" ? "Документ отправлен в PGM" : "Документ добавлен плиткой в PGM");
+      notify(target.startsWith("remove-") ? "Документ убран из трансляции зала" :
+        target === "program" ? "Документ выведен во весь экран трансляции" : "Документ добавлен плиткой в трансляцию зала");
       return updated;
     }
   });
@@ -2095,10 +2799,15 @@ async function startPresentationBroadcast(presentationId) {
   if (index >= 0) state.presentations[index] = presentation;
   else state.presentations.push(presentation);
   renderMicrophoneDock();
-  notify("Показ открыт участникам. PGM не переключён.", 6000);
+  notify("Показ открыт участникам. Трансляция зала не переключена.", 6000);
 }
 
-async function shareScreen() {
+function shareScreen() {
+  if (!state.screenSharePromise) state.screenSharePromise = startScreenShare().finally(() => { state.screenSharePromise = null; });
+  return state.screenSharePromise;
+}
+
+async function startScreenShare() {
   if (!canShareScreen()) throw new Error("Для вашей учётной записи демонстрация экрана отключена");
   if (state.contentPublishedStream && state.contentMedia) return;
   if (!navigator.mediaDevices?.getDisplayMedia) throw new Error("Браузер не поддерживает демонстрацию экрана");
@@ -2149,7 +2858,7 @@ async function toggleFullscreen() {
     return;
   }
   if (!document.documentElement.requestFullscreen) {
-    notify("Браузер не поддерживает полноэкранный режим по кнопке; используйте «Установить PWA».", 6000);
+    notify("Браузер не поддерживает полноэкранный режим по кнопке; используйте «Установить как приложение».", 6000);
     return;
   }
   try {
@@ -2159,8 +2868,9 @@ async function toggleFullscreen() {
   }
 }
 
-export { inMcu, runAction, requestFloor, applyLocalFloorResult, runMicrophoneAction, activateChairMicrophone,
-  grantFloor, releaseFloor, toggleUcMute, connectPlannedUc, connectLiveUc, disconnectUc, startPreparedConference,
+export { httpForm, voteElectorateCandidates, voteCreationForm, formatAgendaTime, agendaTimeline, agendaStatusHtml, openAgendaDialog, confirmDialog, editLiveRoster, moveLiveReport, offerRoomStation,
+  inMcu, runAction, requestFloor, applyLocalFloorResult, runMicrophoneAction, activateChairMicrophone,
+  grantFloor, releaseFloor, toggleUcMute, declineUcFloor, decideUcShare, toggleUcTalkback, setUcMemberMute, bindUcMember, connectPlannedUc, connectLiveUc, disconnectUc, startPreparedConference,
   selfRelease, saveMicrophoneLimit, toggleFifo, saveDiscussionMode,
   toggleChairPriority, muteAllMicrophones, activateAgenda, revealAccessPin, editAccessPin, changeParticipantRole,
   toggleIncomingAudio, removeParticipant, confirmRemoveParticipant, ensureMicrophone, syncLocalMicrophone,
@@ -2169,7 +2879,7 @@ export { inMcu, runAction, requestFloor, applyLocalFloorResult, runMicrophoneAct
   probeCamera, attachCamera, startMediaWorker, startMulticast, routePreview, takeProgram, resumeAutoDirector,
   discoverNdiSources, attachNdiSource, saveNdiCamera, toggleCameraAutoAttach, receiveNdiSource,
   receiveNdiStream, toggleNdiOutput, configureNdiOutput, startNdiOutput, stopNdiJob, toggleAutoDirector,
-  savePgmMode, resetPgmMode, selectStream, ensureStreamPreview, mediaForStream, getMcuDevice,
+  savePgmMode, resetPgmMode, syncFaceFraming, selectStream, ensureStreamPreview, mediaForStream, getMcuDevice,
   createMcuTransport, publishMediaToMcu, closeMcuTransport, closeMcuPublisher, subscribeMcuStream,
   closeProgramSubscriberEntry, RECEIVE_DISCONNECTED_GRACE_MS, observeReceiveTransport, subscriptionHealthy,
   inboundProgramVideoCounters, checkProgramVideoHealth, closeProgramSubscriber, waitForVideoFrame,
@@ -2179,6 +2889,6 @@ export { inMcu, runAction, requestFloor, applyLocalFloorResult, runMicrophoneAct
   watchServerAudioMix, closeServerAudioSubscriber, closeAllPeers, bindChatChannel, newChatPeer,
   startChatOffer, openChat, pollChatSignaling, sendChatMessage, closeAllChats, checkReadiness,
   checkDevice, deviceCommand, publishRoom, publishSignageScene, callParticipant, startAes67, stopAes67, createServiceRequest,
-  serviceStatus, assignSeat, assignPresenterWorkplace, releaseSeat, claimSeat, createVote, castVote,
+  serviceStatus, serviceReassign, serviceConfirm, assignSeat, assignPresenterWorkplace, releaseSeat, claimSeat, createVote, castVote,
   castAdvancedVote, createNextVoteRound, uploadDocument, importArchivedDocument, uploadAgendaDocument,
   openDocument, startPresentationBroadcast, shareScreen, stopScreenShare, installPwa, toggleFullscreen };
