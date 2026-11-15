@@ -52,7 +52,7 @@ function meetingControlPanelId(meetingId) {
 }
 async function loadFeatureModules() {
   if (!featureModulesPromise) featureModulesPromise = Promise.all([
-    import("./clientViews.js?v=0.8.28"), import("./clientOperations.js?v=0.8.28"), import("./roomControlEvents.js?v=0.8.28")
+    import("./clientViews.js?v=0.8.29"), import("./clientOperations.js?v=0.8.29"), import("./roomControlEvents.js?v=0.8.29")
   ]).then(([views, operations, controls]) => {
     roomControlEvents = controls.createRoomControlEvents($("#pageContent"), () => state, notify, (pageId, action = "navigate") => {
       const project = state.roomControl;
