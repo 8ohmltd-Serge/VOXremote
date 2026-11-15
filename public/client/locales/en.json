@@ -6871,5 +6871,8 @@
  "второго цвета фона блока": "second block background colour",
  "цвета границы": "border colour",
  "цвета фона блока": "block background colour",
- "Действие «Отправить значение» выбирает собственное значение элемента, число или строку. Фидбэк «По нажатию» обновляет вид сразу, «По каналу» — после ответа из Node-RED; выбор фидбэка не изменяет отправляемое значение.": "The Send value action selects the element’s own value, a number, or a string. Press feedback updates the appearance immediately; Channel feedback waits for Node-RED. The feedback mode does not change the value sent."
+ "Действие «Отправить значение» выбирает собственное значение элемента, число или строку. Фидбэк «По нажатию» обновляет вид сразу, «По каналу» — после ответа из Node-RED; выбор фидбэка не изменяет отправляемое значение.": "The Send value action selects the element’s own value, a number, or a string. Press feedback updates the appearance immediately; Channel feedback waits for Node-RED. The feedback mode does not change the value sent.",
+ "Задержка переключения самого громкого, мс": "Loudest-speaker switch delay, ms",
+ "Занят": "Occupied",
+ "Задержка переключения самого громкого должна быть от 100 до 5000 мс": "Loudest-speaker switch delay must be between 100 and 5000 ms"
 }

@@ -365,14 +365,16 @@ async function refreshScene(viewer) {
     if (!ownersByColor.has(author.color)) ownersByColor.set(author.color, []);
     ownersByColor.get(author.color).push({ ...author, authorId });
   }
-  viewer.colors.innerHTML = [...COLORS, ...(viewer.color && !COLORS.includes(viewer.color) ? [viewer.color] : [])].map((color) => {
+  // Existing conferences may still own colors from the earlier palette.
+  // Include those colors in the menu, otherwise every visible swatch looks free.
+  viewer.colors.innerHTML = [...new Set([...COLORS, ...VALID_COLORS])].map((color) => {
     const owners = ownersByColor.get(color) ?? [];
     const occupied = owners.length > 0 && color !== viewer.color;
     const shortOwners = owners.map((item) => shortName(item.displayName)).join(", ");
     const fullOwners = owners.map((item) => item.displayName).join(", ");
-    const status = color === viewer.color ? "Ваш цвет" : occupied ? `Занят: ${shortOwners}` : "Свободен";
+    const status = color === viewer.color ? "Ваш цвет" : occupied ? "Занят" : "Свободен";
     const description = color === viewer.color ? "Ваш цвет" : occupied ? `Занят: ${fullOwners}` : "Выбрать цвет";
-    return '<button type="button" class="document-color' + (color === viewer.color ? ' selected' : '') +
+    return '<button type="button" class="document-color' + (color === viewer.color ? ' selected' : '') + (occupied ? ' occupied' : '') +
       '" data-color="' + color + '" style="--swatch:' + color + '" title="' + escapeHtml(description) +
       '" aria-label="' + escapeHtml(description) + '" role="menuitemradio" aria-checked="' +
       (color === viewer.color) + '" ' + (occupied ? 'disabled' : '') +
@@ -542,12 +544,9 @@ function selectTool(viewer, tool) {
   if (viewer.tool === "pointer" && tool !== "pointer") hideOwnPointer(viewer);
   viewer.tool = tool;
   viewer.overlay.style.touchAction = tool === "move" ? "auto" : "none";
-  const cursorIcon = TOOL_ICONS[tool];
-  const cursorSvg = cursorIcon && tool !== "move" && tool !== "pointer"
-    ? `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28"><rect x="1" y="1" width="26" height="26" rx="5" fill="white" stroke="#262626"/>` +
-      `<g transform="translate(2 2)" fill="none" stroke="#111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${cursorIcon}</g></svg>`
-    : null;
-  viewer.overlay.style.cursor = cursorSvg ? `url("data:image/svg+xml,${encodeURIComponent(cursorSvg)}") 3 25, crosshair` : "";
+  const cursors = { move: "grab", pen: "crosshair", marker: "crosshair", line: "crosshair",
+    circle: "crosshair", text: "text", "move-annotation": "move", eraser: "cell", pointer: "none" };
+  viewer.overlay.style.cursor = cursors[tool] ?? "default";
   // The shared red pointer is the only cursor while the local user operates
   // the Pointer tool.  Keeping the OS cursor visible creates two competing
   // pointers on desktop browsers and makes an accurate indication impossible.
@@ -1259,7 +1258,9 @@ export async function openDocumentViewer({ api, document: item, presentation = n
     if (action === "fullscreen") {
       const panel = root.querySelector(".document-viewer");
       if (document.fullscreenElement === panel) await document.exitFullscreen?.();
-      else if (panel.requestFullscreen) {
+      else if (/iPad|Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1) {
+        panel.classList.toggle("is-document-expanded");
+      } else if (panel.requestFullscreen) {
         try { await panel.requestFullscreen(); }
         catch (_) { panel.classList.toggle("is-document-expanded"); }
       } else panel.classList.toggle("is-document-expanded");

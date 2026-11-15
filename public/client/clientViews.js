@@ -41,7 +41,7 @@ import {
   serviceRequestCategoryOptions, eventRetryDelay, PARTICIPANT_LANGUAGES, participantLanguageOptions, participantLanguage,
   setParticipantLanguage, participantText, participantFormatTime, openDocumentViewer, closeDocumentViewer, updateDocumentViewerRights,
   documentSceneEvent
-} from "./app.js?v=0.8.25";
+} from "./app.js?v=0.8.26";
 
 function sizeConferenceProgram() {
   const panel = document.querySelector("#pageContent .conference-program-panel");
@@ -320,7 +320,29 @@ function roomControlCompound(item, value) {
   return `<div class="room-control-compound" style="grid-template-columns:repeat(${columns},minmax(0,1fr))" data-compound-id="${escapeHtml(item.id)}">${buttons}</div>`;
 }
 
-function roomControlHtml() {
+function roomControlSpecial(item, value) {
+  if (item.type === "circular-level") {
+    const min = Number(item.min) || 0, max = Number(item.max) || 100;
+    const current = Number.isFinite(Number(value)) ? Number(value) : min;
+    const degrees = Math.max(0, Math.min(360, (current - min) / (max - min) * 360));
+    const fill = validControlColor(item.levelFillColor) ? item.levelFillColor : "#ED3229";
+    const empty = validControlColor(item.levelEmptyColor) ? item.levelEmptyColor : "#D9D3CC";
+    const background = validControlColor(item.levelBackgroundColor) ? item.levelBackgroundColor : "#FFFFFF";
+    const gradient = item.fillDirection === "counterclockwise"
+      ? `conic-gradient(${empty} ${360 - degrees}deg,${fill} 0)`
+      : `conic-gradient(${fill} ${degrees}deg,${empty} 0)`;
+    return `<div class="room-control-circular" data-room-control-circular="${escapeHtml(item.id)}" role="slider" tabindex="0" aria-label="${escapeHtml(item.label || item.id)}" aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${current}" style="background:${gradient};--level-hole:${Math.max(28, 100 - (item.levelTrackWidth ?? 8) * 2)}%;--level-background:${background}"><span class="room-control-circular-center"><span>${escapeHtml(item.label)}</span><output>${current}</output></span></div>`;
+  }
+  if (item.type !== "dpad") return "";
+  const mode = ["4", "8", "joystick"].includes(item.dpadMode) ? item.dpadMode : "4";
+  const colors = `--dpad-background:${validControlColor(item.dpadBackgroundColor) ? item.dpadBackgroundColor : "transparent"};--dpad-button:${validControlColor(item.dpadButtonColor) ? item.dpadButtonColor : "#111"};--dpad-button-hover:${validControlColor(item.dpadButtonHoverColor) ? item.dpadButtonHoverColor : "#ED3229"}`;
+  if (mode === "joystick") return `<div class="room-control-dpad mode-joystick" data-room-control-dpad="${escapeHtml(item.id)}" style="${colors}"><button type="button" class="room-control-stick knob-${escapeHtml(item.joystickKnob ?? "round")}" data-room-control-direction="joystick" aria-label="${escapeHtml(item.label || "Джойстик")}"><span></span></button></div>`;
+  const directions = mode === "8" ? ["up-left", "up", "up-right", "left", "home", "right", "down-left", "down", "down-right"] : ["up", "left", "home", "right", "down"];
+  const glyphs = { up:"↑", down:"↓", left:"←", right:"→", home:"⌂", "up-left":"↖", "up-right":"↗", "down-left":"↙", "down-right":"↘" };
+  return `<div class="room-control-dpad mode-${mode}" data-room-control-dpad="${escapeHtml(item.id)}" style="${colors}">${directions.map((direction) => `<button type="button" data-room-control-direction="${direction}" aria-label="${direction}">${glyphs[direction]}</button>`).join("")}</div>`;
+}
+
+export function roomControlHtml() {
   const project = state.roomControl;
   if (!project) return `${pageHead("Управление залом", "Для этого зала нет опубликованной панели")}`;
   const pages = project.panel.pages ?? [{ id: "main", title: "Главная" }];
@@ -359,9 +381,11 @@ function roomControlHtml() {
     if (item.type === "label") return `<div class="room-control-tile room-control-passive"${geometry}><div class="room-control-content${flowClass}" style="${passiveStyle}">${placed(roomControlText(project, item, value))}</div></div>`;
     if (item.type === "image") return `<div class="room-control-tile room-control-passive"${geometry}><div class="room-control-content" style="${passiveStyle}">${icon || escapeHtml(item.label)}</div></div>`;
     if (item.type === "viewer") return `<div class="room-control-tile room-control-viewer"${geometry}><video data-room-control-viewer="${escapeHtml(item.id)}" muted autoplay playsinline aria-label="${escapeHtml(item.label)}"></video><span>${escapeHtml(item.label)}</span></div>`;
+    if (item.type === "text-input") return `<div class="room-control-tile"${geometry}><input class="room-control-text-input" data-room-control-text="${escapeHtml(item.id)}" type="text" value="${escapeHtml(value ?? "")}" placeholder="${escapeHtml(item.placeholder ?? "")}" aria-label="${escapeHtml(item.label || item.id)}"></div>`;
     const tileMin = Number.isFinite(Number(item.min)) ? Number(item.min) : 0;
     const tileMax = Number.isFinite(Number(item.max)) ? Number(item.max) : 100;
-    if (item.type === "slider") return `<div class="room-control-tile"${geometry}><label class="room-control-slider">${icon}<span>${escapeHtml(item.label)}</span><input type="range" min="${tileMin}" max="${tileMax}" value="${Number.isFinite(value) ? value : tileMin}" data-room-control-slider="${escapeHtml(item.id)}"><output>${Number.isFinite(value) ? value : tileMin}</output></label></div>`;
+    if (item.type === "slider") return `<div class="room-control-tile"${geometry}><label class="room-control-slider orientation-${escapeHtml(item.orientation ?? "horizontal")}" style="--level-fill:${validControlColor(item.levelFillColor) ? item.levelFillColor : "#ED3229"};--level-empty:${validControlColor(item.levelEmptyColor) ? item.levelEmptyColor : "#D9D3CC"};--level-width:${item.levelTrackWidth ?? 8}px;--level-control-length:${item.levelControlSize ?? 100}%;--level-background:${validControlColor(item.levelBackgroundColor) ? item.levelBackgroundColor : "#fff"}">${icon}<span>${escapeHtml(item.label)}</span><input type="range" class="knob-${escapeHtml(item.levelKnob ?? "round")}" min="${tileMin}" max="${tileMax}" value="${Number.isFinite(value) ? value : tileMin}" data-room-control-slider="${escapeHtml(item.id)}"><output>${Number.isFinite(value) ? value : tileMin}</output></label></div>`;
+    if (["circular-level", "dpad"].includes(item.type)) return `<div class="room-control-tile"${geometry}>${roomControlSpecial(item, value)}</div>`;
     if (["keypad", "updown"].includes(item.type)) return `<div class="room-control-tile"${geometry}>${roomControlCompound(item, value)}</div>`;
     const detail = !selectedState && item.type === "multistate" ? "Состояние неизвестно" : "";
     const color = validControlColor(selectedState?.color) ? selectedState.color : null;
@@ -400,7 +424,9 @@ function roomControlHtml() {
       return `<div class="room-control-popup-item" style="${style}display:flex;justify-content:${justify};align-items:${align};">${image}</div>`;
     }
     if (item.type === "viewer") return `<div class="room-control-popup-item" style="${style}"><video data-room-control-viewer="${escapeHtml(item.id)}" muted autoplay playsinline aria-label="${escapeHtml(item.label)}"></video></div>`;
+    if (item.type === "text-input") return `<div class="room-control-popup-item" style="${style};padding:0"><input class="room-control-text-input" data-room-control-text="${escapeHtml(item.id)}" type="text" value="${escapeHtml(project.state?.[item.stateKey] ?? "")}" placeholder="${escapeHtml(item.placeholder ?? "")}" aria-label="${escapeHtml(item.label || item.id)}"></div>`;
     if (item.type === "slider") return `<label class="room-control-popup-item" style="${style}">${escapeHtml(item.label)}<input type="range" min="${sliderMin}" max="${sliderMax}" value="${Number.isFinite(project.state?.[item.stateKey]) ? project.state[item.stateKey] : sliderMin}" data-room-control-slider="${escapeHtml(item.id)}"></label>`;
+    if (["circular-level", "dpad"].includes(item.type)) return `<div class="room-control-popup-item" style="${style};padding:0">${roomControlSpecial(item, project.state?.[item.stateKey])}</div>`;
     if (["keypad", "updown"].includes(item.type)) return `<div class="room-control-popup-item" style="${style};padding:0">${roomControlCompound(item, project.state?.[item.stateKey])}</div>`;
     const selected = item.states?.find((entry) => entry.value === project.state?.[item.stateKey]);
     const color = validControlColor(selected?.color) ? selected.color : "";
@@ -825,6 +851,7 @@ function pgmModeHtml() {
       <label class="inline-number">Никто не выступает <select id="pgmIdleMode">${option("overview", "Камера зала", chosen.idleMode)}${option("grid", "Мозаика из всех потоков", chosen.idleMode)}${option("slate", "Заставка 16:9", chosen.idleMode)}${option("agenda", "Время и вопрос повестки", chosen.idleMode)}</select></label>
       <label class="inline-number">Один выступающий <select id="pgmSingleMode">${option("overview-follow", "Камера зала, наведение на выступающего", chosen.singleMode ?? "speaker")}${option("speaker", "Собственная камера выступающего", chosen.singleMode ?? "speaker")}</select></label>
       <label class="inline-number">Несколько выступающих <select id="pgmMultiMode">${option("overview", "Камера зала, общий вид", chosen.multiMode)}${option("last", "Камера зала, наведение на последний микрофон", chosen.multiMode)}${option("grid", "Мозаика из собственных камер выступающих", chosen.multiMode)}${option("loudest", "Собственная камера самого громкого", chosen.multiMode)}</select></label>
+      <label class="inline-number">Задержка переключения самого громкого, мс <input id="pgmLoudestDelay" type="number" min="100" max="5000" step="100" value="${chosen.loudestSwitchDelayMs ?? 700}"></label>
       <label class="inline-check"><input id="pgmFaceFraming" type="checkbox" ${chosen.faceFraming ? "checked" : ""}> Кадрировать камеры участников по лицу</label>
       <button class="button button-secondary" data-action="save-pgm-mode">Применить</button>
       ${pgm.override ? `<button class="button button-quiet" data-action="reset-pgm-mode">Вернуть режим администратора</button>` : ""}

@@ -6871,5 +6871,8 @@
  "второго цвета фона блока": "der zweiten Blockhintergrundfarbe",
  "цвета границы": "der Rahmenfarbe",
  "цвета фона блока": "der Blockhintergrundfarbe",
- "Действие «Отправить значение» выбирает собственное значение элемента, число или строку. Фидбэк «По нажатию» обновляет вид сразу, «По каналу» — после ответа из Node-RED; выбор фидбэка не изменяет отправляемое значение.": "Die Aktion „Wert senden“ wählt den eigenen Wert des Elements, eine Zahl oder einen Text. Das Feedback „Bei Druck“ aktualisiert die Anzeige sofort, „Über Kanal“ wartet auf Node-RED. Der Feedbackmodus ändert den gesendeten Wert nicht."
+ "Действие «Отправить значение» выбирает собственное значение элемента, число или строку. Фидбэк «По нажатию» обновляет вид сразу, «По каналу» — после ответа из Node-RED; выбор фидбэка не изменяет отправляемое значение.": "Die Aktion „Wert senden“ wählt den eigenen Wert des Elements, eine Zahl oder einen Text. Das Feedback „Bei Druck“ aktualisiert die Anzeige sofort, „Über Kanal“ wartet auf Node-RED. Der Feedbackmodus ändert den gesendeten Wert nicht.",
+ "Задержка переключения самого громкого, мс": "Umschaltverzögerung für den lautesten Sprecher, ms",
+ "Занят": "Belegt",
+ "Задержка переключения самого громкого должна быть от 100 до 5000 мс": "Die Umschaltverzögerung für den lautesten Sprecher muss zwischen 100 und 5000 ms liegen"
 }

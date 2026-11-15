@@ -31,9 +31,9 @@ import {
   serviceRequestCategoryLabel, serviceRequestStatusLabel, serviceRequestCategoryOptions, eventRetryDelay,
   PARTICIPANT_LANGUAGES, participantLanguage, setParticipantLanguage, participantText, participantFormatTime, openDocumentViewer,
   closeDocumentViewer, expandPresentationViewer, updateDocumentViewerRights, documentSceneEvent
-} from "./app.js?v=0.8.25";
+} from "./app.js?v=0.8.26";
 import { roomSeatDialog } from "./roomSeatScheme.js";
-import { startFaceFraming } from "./faceFraming.js?v=0.8.25";
+import { startFaceFraming } from "./faceFraming.js?v=0.8.26";
 
 // Dialog builders and roster flows live here, not in the participant bootstrap (app.js budget).
 const VoxNoticeLocale = globalThis.VoxNoticeLocale;
@@ -1344,6 +1344,7 @@ async function savePgmMode() {
     idleMode: $("#pgmIdleMode").value,
     singleMode: $("#pgmSingleMode").value,
     multiMode: $("#pgmMultiMode").value,
+    loudestSwitchDelayMs: Number($("#pgmLoudestDelay").value),
     faceFraming: $("#pgmFaceFraming").checked, agendaUseSlate: false
   });
 }

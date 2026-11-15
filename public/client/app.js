@@ -52,7 +52,7 @@ function meetingControlPanelId(meetingId) {
 }
 async function loadFeatureModules() {
   if (!featureModulesPromise) featureModulesPromise = Promise.all([
-    import("./clientViews.js?v=0.8.25"), import("./clientOperations.js?v=0.8.25"), import("./roomControlEvents.js?v=0.8.25")
+    import("./clientViews.js?v=0.8.26"), import("./clientOperations.js?v=0.8.26"), import("./roomControlEvents.js?v=0.8.26")
   ]).then(([views, operations, controls]) => {
     roomControlEvents = controls.createRoomControlEvents($("#pageContent"), () => state, notify, (pageId, action = "navigate") => {
       const project = state.roomControl;
@@ -1751,8 +1751,9 @@ async function refreshAll(silent = false) {
       }
     }
     const role = state.profile.role;
-    const layoutDevice = window.innerWidth >= 1600 ? "pc" : window.innerWidth >= 1180 ? "laptop"
-      : window.innerWidth >= 600 ? "tablet" : "phone";
+    const layoutWidth = Math.max(innerWidth, screen?.width || 0);
+    const layoutDevice = layoutWidth >= 1600 ? "pc" : layoutWidth >= 1180 ? "laptop"
+      : layoutWidth >= 600 ? "tablet" : "phone";
     if (state.workspaceLayoutRole !== role || state.workspaceLayoutDevice !== layoutDevice) {
       applyWorkspaceLayout(await keep(state.api.get(`/me/workspace-layout?meetingId=${meetingId}&device=${layoutDevice}`), null), role);
       state.secretaryLayoutLoaded = role === "secretary";

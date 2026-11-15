@@ -38,6 +38,8 @@ function paintButton(button, item, value) {
 
 export function createRoomControlEvents(page, getState, notify, navigate) {
   const pressed = new Map();
+  const specialPointers = new Map();
+  const textTimers = new Map();
   const queues = new Map();
   function send(controlId, state, payload) {
     const context = getState();
@@ -92,6 +94,49 @@ export function createRoomControlEvents(page, getState, notify, navigate) {
       }
     }
   }
+  function paintCircular(control, item, value) {
+    const current = Number.isFinite(Number(value)) ? Number(value) : item.min;
+    const degrees = Math.max(0, Math.min(360, (current - item.min) / (item.max - item.min) * 360));
+    const fill = validControlColor(item.levelFillColor) ? item.levelFillColor : "#ED3229";
+    const empty = validControlColor(item.levelEmptyColor) ? item.levelEmptyColor : "#D9D3CC";
+    control.style.background = item.fillDirection === "counterclockwise"
+      ? `conic-gradient(${empty} ${360 - degrees}deg,${fill} 0)`
+      : `conic-gradient(${fill} ${degrees}deg,${empty} 0)`;
+    control.setAttribute("aria-valuenow", String(current));
+    control.querySelector("output").textContent = String(current);
+  }
+  function moveSpecial(control, event) {
+    const id = control.dataset.roomControlCircular ?? control.closest("[data-room-control-dpad]")?.dataset.roomControlDpad;
+    const item = getState().roomControl?.panel.controls.find((entry) => entry.id === id);
+    if (!item) return;
+    let value;
+    if (item.type === "circular-level") {
+      const box = control.getBoundingClientRect();
+      let angle = Math.atan2(event.clientY - box.top - box.height / 2, event.clientX - box.left - box.width / 2) * 180 / Math.PI + 90;
+      if (angle < 0) angle += 360;
+      if (item.fillDirection === "counterclockwise") angle = (360 - angle) % 360;
+      const step = Math.max(1, (item.max - item.min) / 100);
+      value = Math.max(item.min, Math.min(item.max, item.min + Math.round((angle / 360 * (item.max - item.min)) / step) * step));
+      if (item.feedbackMode !== "channel") {
+        getState().roomControl.state[item.stateKey] = value;
+        page.querySelectorAll(`[data-room-control-circular="${CSS.escape(id)}"]`).forEach((node) => paintCircular(node, item, value));
+      }
+    } else if (control.dataset.roomControlDirection === "joystick") {
+      const box = control.getBoundingClientRect(), radius = Math.max(1, Math.min(box.width, box.height) / 2);
+      let x = (event.clientX - box.left - box.width / 2) / radius;
+      let y = (box.top + box.height / 2 - event.clientY) / radius;
+      const magnitude = Math.min(1, Math.hypot(x, y));
+      if (Math.hypot(x, y) > 1) { x *= magnitude / Math.hypot(x, y); y *= magnitude / Math.hypot(x, y); }
+      control.querySelector("span").style.transform = `translate(${x * 42}%,${-y * 42}%)`;
+      value = { x: Number(x.toFixed(3)), y: Number(y.toFixed(3)), angle: Number(((Math.atan2(x, y) * 180 / Math.PI + 360) % 360).toFixed(1)), magnitude: Number(magnitude.toFixed(3)) };
+    } else value = control.dataset.roomControlDirection;
+    const gesture = specialPointers.get(control);
+    if (gesture) gesture.value = value;
+    if (!gesture || Date.now() - gesture.sentAt >= 40) {
+      if (gesture) gesture.sentAt = Date.now();
+      void send(id, "move", value);
+    }
+  }
   page.addEventListener("click", (event) => {
     const button = event.target.closest("[data-room-control-sub]");
     if (!button) return;
@@ -119,12 +164,54 @@ export function createRoomControlEvents(page, getState, notify, navigate) {
     if (item.feedbackMode !== "channel") paintCompound(item, context.roomControl.state[item.stateKey]);
     void send(item.id, "press", payload);
   });
+  page.addEventListener("input", (event) => {
+    const field = event.target.closest("[data-room-control-text]");
+    if (field) {
+      const id = field.dataset.roomControlText;
+      clearTimeout(textTimers.get(id));
+      textTimers.set(id, setTimeout(() => { textTimers.delete(id); void send(id, "change", field.value); }, 120));
+      return;
+    }
+    const slider = event.target.closest("[data-room-control-slider]");
+    if (slider) {
+      const id = slider.dataset.roomControlSlider;
+      const item = getState().roomControl?.panel.controls.find((entry) => entry.id === id);
+      slider.closest(".room-control-slider")?.querySelector("output")?.replaceChildren(document.createTextNode(slider.value));
+      if (item?.feedbackMode !== "channel") getState().roomControl.state[item.stateKey] = Number(slider.value);
+      void send(id, "move", Number(slider.value));
+    }
+  });
   page.addEventListener("pointerdown", (event) => {
     const close = event.target.closest("[data-room-control-popup-close]");
     if (close) { event.preventDefault(); navigate(close.dataset.roomControlPopupClose, "popup-close"); return; }
+    const special = event.target.closest("[data-room-control-circular], [data-room-control-direction]");
+    if (special && event.button === 0) {
+      event.preventDefault(); special.setPointerCapture(event.pointerId);
+      specialPointers.set(special, { pointerId: event.pointerId, sentAt: 0, value: null });
+      moveSpecial(special, event);
+      return;
+    }
     const button = event.target.closest("[data-room-control-button]");
     if (button) begin(button, event);
   });
+  page.addEventListener("pointermove", (event) => {
+    const special = event.target.closest("[data-room-control-circular], [data-room-control-direction]");
+    if (specialPointers.get(special)?.pointerId === event.pointerId) moveSpecial(special, event);
+  });
+  function finishSpecial(event) {
+    const special = event.target.closest("[data-room-control-circular], [data-room-control-direction]");
+    const gesture = specialPointers.get(special);
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    specialPointers.delete(special);
+    const id = special.dataset.roomControlCircular ?? special.closest("[data-room-control-dpad]")?.dataset.roomControlDpad;
+    const item = getState().roomControl?.panel.controls.find((entry) => entry.id === id);
+    if (item?.type === "circular-level") void send(id, "release", gesture.value);
+    else if (item?.type === "dpad") {
+      special.querySelector("span")?.style.removeProperty("transform");
+      void send(id, "stop", item.dpadMode === "joystick" ? { x: 0, y: 0, angle: 0, magnitude: 0 } : "stop");
+    }
+  }
+  for (const name of ["pointerup", "pointercancel", "lostpointercapture"]) page.addEventListener(name, finishSpecial);
   for (const name of ["pointerup", "pointercancel", "lostpointercapture"]) {
     page.addEventListener(name, (event) => {
       const button = event.target.closest("[data-room-control-button]");
@@ -132,6 +219,31 @@ export function createRoomControlEvents(page, getState, notify, navigate) {
     });
   }
   page.addEventListener("keydown", (event) => {
+    const field = event.target.closest("[data-room-control-text]");
+    if (field && event.key === "Enter" && !event.isComposing) {
+      event.preventDefault();
+      clearTimeout(textTimers.get(field.dataset.roomControlText));
+      textTimers.delete(field.dataset.roomControlText);
+      void send(field.dataset.roomControlText, "submit", field.value);
+      return;
+    }
+    const circular = event.target.closest("[data-room-control-circular]");
+    if (circular && ["ArrowLeft", "ArrowDown", "ArrowRight", "ArrowUp", "Home", "End"].includes(event.key)) {
+      event.preventDefault();
+      const id = circular.dataset.roomControlCircular;
+      const context = getState();
+      const item = context.roomControl?.panel.controls.find((entry) => entry.id === id);
+      if (!item) return;
+      const current = Number(context.roomControl.state?.[item.stateKey] ?? item.min);
+      const value = event.key === "Home" ? item.min : event.key === "End" ? item.max
+        : Math.max(item.min, Math.min(item.max, current + (["ArrowRight", "ArrowUp"].includes(event.key) ? 1 : -1)));
+      if (item.feedbackMode !== "channel") {
+        context.roomControl.state[item.stateKey] = value;
+        page.querySelectorAll(`[data-room-control-circular="${CSS.escape(id)}"]`).forEach((node) => paintCircular(node, item, value));
+      }
+      void send(id, "release", value);
+      return;
+    }
     if (!["Enter", " "].includes(event.key) || event.repeat) return;
     const button = event.target.closest("[data-room-control-button]");
     if (button) begin(button, event);
@@ -169,6 +281,26 @@ export function applyRoomControlPush(state, payload) {
         button.style.backgroundColor = validControlColor(style.color) ? style.color : "";
         button.style.color = validControlColor(style.fontColor) ? style.fontColor : "";
       }
+    }
+    return;
+  }
+  if (item.type === "circular-level") {
+    for (const control of document.querySelectorAll(`[data-room-control-circular="${CSS.escape(item.id)}"]`)) {
+      const current = Number.isFinite(Number(payload.value)) ? Number(payload.value) : item.min;
+      const degrees = Math.max(0, Math.min(360, (current - item.min) / (item.max - item.min) * 360));
+      const fill = validControlColor(item.levelFillColor) ? item.levelFillColor : "#ED3229";
+      const empty = validControlColor(item.levelEmptyColor) ? item.levelEmptyColor : "#D9D3CC";
+      control.style.background = item.fillDirection === "counterclockwise"
+        ? `conic-gradient(${empty} ${360 - degrees}deg,${fill} 0)`
+        : `conic-gradient(${fill} ${degrees}deg,${empty} 0)`;
+      control.setAttribute("aria-valuenow", String(current));
+      control.querySelector("output").textContent = String(current);
+    }
+    return;
+  }
+  if (item.type === "text-input") {
+    for (const field of document.querySelectorAll(`[data-room-control-text="${CSS.escape(item.id)}"]`)) {
+      if (document.activeElement !== field) field.value = String(payload.value ?? "");
     }
     return;
   }

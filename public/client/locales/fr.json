@@ -6871,5 +6871,8 @@
  "второго цвета фона блока": "de la deuxième couleur de fond du bloc",
  "цвета границы": "de la couleur de bordure",
  "цвета фона блока": "de la couleur de fond du bloc",
- "Действие «Отправить значение» выбирает собственное значение элемента, число или строку. Фидбэк «По нажатию» обновляет вид сразу, «По каналу» — после ответа из Node-RED; выбор фидбэка не изменяет отправляемое значение.": "L’action « Envoyer la valeur » utilise la valeur propre de l’élément, un nombre ou une chaîne. Le retour « À l’appui » actualise l’affichage immédiatement ; « Par canal » attend Node-RED. Le mode de retour ne change pas la valeur envoyée."
+ "Действие «Отправить значение» выбирает собственное значение элемента, число или строку. Фидбэк «По нажатию» обновляет вид сразу, «По каналу» — после ответа из Node-RED; выбор фидбэка не изменяет отправляемое значение.": "L’action « Envoyer la valeur » utilise la valeur propre de l’élément, un nombre ou une chaîne. Le retour « À l’appui » actualise l’affichage immédiatement ; « Par canal » attend Node-RED. Le mode de retour ne change pas la valeur envoyée.",
+ "Задержка переключения самого громкого, мс": "Délai de bascule vers le locuteur le plus fort, ms",
+ "Занят": "Occupé",
+ "Задержка переключения самого громкого должна быть от 100 до 5000 мс": "Le délai de bascule vers le locuteur le plus fort doit être compris entre 100 et 5 000 ms"
 }
