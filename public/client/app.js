@@ -8,7 +8,7 @@ import { clientBuildReady } from "./clientBuild.js";
 import { PARTICIPANT_LANGUAGES, participantLanguageOptions, configureParticipantLanguages,
   participantLanguage, setParticipantLanguage, applyParticipantLanguage,
   participantText, participantFormatTime } from "./i18n.js";
-import { openDocumentViewer, closeDocumentViewer, expandPresentationViewer, closePresentationViewer,
+import { openDocumentViewer, closeDocumentViewer, minimizeDocumentViewer, expandPresentationViewer, closePresentationViewer,
   updateDocumentViewerRights, documentSceneEvent, isPresentationViewerOpen } from "./documentViewer.js";
 import { createWaitingRoom } from "./waitingRoom.js";
 
@@ -52,7 +52,7 @@ function meetingControlPanelId(meetingId) {
 }
 async function loadFeatureModules() {
   if (!featureModulesPromise) featureModulesPromise = Promise.all([
-    import("./clientViews.js?v=0.8.26"), import("./clientOperations.js?v=0.8.26"), import("./roomControlEvents.js?v=0.8.26")
+    import("./clientViews.js?v=0.8.27"), import("./clientOperations.js?v=0.8.27"), import("./roomControlEvents.js?v=0.8.27")
   ]).then(([views, operations, controls]) => {
     roomControlEvents = controls.createRoomControlEvents($("#pageContent"), () => state, notify, (pageId, action = "navigate") => {
       const project = state.roomControl;
@@ -1880,20 +1880,11 @@ async function refreshAll(silent = false) {
       canView: me?.permissions?.canViewFiles !== false || canManageContent(),
       canAnnotate: me?.permissions?.canAnnotatePresentation === true || canManageContent()
     });
-    const eligibleForOpenVote = openVote && me?.permissions?.canVote !== false && (!openVote.eligibleParticipantIds?.length || openVote.eligibleParticipantIds.includes(state.participantId));
-    if (eligibleForOpenVote && !/^(interpreter|translator)$/.test(role) && state.lastOpenVoteId !== openVote.id) {
+    if (openVote && state.lastOpenVoteId !== openVote.id) {
       state.lastOpenVoteId = openVote.id;
-      // Only a participant who is not busy is moved to the ballot. The chair,
-      // technical roles and anyone typing get a banner instead (A-11).
-      const typing = document.activeElement?.matches?.("input:not([type=checkbox]):not([type=radio]), textarea, select, [contenteditable]") ||
-        [...state.chatDrafts.values()].some((draft) => String(draft ?? "").trim());
-      const busyRole = role === "chair" || TECHNICAL_CONFERENCE_ROLES.has(role);
-      if (!busyRole && !typing && state.activeTab !== "voting") {
-        state.activeTab = "voting";
-        notify("Открыто голосование", 5000);
-      } else if (state.activeTab !== "voting") {
-        notify("Открыто голосование", 15000, { action: { label: "Перейти", onClick: () => selectTab("voting").catch((error) => notify(error)) } });
-      }
+      minimizeDocumentViewer();
+      if (state.activeTab !== "voting") await selectTab("voting");
+      notify("Открыто голосование", 5000);
     }
     if (!openVote) state.lastOpenVoteId = null;
     await reconcileSelectedStream();
@@ -2591,30 +2582,12 @@ function handlePageAction(event, target) {
   if (action === "toggle-auto-microphone-pref") toggleLocalMediaPreference(MICROPHONE_AUTO_KEY);
   if (action === "toggle-fullscreen") toggleFullscreen();
   if (action === "toggle-program-fullscreen") {
-    const panel = target.closest(".conference-program-panel");
-    if (!panel) return;
-    if (document.documentElement.classList.contains("program-fullscreen-mode")) {
-      document.documentElement.classList.remove("program-fullscreen-mode");
-      return;
-    }
-    if (document.fullscreenElement === panel || document.webkitFullscreenElement === panel) {
-      void (document.exitFullscreen?.() ?? document.webkitExitFullscreen?.());
-    } else {
-      const request = panel.requestFullscreen ?? panel.webkitRequestFullscreen;
-      if (request) void Promise.resolve(request.call(panel)).catch(() => {
-        document.documentElement.classList.add("program-fullscreen-mode");
-      });
-      else document.documentElement.classList.add("program-fullscreen-mode");
-    }
+    if (!target.closest(".conference-program-panel")) return;
+    const expanded = document.documentElement.classList.toggle("program-fullscreen-mode");
+    target.setAttribute("aria-label", expanded ? "Свернуть трансляцию" : "Развернуть трансляцию на весь экран");
   }
 }
 
-document.addEventListener("fullscreenchange", () => {
-  if (document.fullscreenElement) document.documentElement.classList.remove("program-fullscreen-mode");
-  const button = document.querySelector(".conference-program-panel .program-fullscreen-button");
-  const expanded = button?.closest(".conference-program-panel") === document.fullscreenElement;
-  button?.setAttribute("aria-label", expanded ? "Свернуть трансляцию" : "Развернуть трансляцию на весь экран");
-});
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !document.fullscreenElement) document.documentElement.classList.remove("program-fullscreen-mode");
 });

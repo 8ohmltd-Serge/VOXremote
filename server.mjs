@@ -70,7 +70,7 @@ const securityHeaders = (response) => {
   response.setHeader("x-content-type-options", "nosniff");
   response.setHeader("referrer-policy", "no-referrer");
   response.setHeader("permissions-policy", "camera=(self), microphone=(self), display-capture=(self)");
-  response.setHeader("content-security-policy", "default-src 'self'; connect-src 'self' wss:; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; worker-src 'self' blob:");
+  response.setHeader("content-security-policy", "default-src 'self'; connect-src 'self' wss:; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:");
 };
 
 // clientIp() takes the right-hand X-Forwarded-For entry added by the trusted

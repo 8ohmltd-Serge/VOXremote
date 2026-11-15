@@ -41,7 +41,7 @@ import {
   serviceRequestCategoryOptions, eventRetryDelay, PARTICIPANT_LANGUAGES, participantLanguageOptions, participantLanguage,
   setParticipantLanguage, participantText, participantFormatTime, openDocumentViewer, closeDocumentViewer, updateDocumentViewerRights,
   documentSceneEvent
-} from "./app.js?v=0.8.26";
+} from "./app.js?v=0.8.27";
 
 function sizeConferenceProgram() {
   const panel = document.querySelector("#pageContent .conference-program-panel");
@@ -1448,7 +1448,7 @@ function conferenceHtml() {
   const presentationOffer = activePresentation ? `<article class="panel panel-pad material-offer active-material-offer"><h4 class="panel-title">Материал отправлен в показ</h4><p class="active-material-name" title="${escapeHtml(activePresentation.title)}">${escapeHtml(activePresentation.title)}</p><div class="action-strip"><button class="button button-secondary" data-action="open-presentation-document" data-document-id="${activePresentation.documentId}" data-presentation-id="${activePresentation.id}">Открыть показ</button>${canManageContent() ? `<button class="button button-danger" data-action="stop-presentation" data-presentation-id="${activePresentation.id}">Убрать из показа</button>` : ""}</div></article>` : "";
   const programPanel = `<article class="panel conference-program-panel"><button type="button" class="program-fullscreen-button" data-action="toggle-program-fullscreen" aria-label="${document.documentElement.classList.contains("program-fullscreen-mode") ? "Свернуть трансляцию" : "Развернуть трансляцию на весь экран"}" title="На весь экран">${iconLabel("fullscreen", "На весь экран")}</button><div id="programStage" class="preview-stage program-stage-large"><div class="preview-empty">Трансляция зала пока не началась.</div></div></article>`;
   const channelsPanel = `<article class="panel panel-pad secretary-open-channels"><h4 class="panel-title">Открытые каналы</h4><div class="secretary-speakers">${secretarySpeakersHtml()}</div></article>`;
-  const queuePanel = `<article class="panel panel-pad conference-queue-panel"><div class="section-title-row"><h4 class="panel-title">Очередь</h4><span class="count-badge">${state.meeting.floorQueue.length}</span></div>${queue}${presenterSchedule}</article>`;
+  const queuePanel = `<article class="panel panel-pad conference-queue-panel"><div class="section-title-row"><h4 class="panel-title">Очередь</h4><span class="count-badge">${state.meeting.floorQueue.length}</span></div>${showPresenterSchedule ? presenterSchedule : ""}${queue}${showPresenterSchedule ? "" : presenterSchedule}</article>`;
   const ucLiveCount = (state.ucSessions ?? []).filter((session) => !session.simulated && !session.muted).length;
   const ucSpeakerControl = state.ucControl;
   const ucSpeakerAdapters = new Map((ucSpeakerControl?.adapters ?? []).map((adapter) => [adapter.id, adapter]));

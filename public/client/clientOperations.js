@@ -31,9 +31,9 @@ import {
   serviceRequestCategoryLabel, serviceRequestStatusLabel, serviceRequestCategoryOptions, eventRetryDelay,
   PARTICIPANT_LANGUAGES, participantLanguage, setParticipantLanguage, participantText, participantFormatTime, openDocumentViewer,
   closeDocumentViewer, expandPresentationViewer, updateDocumentViewerRights, documentSceneEvent
-} from "./app.js?v=0.8.26";
+} from "./app.js?v=0.8.27";
 import { roomSeatDialog } from "./roomSeatScheme.js";
-import { startFaceFraming } from "./faceFraming.js?v=0.8.26";
+import { startFaceFraming } from "./faceFraming.js?v=0.8.27";
 
 // Dialog builders and roster flows live here, not in the participant bootstrap (app.js budget).
 const VoxNoticeLocale = globalThis.VoxNoticeLocale;

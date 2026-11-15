@@ -14,6 +14,12 @@ test("gateway advertises scoped remote, organizer, Zoom and Teams OAuth capabili
   assert.match(source, /type: "ack", id: message\.id, purpose: message\.purpose, ok: true/);
 });
 
+test("remote client policy permits bundled WebAssembly face detector without unsafe JavaScript evaluation", async () => {
+  const source = await readFile(new URL("./server.mjs", import.meta.url), "utf8");
+  assert.match(source, /script-src 'self' 'wasm-unsafe-eval'/);
+  assert.doesNotMatch(source, /script-src 'self' 'unsafe-eval'/);
+});
+
 test("UC organizer and remote delegate codes use distinct allowlisted tables", () => {
   assert.equal(codeTableForPurpose(undefined), "remote_codes");
   assert.equal(codeTableForPurpose("remote-participant"), "remote_codes");

@@ -568,11 +568,16 @@ async function refreshPointer(viewer) {
 
 function applyPointerState(viewer, state) {
   const wasHolder = viewer.pointerState?.you?.holder;
+  const previousOwner = viewer.pointerState?.holder?.userId ?? null;
   viewer.pointerState = state;
   const you = state.you ?? {};
   viewer.canDriveViewport = state.holder ? Boolean(you.holder) : viewer.legacyCanDriveViewport;
   viewer.followAvailable = !you.holder;
   if (you.holder) viewer.follow = false;
+  else if (state.holder?.userId && state.holder.userId !== previousOwner) {
+    viewer.follow = true;
+    void applyViewport(viewer, viewer.scene?.viewport);
+  }
   updateFollowingButton(viewer);
   if (!you.holder && viewer.tool === "pointer") selectTool(viewer, "move");
   if (!you.holder) viewer.stage.classList.remove("document-pointer-active");
@@ -1257,14 +1262,7 @@ export async function openDocumentViewer({ api, document: item, presentation = n
     }
     if (action === "fullscreen") {
       const panel = root.querySelector(".document-viewer");
-      if (document.fullscreenElement === panel) await document.exitFullscreen?.();
-      else if (/iPad|Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1) {
-        panel.classList.toggle("is-document-expanded");
-      } else if (panel.requestFullscreen) {
-        try { await panel.requestFullscreen(); }
-        catch (_) { panel.classList.toggle("is-document-expanded"); }
-      } else panel.classList.toggle("is-document-expanded");
-      const expanded = document.fullscreenElement === panel || panel.classList.contains("is-document-expanded");
+      const expanded = panel.classList.toggle("is-document-expanded");
       const button = root.querySelector('[data-viewer="fullscreen"]');
       button.setAttribute("aria-label", expanded ? "Свернуть документ" : "Развернуть документ на весь экран");
       button.title = expanded ? "Свернуть" : "На весь экран";
