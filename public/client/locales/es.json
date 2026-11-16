@@ -1,4 +1,12 @@
 {
+ "Элементы системного источника": "Elementos de la fuente del sistema",
+ "Изображение можно установить только для подложки или логотипа": "Solo se puede usar una imagen para el fondo o el logotipo.",
+ "Изображение блока должно быть PNG, JPEG или WebP до 500 КБ": "La imagen del bloque debe ser PNG, JPEG o WebP y no superar los 500 KB.",
+ "Загрузите изображение блока": "Suba una imagen para el bloque.",
+ "Свой логотип": "Logotipo personalizado",
+ "Изображение подложки": "Imagen de fondo",
+ "Изображение добавлено к шаблону. Сохраните его для применения.": "La imagen se añadió a la plantilla. Guarde la plantilla para aplicarla.",
+ "Изображение блока слишком велико; выберите файл меньшего размера": "La imagen del bloque es demasiado grande; elija un archivo más pequeño.",
  "Что изменится в VOX-S {0}": "Cambios en VOX-S {0}",
  "Для этого выпуска описание изменений пока недоступно.": "Las notas de esta versión todavía no están disponibles.",
  "Для установки потребуется перезапуск VOX-S.": "La instalación requiere reiniciar VOX-S.",
@@ -6856,7 +6864,6 @@
  "Показать инструменты": "Mostrar herramientas",
  "получает": "recibe",
  "Пометка: {2}": "Anotación: {2}",
- "Последние две цифры цвета задают прозрачность: 00 — полностью прозрачно, FF — непрозрачно.": "Los dos últimos dígitos del color definen la opacidad: 00 es transparente y FF es opaco.",
  "Предпросмотр системного источника": "Vista previa de la fuente del sistema",
  "Применён к PGM": "Aplicado a PGM",
  "Применить к PGM": "Aplicar a PGM",
@@ -6937,5 +6944,15 @@
  "Лицензия разработчика выдаётся VOXORDIA на срок до 90 дней. Для продолжения запросите новую лицензию.": "VOXORDIA emite la licencia de desarrollador por un máximo de 90 días. Para continuar, solicite una licencia nueva.",
  "Каналы: {0}. Функциональные: {1}. Безопасность: {2}.": "Canales: {0}. Funciones: {1}. Seguridad: {2}.",
  "Выпущена для версии": "Emitida para la versión",
- "Справочно: на обновления не влияет": "Solo informativo: no afecta a las actualizaciones"
+ "Справочно: на обновления не влияет": "Solo informativo: no afecta a las actualizaciones",
+ "Изображение из библиотеки заставок": "Imagen de la biblioteca de fondos",
+ "Подложка": "Fondo",
+ "Прозрачность границы, 0–255": "Opacidad del borde, 0–255",
+ "Прозрачность фона, 0–255": "Opacidad del fondo, 0–255",
+ "Прозрачность второго цвета, 0–255": "Opacidad del segundo color, 0–255",
+ "{0}. Стрелки перемещают, Shift со стрелками изменяет размер": "{0}. Las flechas mueven; Mayús+flechas cambia el tamaño",
+ "Экран не найден": "No se encontró la pantalla",
+ "Фон доступен только назначенному экрану": "El fondo solo está disponible para la pantalla asignada",
+ "В шаблоне экрана фон из библиотеки не выбран": "La plantilla de pantalla no usa un fondo de la biblioteca",
+ "В библиотеке заставок нет выбранного изображения": "No hay ninguna imagen seleccionada en la biblioteca de fondos"
 }

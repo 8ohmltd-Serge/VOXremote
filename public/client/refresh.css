@@ -192,9 +192,18 @@ body:not([data-role="admin"]):not([data-role="technician"]):not([data-role="oper
 .workspace-grid.is-pixel-grid>.secretary-layout-panel{width:var(--layout-width);max-width:100%}
 .conference-program-panel .program-fullscreen-button{position:absolute;z-index:8;right:8px;top:8px;display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:5px 9px;border:1px solid #ffffff70;border-radius:7px;background:#111d;color:#fff;font:inherit;font-size:11px;cursor:pointer}
 .conference-program-panel .program-fullscreen-button:hover,.conference-program-panel .program-fullscreen-button:focus-visible{background:#111;color:#fff;border-color:#fff}
-.program-fullscreen-mode .conference-program-panel{position:fixed!important;inset:0 0 var(--bottom-controls-height) 0;z-index:10020;width:100vw!important;height:calc(100dvh - var(--bottom-controls-height))!important;max-width:none!important;aspect-ratio:auto!important;border:0;border-radius:0;background:#070707}
-.program-fullscreen-mode .bottom-controls{z-index:10040}
-.program-fullscreen-mode .conference-program-panel .program-stage-large{width:100%!important;height:100%!important;max-height:none!important;aspect-ratio:auto!important}
+.program-fullscreen-mode .conference-program-panel{position:fixed!important;inset:0!important;z-index:10020;display:flex!important;flex-direction:column;width:100vw!important;height:100dvh!important;min-height:0!important;max-width:none!important;max-height:none!important;aspect-ratio:auto!important;padding:0!important;margin:0!important;border:0;border-radius:0;background:#070707}
+.program-fullscreen-mode .bottom-controls{left:0!important;right:0!important;width:100vw;min-height:10dvh;z-index:10040}
+.program-fullscreen-mode .mobile-nav,body:has(.document-viewer.is-document-expanded) .mobile-nav{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(68px,1fr);overflow-x:auto;min-height:42px;box-sizing:border-box;padding:4px max(8px,env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));border-top:1px solid var(--line);background:rgb(255 255 255 / 96%)}
+.program-fullscreen-mode .mobile-nav .nav-item,body:has(.document-viewer.is-document-expanded) .mobile-nav .nav-item{min-height:36px;padding:4px 6px;font-size:11px}
+.program-fullscreen-mode .mobile-nav .nav-item[hidden],body:has(.document-viewer.is-document-expanded) .mobile-nav .nav-item[hidden]{display:none!important}
+@media (min-width: 900px) {
+  .program-fullscreen-mode .bottom-controls,body:has(.document-viewer.is-document-expanded) .bottom-controls{grid-template-columns:minmax(320px,45%) minmax(0,1fr);min-height:10dvh}
+  .program-fullscreen-mode .microphone-dock,body:has(.document-viewer.is-document-expanded) .microphone-dock{min-width:0;min-height:10dvh;padding:6px 12px}
+  .program-fullscreen-mode .mobile-nav,body:has(.document-viewer.is-document-expanded) .mobile-nav{min-width:0;align-self:stretch;border-top:0;border-left:1px solid var(--line)}
+}
+.program-fullscreen-mode .conference-program-panel .program-stage-large{flex:1 1 auto!important;width:100%!important;height:100%!important;min-height:0!important;max-height:none!important;aspect-ratio:auto!important}
+.program-fullscreen-mode .conference-program-panel .program-panel-head{position:absolute!important;top:0!important;left:0!important;right:0!important;flex:0 0 auto!important}
 .conference-program-panel:fullscreen,.conference-program-panel:-webkit-full-screen{display:grid!important;grid-template-rows:minmax(0,1fr)!important;position:fixed!important;inset:0!important;width:100vw!important;height:100dvh!important;max-width:none!important;max-height:none!important;min-height:0!important;aspect-ratio:auto!important;padding:0!important;margin:0!important;border:0!important;border-radius:0!important;background:#070707!important}
 .conference-program-panel:fullscreen .program-stage-large,.conference-program-panel:-webkit-full-screen .program-stage-large{width:100%!important;height:100%!important;max-height:none!important;min-height:0!important;aspect-ratio:auto!important}
 .workspace-grid .panel :is(p:not(.service-note),.floor-name,.service-request-place strong,.secretary-speakers strong,.service-assignee strong){font-size:var(--workspace-body-font-size,14px)}

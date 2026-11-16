@@ -107,7 +107,10 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     if (current.root.querySelector("[data-viewer-colors]:not([hidden])")) { togglePalette(current, false); return; }
     if (current.root.querySelector(".document-viewer")?.classList.contains("is-document-expanded")) {
-      current.root.querySelector(".document-viewer").classList.remove("is-document-expanded"); return;
+      current.root.querySelector(".document-viewer").classList.remove("is-document-expanded");
+      if (documentFullscreenOwned && document.fullscreenElement === document.documentElement) void document.exitFullscreen?.();
+      documentFullscreenOwned = false;
+      return;
     }
     if (inner) inner.querySelector("[data-cancel]")?.click();
     else current.root.querySelector('[data-viewer="close"]')?.click();
@@ -126,9 +129,14 @@ document.addEventListener("keydown", (event) => {
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && current?.sceneBase && current.ready) refreshScene(current).catch(() => {});
 });
+let documentFullscreenOwned = false;
 document.addEventListener("fullscreenchange", () => {
   if (!current?.ready || current.minimized) return;
   const panel = current.root.querySelector(".document-viewer");
+  if (!document.fullscreenElement && documentFullscreenOwned) {
+    panel?.classList.remove("is-document-expanded");
+    documentFullscreenOwned = false;
+  }
   const button = panel?.querySelector('[data-viewer="fullscreen"]');
   if (button) {
     const expanded = document.fullscreenElement === panel || panel.classList.contains("is-document-expanded");
@@ -228,7 +236,8 @@ function svgFor(annotation) {
 
 export function minimizeDocumentViewer() {
   if (!current?.presentation) return;
-  if (document.fullscreenElement === current.root.querySelector(".document-viewer")) void document.exitFullscreen?.();
+  if (documentFullscreenOwned && document.fullscreenElement === document.documentElement) void document.exitFullscreen?.();
+  documentFullscreenOwned = false;
   current.minimized = true;
   current.root.hidden = true;
   focusTarget(current.opener)?.focus({ preventScroll: true });
@@ -250,7 +259,8 @@ export function closeDocumentViewer({ restoreFocus = true } = {}) {
   if (loading) { openSequence += 1; hideLoading(); }
   if (!current) return;
   const opener = current.opener;
-  if (document.fullscreenElement === current.root.querySelector(".document-viewer")) void document.exitFullscreen?.();
+  if (documentFullscreenOwned && document.fullscreenElement === document.documentElement) void document.exitFullscreen?.();
+  documentFullscreenOwned = false;
   current.layoutObserver?.disconnect();
   stopPointer(current);
   clearInterval(current.poll);
@@ -1263,6 +1273,13 @@ export async function openDocumentViewer({ api, document: item, presentation = n
     if (action === "fullscreen") {
       const panel = root.querySelector(".document-viewer");
       const expanded = panel.classList.toggle("is-document-expanded");
+      if (expanded && !document.fullscreenElement) {
+        try { await document.documentElement.requestFullscreen?.(); documentFullscreenOwned = document.fullscreenElement === document.documentElement; }
+        catch { documentFullscreenOwned = false; }
+      } else if (!expanded && documentFullscreenOwned && document.fullscreenElement === document.documentElement) {
+        await document.exitFullscreen?.().catch(() => {});
+        documentFullscreenOwned = false;
+      }
       const button = root.querySelector('[data-viewer="fullscreen"]');
       button.setAttribute("aria-label", expanded ? "Свернуть документ" : "Развернуть документ на весь экран");
       button.title = expanded ? "Свернуть" : "На весь экран";

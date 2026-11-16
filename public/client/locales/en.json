@@ -1,4 +1,12 @@
 {
+ "Элементы системного источника": "System source elements",
+ "Изображение можно установить только для подложки или логотипа": "An image can be used only for the backdrop or logo.",
+ "Изображение блока должно быть PNG, JPEG или WebP до 500 КБ": "The block image must be a PNG, JPEG, or WebP file up to 500 KB.",
+ "Загрузите изображение блока": "Upload a block image.",
+ "Свой логотип": "Custom logo",
+ "Изображение подложки": "Backdrop image",
+ "Изображение добавлено к шаблону. Сохраните его для применения.": "The image was added to the template. Save the template to apply it.",
+ "Изображение блока слишком велико; выберите файл меньшего размера": "The block image is too large; choose a smaller file.",
  "Что изменится в VOX-S {0}": "What changes in VOX-S {0}",
  "Для этого выпуска описание изменений пока недоступно.": "Release notes are not available for this build yet.",
  "Для установки потребуется перезапуск VOX-S.": "Installation requires a VOX-S restart.",
@@ -6856,7 +6864,6 @@
  "Показать инструменты": "Show tools",
  "получает": "receives",
  "Пометка: {2}": "Annotation: {2}",
- "Последние две цифры цвета задают прозрачность: 00 — полностью прозрачно, FF — непрозрачно.": "The last two colour digits set opacity: 00 is fully transparent, FF is opaque.",
  "Предпросмотр системного источника": "System source preview",
  "Применён к PGM": "Applied to PGM",
  "Применить к PGM": "Apply to PGM",
@@ -6937,5 +6944,15 @@
  "Лицензия разработчика выдаётся VOXORDIA на срок до 90 дней. Для продолжения запросите новую лицензию.": "A developer licence is issued by VOXORDIA for up to 90 days. To continue, request a new licence.",
  "Каналы: {0}. Функциональные: {1}. Безопасность: {2}.": "Channels: {0}. Features: {1}. Security: {2}.",
  "Выпущена для версии": "Issued for version",
- "Справочно: на обновления не влияет": "For information only: does not affect updates"
+ "Справочно: на обновления не влияет": "For information only: does not affect updates",
+ "Изображение из библиотеки заставок": "Image from slate library",
+ "Подложка": "Backdrop",
+ "Прозрачность границы, 0–255": "Border opacity, 0–255",
+ "Прозрачность фона, 0–255": "Background opacity, 0–255",
+ "Прозрачность второго цвета, 0–255": "Second color opacity, 0–255",
+ "{0}. Стрелки перемещают, Shift со стрелками изменяет размер": "{0}. Arrow keys move; Shift+arrow keys resize",
+ "Экран не найден": "Screen not found",
+ "Фон доступен только назначенному экрану": "The background is available only to the assigned screen",
+ "В шаблоне экрана фон из библиотеки не выбран": "The screen template does not use a library background",
+ "В библиотеке заставок нет выбранного изображения": "No image is selected in the slate library"
 }

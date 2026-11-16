@@ -52,7 +52,7 @@ function meetingControlPanelId(meetingId) {
 }
 async function loadFeatureModules() {
   if (!featureModulesPromise) featureModulesPromise = Promise.all([
-    import("./clientViews.js?v=0.8.32"), import("./clientOperations.js?v=0.8.32"), import("./roomControlEvents.js?v=0.8.32")
+    import("./clientViews.js?v=0.8.35"), import("./clientOperations.js?v=0.8.35"), import("./roomControlEvents.js?v=0.8.35")
   ]).then(([views, operations, controls]) => {
     roomControlEvents = controls.createRoomControlEvents($("#pageContent"), () => state, notify, (pageId, action = "navigate") => {
       const project = state.roomControl;
@@ -1821,7 +1821,7 @@ async function refreshAll(silent = false) {
       scoped(mediaAccess && mediaTab, "/media/ndi/jobs", state.ndiJobs),
       keep(state.api.get("/status"), state.systemStatus),
       scoped(can("media.health.read") && mediaTab, `/mcu/health?meetingId=${meetingId}`, state.mcuHealth),
-      scoped(can("pgm.operate") && state.activeTab === "settings", "/media/pgm-slates", state.pgmSlates),
+      scoped(can("pgm.operate") && mediaTab, "/media/pgm-slates", state.pgmSlates),
       scoped(translateTab, "/translate-core/status", state.translateStatus),
       scoped(translateTab, `/meetings/${meetingId}/translate-core`, state.translateMeeting)
     ]);
@@ -2584,12 +2584,20 @@ function handlePageAction(event, target) {
   if (action === "toggle-program-fullscreen") {
     if (!target.closest(".conference-program-panel")) return;
     const expanded = document.documentElement.classList.toggle("program-fullscreen-mode");
+    if (expanded && !document.fullscreenElement) {
+      void document.documentElement.requestFullscreen?.().catch(() => {});
+    } else if (!expanded && document.fullscreenElement === document.documentElement) {
+      void document.exitFullscreen?.().catch(() => {});
+    }
     target.setAttribute("aria-label", expanded ? "Свернуть трансляцию" : "Развернуть трансляцию на весь экран");
   }
 }
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !document.fullscreenElement) document.documentElement.classList.remove("program-fullscreen-mode");
+});
+document.addEventListener("fullscreenchange", () => {
+  if (!document.fullscreenElement) document.documentElement.classList.remove("program-fullscreen-mode");
 });
 
 const startPublishingWithAccessHint = () => startPublishing().catch((error) => { throw mediaAccessError(error, "camera"); });

@@ -1,4 +1,12 @@
 {
+ "Элементы системного источника": "Elemente der Systemquelle",
+ "Изображение можно установить только для подложки или логотипа": "Ein Bild kann nur für den Hintergrund oder das Logo verwendet werden.",
+ "Изображение блока должно быть PNG, JPEG или WebP до 500 КБ": "Das Blockbild muss eine PNG-, JPEG- oder WebP-Datei mit höchstens 500 KB sein.",
+ "Загрузите изображение блока": "Laden Sie ein Blockbild hoch.",
+ "Свой логотип": "Eigenes Logo",
+ "Изображение подложки": "Hintergrundbild",
+ "Изображение добавлено к шаблону. Сохраните его для применения.": "Das Bild wurde der Vorlage hinzugefügt. Speichern Sie die Vorlage, um es anzuwenden.",
+ "Изображение блока слишком велико; выберите файл меньшего размера": "Das Blockbild ist zu groß; wählen Sie eine kleinere Datei.",
  "Что изменится в VOX-S {0}": "Änderungen in VOX-S {0}",
  "Для этого выпуска описание изменений пока недоступно.": "Für diese Version sind noch keine Versionshinweise verfügbar.",
  "Для установки потребуется перезапуск VOX-S.": "Für die Installation muss VOX-S neu gestartet werden.",
@@ -6856,7 +6864,6 @@
  "Показать инструменты": "Werkzeuge anzeigen",
  "получает": "empfängt",
  "Пометка: {2}": "Anmerkung: {2}",
- "Последние две цифры цвета задают прозрачность: 00 — полностью прозрачно, FF — непрозрачно.": "Die letzten beiden Farbziffern bestimmen die Deckkraft: 00 ist völlig transparent, FF ist undurchsichtig.",
  "Предпросмотр системного источника": "Vorschau der Systemquelle",
  "Применён к PGM": "Auf PGM angewendet",
  "Применить к PGM": "Auf PGM anwenden",
@@ -6937,5 +6944,15 @@
  "Лицензия разработчика выдаётся VOXORDIA на срок до 90 дней. Для продолжения запросите новую лицензию.": "Eine Entwicklerlizenz stellt VOXORDIA für bis zu 90 Tage aus. Fordern Sie zur Fortsetzung eine neue Lizenz an.",
  "Каналы: {0}. Функциональные: {1}. Безопасность: {2}.": "Kanäle: {0}. Funktionen: {1}. Sicherheit: {2}.",
  "Выпущена для версии": "Ausgestellt für Version",
- "Справочно: на обновления не влияет": "Nur zur Information: wirkt sich nicht auf Updates aus"
+ "Справочно: на обновления не влияет": "Nur zur Information: wirkt sich nicht auf Updates aus",
+ "Изображение из библиотеки заставок": "Bild aus der Hintergrundbild-Bibliothek",
+ "Подложка": "Hintergrundebene",
+ "Прозрачность границы, 0–255": "Deckkraft des Rahmens, 0–255",
+ "Прозрачность фона, 0–255": "Deckkraft des Hintergrunds, 0–255",
+ "Прозрачность второго цвета, 0–255": "Deckkraft der zweiten Farbe, 0–255",
+ "{0}. Стрелки перемещают, Shift со стрелками изменяет размер": "{0}. Pfeiltasten verschieben; Umschalt+Pfeiltasten ändern die Größe",
+ "Экран не найден": "Bildschirm nicht gefunden",
+ "Фон доступен только назначенному экрану": "Der Hintergrund ist nur für den zugewiesenen Bildschirm verfügbar",
+ "В шаблоне экрана фон из библиотеки не выбран": "Im Bildschirmtemplate ist kein Hintergrund aus der Bibliothek ausgewählt",
+ "В библиотеке заставок нет выбранного изображения": "In der Vorlagenbibliothek ist kein Bild ausgewählt"
 }
