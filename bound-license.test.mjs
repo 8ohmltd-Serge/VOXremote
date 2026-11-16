@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
-import { canonicalJson, unsignedDocument, validateTunnelHello, verifiedLicense } from "./protocol.mjs";
+import { canonicalJson, unsignedDocument, validateEnrollment, validateTunnelHello, verifiedLicense } from "./protocol.mjs";
 import { BUILTIN_BINDING_KEYS, TrustChain, legacyBindingKeyId, trustKeyId } from "./trust.mjs";
 
 const pair = () => generateKeyPairSync("ed25519", { privateKeyEncoding: { type: "pkcs8", format: "pem" },
@@ -86,4 +86,22 @@ test("the built-in binding key matches the server's rb- id and new binding keys 
   const builtin = BUILTIN_BINDING_KEYS[0];
   assert.equal(trust.keys()[0].keyId, trustKeyId(builtin.publicKey));
   assert.equal(trust.bindingKeys()[0].validFrom, "2026-11-15T18:14:41Z");
+});
+
+test("gateway enrollment accepts a bound Demo and refuses one signed by a stranger", () => {
+  const vendor = pair(), binder = pair(), installation = pair(), rogue = pair();
+  const enrollment = (license) => {
+    const payload = { schema: "voxordia.remote-gateway-enrollment.v1", action: "enroll", issuedAt: new Date(NOW).toISOString(),
+      installationPublicKey: installation.publicKey, tokenSha256: "a".repeat(64), tlsSpkiSha256: "b".repeat(64),
+      endpoint: { ip: "8.8.8.8", port: 8443 }, license };
+    return { ...payload, signature: { algorithm: "Ed25519",
+      value: sign(null, Buffer.from(canonicalJson(unsignedDocument(payload))), installation.privateKey).toString("base64") } };
+  };
+  const license = JSON.parse(JSON.stringify(demo({ vendor, binder, installation })));
+  const ok = validateEnrollment(enrollment(license), [vendor.publicKey], NOW, [window(binder)]);
+  assert.equal(ok.ok, true, ok.reason);
+  assert.equal(ok.licenseExpiresAt, iso(NOW + 30 * 86_400_000));
+  assert.equal(validateEnrollment(enrollment(license), [rogue.publicKey], NOW, [window(binder)]).reason, "license_invalid");
+  assert.equal(validateEnrollment(enrollment(license), [vendor.publicKey], NOW, []).reason, "license_invalid",
+    "without the binding key a bound Demo is not trusted");
 });
