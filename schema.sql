@@ -65,3 +65,12 @@ CREATE TABLE IF NOT EXISTS uc_organizer_sessions (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS uc_organizer_sessions_expiry_idx ON uc_organizer_sessions(expires_at);
+
+-- ADR-124: accepted license-issuer trust bundles (re-verified from the built-in key at every start).
+CREATE TABLE IF NOT EXISTS trust_bundles (
+  purpose text NOT NULL,
+  sequence integer NOT NULL,
+  bundle jsonb NOT NULL,
+  accepted_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (purpose, sequence)
+);
