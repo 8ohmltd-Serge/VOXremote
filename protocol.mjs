@@ -52,12 +52,39 @@ function signedBy(document, publicKey) {
   } catch { return false; }
 }
 
+export const BOUND_SCHEMA = "vox-s.license-bound.v1";
+
+/**
+ * The licence the gateway may rely on: a vendor-signed v1/v2 document, or for a preliminary Demo
+ * (ADR-117) the verified parts of `bound`: the vendor-signed entitlement and the Remote-signed
+ * binding. The unsigned outer fields of a bound licence are ignored; rights, installation and dates
+ * come only from the signed parts. Returns null when nothing verifies.
+ */
+export function verifiedLicense(license, vendorPublicKeys, bindingKeys = []) {
+  if (LICENSE_SCHEMAS.has(license?.schema) && vendorPublicKeys.some((key) => signedBy(license, key))) return license;
+  const bound = license?.bound;
+  if (bound?.schema !== BOUND_SCHEMA) return null;
+  const { entitlement, binding } = bound;
+  if (entitlement?.schema !== "vox-s.license-entitlement.v1" || binding?.schema !== "vox-s.license-binding.v1") return null;
+  if (entitlement.licenseClass !== "demo" || !vendorPublicKeys.some((key) => signedBy(entitlement, key))) return null;
+  const keyId = binding.signature?.keyId;
+  if (!Array.isArray(entitlement.binding?.keyIds) || !entitlement.binding.keyIds.includes(keyId)) return null;
+  const key = bindingKeys.find((item) => item.keyId === keyId);
+  if (!key || !signedBy(binding, key.publicKey)) return null;
+  const activatedAt = Date.parse(binding.activatedAt);
+  if (!Number.isFinite(activatedAt) || activatedAt < Date.parse(key.validFrom) || activatedAt > Date.parse(key.validUntil)) return null;
+  if (binding.entitlementSha256 !== sha256(canonicalJson(entitlement)) || binding.licenseId !== entitlement.licenseId) return null;
+  const { signature: _signature, binding: _binding, termDays: _termDays, activateBy: _activateBy, ...body } = entitlement;
+  return { ...body, schema: "vox-s.license.v2", installation: binding.installation, notBefore: binding.notBefore,
+    expiresAt: binding.expiresAt };
+}
+
 function keyDigest(publicKey) {
   return sha256(publicKey.replace(/\r/g, "").trim());
 }
 
 /** A customer supplies only an installation-signed public IPv4:TCP port and TLS SPKI pin. */
-export function validateEnrollment(document, vendorPublicKeys, now = Date.now()) {
+export function validateEnrollment(document, vendorPublicKeys, now = Date.now(), bindingKeys = []) {
   const fail = (reason) => ({ ok: false, reason });
   if (document?.schema !== ENROLL_SCHEMA || document.action !== "enroll" ||
       typeof document.installationPublicKey !== "string" ||
@@ -65,9 +92,8 @@ export function validateEnrollment(document, vendorPublicKeys, now = Date.now())
       !/^[a-f0-9]{64}$/.test(document.tlsSpkiSha256 ?? "")) return fail("invalid_enrollment");
   const issuedAt = Date.parse(document.issuedAt);
   if (!Number.isFinite(issuedAt) || Math.abs(now - issuedAt) > 600_000) return fail("stale_enrollment");
-  const license = document.license;
-  if (!LICENSE_SCHEMAS.has(license?.schema) ||
-      !vendorPublicKeys.some((key) => signedBy(license, key))) return fail("license_invalid");
+  const license = verifiedLicense(document.license, vendorPublicKeys, bindingKeys);
+  if (!license) return fail("license_invalid");
   if (license.notBefore && (!Number.isFinite(Date.parse(license.notBefore)) ||
       Date.parse(license.notBefore) > now)) return fail("license_not_yet_valid");
   if (license.expiresAt && (!Number.isFinite(Date.parse(license.expiresAt)) ||
@@ -109,7 +135,7 @@ export function equalDigest(a, b) {
 }
 
 /** Validate an outbound connector hello. No customer DNS name or public TCP listener is required. */
-export function validateTunnelHello(document, vendorPublicKeys, now = Date.now()) {
+export function validateTunnelHello(document, vendorPublicKeys, now = Date.now(), bindingKeys = []) {
   const fail = (reason) => ({ ok: false, reason });
   if (document?.schema !== TUNNEL_HELLO_SCHEMA || document.type !== "hello" ||
       typeof document.installationPublicKey !== "string" || !/^[a-f0-9]{48}$/.test(document.nonce ?? "")) {
@@ -117,10 +143,8 @@ export function validateTunnelHello(document, vendorPublicKeys, now = Date.now()
   }
   const issuedAt = Date.parse(document.issuedAt);
   if (!Number.isFinite(issuedAt) || Math.abs(now - issuedAt) > 600_000) return fail("stale_hello");
-  const license = document.license;
-  if (!LICENSE_SCHEMAS.has(license?.schema) || !vendorPublicKeys.some((key) => signedBy(license, key))) {
-    return fail("license_invalid");
-  }
+  const license = verifiedLicense(document.license, vendorPublicKeys, bindingKeys);
+  if (!license) return fail("license_invalid");
   if (license.notBefore && (!Number.isFinite(Date.parse(license.notBefore)) ||
       Date.parse(license.notBefore) > now)) return fail("license_not_yet_valid");
   if (license.expiresAt && (!Number.isFinite(Date.parse(license.expiresAt)) ||

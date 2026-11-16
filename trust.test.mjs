@@ -82,7 +82,7 @@ test("an older Remote that returns only the current bundle still works; errors a
 
 test("the gateway verifies hellos with the live key list and publishes /api/trust-status", async () => {
   const source = await readFile(new URL("./server.mjs", import.meta.url), "utf8");
-  assert.match(source, /validateTunnelHello\(message, issuerTrust\.publicKeys\(\)\)/);
+  assert.match(source, /validateTunnelHello\(message, issuerTrust\.publicKeys\(\), Date\.now\(\), bindingTrust\.bindingKeys\(\)\)/);
   assert.match(source, /url\.pathname === "\/api\/trust-status"/);
   const schema = await readFile(new URL("./schema.sql", import.meta.url), "utf8");
   assert.match(schema, /CREATE TABLE IF NOT EXISTS trust_bundles/);

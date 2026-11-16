@@ -7,7 +7,7 @@ import pg from "pg";
 import { WebSocketServer } from "ws";
 import { recoverPendingRequestsForSocketClose } from "./pendingRequests.mjs";
 import { GATEWAY_CAPABILITIES, normalizeRemoteCode, validateTunnelHello } from "./protocol.mjs";
-import { IssuerTrust, refreshIssuerTrust } from "./trust.mjs";
+import { BUILTIN_BINDING_KEYS, IssuerTrust, TrustChain, refreshTrust } from "./trust.mjs";
 import { codeTableForPurpose, sessionTableForPath } from "./codePurpose.mjs";
 import { resolveStaticPath } from "./staticPath.mjs";
 import { clientIp, closeAtLicenseExpiry, rateAllowed as allowAttempt } from "./gatewayLimits.mjs";
@@ -35,9 +35,11 @@ await pool.query(readFileSync(path.join(base, "schema.sql"), "utf8"));
 
 // ADR-124: licence issuer keys = environment keys (built-in) + license-issuer trust bundles from Remote.
 const issuerTrust = new IssuerTrust(vendorPublicKeys);
+// Remote binding keys verify preliminary Demo licences (ADR-117) in the tunnel hello.
+const bindingTrust = new TrustChain("binding", BUILTIN_BINDING_KEYS);
 const trustStore = {
-  async load() {
-    const { rows } = await pool.query("SELECT bundle FROM trust_bundles WHERE purpose='license-issuer' ORDER BY sequence");
+  async load(purpose) {
+    const { rows } = await pool.query("SELECT bundle FROM trust_bundles WHERE purpose=$1 ORDER BY sequence", [purpose]);
     return rows.map((row) => row.bundle);
   },
   async save(bundle) {
@@ -46,11 +48,12 @@ const trustStore = {
   }
 };
 const trustEndpoint = process.env.REMOTE_TRUST_URL ?? "https://remote.voxordia.com/api/trust.php";
-const refreshTrust = () => refreshIssuerTrust(issuerTrust, { store: trustStore, endpoint: trustEndpoint })
-  .then((accepted) => { if (accepted.length) console.log(`Licence issuer trust bundles accepted: ${accepted.join(", ")}`); })
-  .catch((error) => console.error(`Licence issuer trust refresh failed: ${error.message}`));
-await refreshTrust();
-setInterval(refreshTrust, Math.max(5 * 60_000, Number(process.env.TRUST_REFRESH_MS) || 6 * 60 * 60_000)).unref();
+const refreshAllTrust = () => Promise.all([issuerTrust, bindingTrust].map((trust) =>
+  refreshTrust(trust, { store: trustStore, endpoint: trustEndpoint })
+    .then((accepted) => { if (accepted.length) console.log(`Trust bundles ${trust.purpose} accepted: ${accepted.join(", ")}`); })
+    .catch((error) => console.error(`Trust refresh ${trust.purpose} failed: ${error.message}`))));
+await refreshAllTrust();
+setInterval(refreshAllTrust, Math.max(5 * 60_000, Number(process.env.TRUST_REFRESH_MS) || 6 * 60 * 60_000)).unref();
 
 const live = new Map();
 const mediaAuthAttempts = new Map();
@@ -296,7 +299,7 @@ const handleHttp = async (request, response) => {
   }
   if (request.method === "GET" && url.pathname === "/api/trust-status") {
     response.setHeader("cache-control", "no-store");
-    return json(response, 200, issuerTrust.status());
+    return json(response, 200, { ...issuerTrust.status(), binding: bindingTrust.status() });
   }
   if (request.method === "GET" && url.pathname === "/health") {
     return json(response, 200, { service: "voxordia-remote-gateway", ready: true });
@@ -535,7 +538,7 @@ wss.on("connection", (socket) => {
     let message;
     try { message = JSON.parse(raw.toString("utf8")); } catch { socket.close(1003, "invalid json"); return; }
     if (!installationId) {
-      const result = validateTunnelHello(message, issuerTrust.publicKeys());
+      const result = validateTunnelHello(message, issuerTrust.publicKeys(), Date.now(), bindingTrust.bindingKeys());
       if (!result.ok) { socket.close(1008, result.reason); return; }
       installationId = result.installationId;
       socket.voxEntitlements = { remote: result.remoteAllowed,

@@ -60,12 +60,33 @@ function signedBy(bundle, signers) {
   });
 }
 
-export class IssuerTrust {
-  /** builtinPems: PEM strings from the environment. */
-  constructor(builtinPems) {
+const FAR_FUTURE = "9999-12-31T23:59:59Z";
+
+/** Remote binding key id (ADR-117): "rb-" + first 16 hex of SHA-256 over the trimmed PEM text. */
+export function legacyBindingKeyId(publicKey) {
+  return `rb-${createHash("sha256").update(String(publicKey).replace(/\r/g, "").trim()).digest("hex").slice(0, 16)}`;
+}
+
+/**
+ * Built-in Remote binding key (ADR-117), the same as the server's src/licensing/trust/binding.json.
+ * Newer binding keys arrive as "binding" trust bundles signed by this one.
+ */
+export const BUILTIN_BINDING_KEYS = Object.freeze([{
+  publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA2bhNDwp01r7r/o5ownXGjZ3h2Bk/Zatf0JkdaViOoD4=\n-----END PUBLIC KEY-----\n",
+  notBefore: "2026-11-15T18:14:41Z", notAfter: "2028-11-15T18:14:41Z"
+}]);
+
+/** One purpose: built-in keys plus a chain of accepted bundles. */
+export class TrustChain {
+  /** builtinEntries: [{ publicKey, notBefore?, notAfter? }]. */
+  constructor(purpose, builtinEntries) {
+    this.purpose = purpose;
     this.builtin = [];
-    for (const publicKey of builtinPems) {
-      try { this.builtin.push({ keyId: trustKeyId(publicKey), publicKey, status: "active" }); } catch { /* not Ed25519 */ }
+    for (const item of builtinEntries) {
+      try {
+        this.builtin.push({ keyId: trustKeyId(item.publicKey), publicKey: item.publicKey, status: "active",
+          notBefore: item.notBefore ?? null, notAfter: item.notAfter ?? null });
+      } catch { /* not Ed25519 */ }
     }
     this.chain = [];
     this.checkedAt = null;
@@ -79,7 +100,7 @@ export class IssuerTrust {
     if (Buffer.byteLength(JSON.stringify(bundle ?? null)) > MAX_BUNDLE_BYTES) return ["trust-schema-invalid"];
     const structure = bundleStructureErrors(bundle);
     if (structure.length) return structure;
-    if (bundle.purpose !== TRUST_PURPOSE) return ["trust-purpose-unused"];
+    if (bundle.purpose !== this.purpose) return ["trust-purpose-unused"];
     const current = this.current();
     if (current && bundle.sequence <= current.sequence) return ["trust-sequence-stale"];
     const list = current ? current.keys.filter((key) => key.status === "active" || key.status === "retiring") : this.builtin;
@@ -94,34 +115,56 @@ export class IssuerTrust {
     return errors;
   }
 
-  /** Keys that verify licences: built-in ∪ current bundle (its status wins), revoked excluded. */
-  publicKeys() { return this.keys().filter((key) => key.status !== "revoked").map((key) => key.publicKey); }
-
+  /** Built-in ∪ current bundle (its status wins). firstNotBefore: earliest known start of the key. */
   keys() {
     const merged = new Map(this.builtin.map((key) => [key.keyId, { ...key, source: "builtin" }]));
     const current = this.current();
     for (const key of current?.keys ?? []) {
       merged.set(key.keyId, { keyId: key.keyId, publicKey: key.publicKey, status: key.status,
+        notBefore: key.notBefore ?? null, notAfter: key.notAfter ?? null,
         source: merged.has(key.keyId) ? `builtin+bundle:${current.sequence}` : `bundle:${current.sequence}` });
+    }
+    for (const key of merged.values()) {
+      const starts = [...this.builtin, ...this.chain.flatMap((bundle) => bundle.keys)]
+        .filter((item) => item.keyId === key.keyId).map((item) => item.notBefore).filter((value) => Number.isFinite(time(value)));
+      key.firstNotBefore = starts.length ? starts.reduce((a, b) => (time(a) <= time(b) ? a : b)) : null;
     }
     return [...merged.values()];
   }
 
+  /** PEMs that verify documents; revoked keys never do. */
+  publicKeys() { return this.keys().filter((key) => key.status !== "revoked").map((key) => key.publicKey); }
+
+  /** Binding keys reachable by their rb-… id and by keyId, with the window the binding must fall into. */
+  bindingKeys() {
+    return this.keys().filter((key) => key.status !== "revoked").flatMap((key) => {
+      const window = { publicKey: key.publicKey, validFrom: key.firstNotBefore ?? "1970-01-01T00:00:00Z",
+        validUntil: key.notAfter ?? FAR_FUTURE };
+      return [{ keyId: legacyBindingKeyId(key.publicKey), ...window }, { keyId: key.keyId, ...window }];
+    });
+  }
+
   /** Public status for the generator's «Ключи» tab and security reviews. */
   status() {
-    return { schema: "voxordia.connect-trust-status.v1", purpose: TRUST_PURPOSE, sequence: this.sequence(),
-      issuedAt: this.current()?.issuedAt ?? null, checkedAt: this.checkedAt, lastError: this.lastError,
+    return { purpose: this.purpose, sequence: this.sequence(), issuedAt: this.current()?.issuedAt ?? null,
+      checkedAt: this.checkedAt, lastError: this.lastError,
       keys: this.keys().map((key) => ({ keyId: key.keyId, fingerprint: trustFingerprint(key.keyId), status: key.status, source: key.source })) };
   }
+}
+
+/** Licence issuer keys: the environment keys are built in. */
+export class IssuerTrust extends TrustChain {
+  constructor(builtinPems) { super(TRUST_PURPOSE, builtinPems.map((publicKey) => ({ publicKey }))); }
+  status() { return { schema: "voxordia.connect-trust-status.v1", ...super.status() }; }
 }
 
 /**
  * Bundles newer than `after` from Remote. Prefers ?after=N (the whole missing chain:
  * voxordia.trust-bundles.v1), falls back to the single current bundle of older Remote versions.
  */
-export async function fetchRemoteBundles({ endpoint, after, fetchImpl = fetch }) {
+export async function fetchRemoteBundles({ endpoint, after, purpose = TRUST_PURPOSE, fetchImpl = fetch }) {
   const url = new URL(endpoint);
-  url.searchParams.set("purpose", TRUST_PURPOSE);
+  url.searchParams.set("purpose", purpose);
   url.searchParams.set("after", String(after));
   const response = await fetchImpl(url, { method: "GET", redirect: "error", headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(15_000) });
@@ -131,18 +174,18 @@ export async function fetchRemoteBundles({ endpoint, after, fetchImpl = fetch })
   if (Buffer.byteLength(text) > 16 * MAX_BUNDLE_BYTES) throw new Error("Remote trust response is too large");
   const value = JSON.parse(text);
   const list = value?.schema === "voxordia.trust-bundles.v1" && Array.isArray(value.bundles) ? value.bundles : [value];
-  return list.filter((bundle) => bundle?.purpose === TRUST_PURPOSE && Number(bundle.sequence) > after)
+  return list.filter((bundle) => bundle?.purpose === purpose && Number(bundle.sequence) > after)
     .sort((a, b) => a.sequence - b.sequence);
 }
 
-/** Loads stored bundles (re-verified), then refreshes from Remote. Store: { load(), save(bundle) }. */
-export async function refreshIssuerTrust(trust, { store, endpoint, fetchImpl = fetch, now = () => new Date() }) {
+/** Loads stored bundles (re-verified), then refreshes from Remote. Store: { load(purpose), save(bundle) }. */
+export async function refreshTrust(trust, { store, endpoint, fetchImpl = fetch, now = () => new Date() }) {
   if (!trust.chain.length && store) {
-    for (const bundle of await store.load()) trust.accept(bundle);
+    for (const bundle of await store.load(trust.purpose)) trust.accept(bundle);
   }
   try {
     const accepted = [];
-    for (const bundle of await fetchRemoteBundles({ endpoint, after: trust.sequence(), fetchImpl })) {
+    for (const bundle of await fetchRemoteBundles({ endpoint, after: trust.sequence(), purpose: trust.purpose, fetchImpl })) {
       const errors = trust.accept(bundle);
       if (errors.length) throw new Error(`bundle ${bundle.sequence}: ${errors.join(", ")}`);
       if (store) await store.save(bundle);
@@ -157,3 +200,5 @@ export async function refreshIssuerTrust(trust, { store, endpoint, fetchImpl = f
     trust.checkedAt = now().toISOString();
   }
 }
+
+export const refreshIssuerTrust = refreshTrust;
