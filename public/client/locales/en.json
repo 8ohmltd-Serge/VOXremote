@@ -645,7 +645,6 @@
  "Версия {0} · опубликована {1}{2}{3}": "Version {0} · published {1}{2}{3}",
  "Версия документа показа изменилась": "The version of the displayed document changed",
  "версия загружается…": "version is loading…",
- "Версия продукта не разрешена": "Product version not permitted",
  "Версия протокола SIP worker несовместима с VOX-S": "The SIP worker protocol version is incompatible with VOX-S",
  "Версия сервера": "Server version",
  "Версия Graph API": "Graph API version",
@@ -2251,7 +2250,6 @@
  "Каналы перевода": "Interpretation channels",
  "Каналы сохранены в справочнике. {0}": "Channels saved in the directory. {0}",
  "Каналы TranslateCore должны быть списком": "TranslateCore channels must be a list",
- "Каналы: {0}. Функциональные: {1}. Безопасность: {2}. Линейки: {3}.": "Channels: {0}. Features: {1}. Security: {2}. Versions: {3}.",
  "Картинка": "Picture",
  "Касание на заливке": "Touch on fill",
  "Каталог источников": "Source catalogue",
@@ -2405,7 +2403,6 @@
  "Лимит микрофонов не может быть меньше числа уже открытых": "The microphone limit cannot be lower than the number already open",
  "Лимиты: {0}.": "Limits: {0}.",
  "ЛИН": "LINE",
- "Линейки версий": "Version series",
  "Линейные": "Line",
  "Линейные источники": "Line sources",
  "Линейный вход": "Line input",
@@ -6221,7 +6218,7 @@
  "Шины «Внешняя ВКС» и «Запись» предусмотрены, но их выходы ещё не реализованы. Они помечены «не запущена» и не выдаются за работающие.": "The “External video conference” and “Recording” buses are provided, but their outputs are not implemented yet. They are marked “not running” and are not passed off as working.",
  "Шире": "Wider",
  "Ширина": "Width",
- "Ширина · шаг 10 px": "Width · 10 px steps",
+ "Ширина от рабочей области · шаг 2%": "Width of available area · 2% steps",
  "Ширина общего плана, мм": "Wide-shot width, mm",
  "Ширина, %": "Width, %",
  "Ширина, мм": "Width, mm",
@@ -6937,5 +6934,8 @@
  "Уведомление об отзыве лицензии проверено и принято. Конференции и изменения настроек остановлены до установки новой лицензии.": "The licence revocation notice was verified and accepted. Conferences and settings changes are stopped until a new licence is installed.",
  "Файл лицензии не принят.": "The licence file was not accepted.",
  "Лицензия разработчика VOXORDIA": "VOXORDIA developer licence",
- "Лицензия разработчика выдаётся VOXORDIA на срок до 90 дней. Для продолжения запросите новую лицензию.": "A developer licence is issued by VOXORDIA for up to 90 days. To continue, request a new licence."
+ "Лицензия разработчика выдаётся VOXORDIA на срок до 90 дней. Для продолжения запросите новую лицензию.": "A developer licence is issued by VOXORDIA for up to 90 days. To continue, request a new licence.",
+ "Каналы: {0}. Функциональные: {1}. Безопасность: {2}.": "Channels: {0}. Features: {1}. Security: {2}.",
+ "Выпущена для версии": "Issued for version",
+ "Справочно: на обновления не влияет": "For information only: does not affect updates"
 }

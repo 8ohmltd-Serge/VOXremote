@@ -645,7 +645,6 @@
  "Версия {0} · опубликована {1}{2}{3}": "Version {0} · publiée {1}{2}{3}",
  "Версия документа показа изменилась": "La version du document affiché a changé",
  "версия загружается…": "la version se charge…",
- "Версия продукта не разрешена": "Version du produit non autorisée",
  "Версия протокола SIP worker несовместима с VOX-S": "La version du protocole du SIP worker est incompatible avec VOX-S",
  "Версия сервера": "Version du serveur",
  "Версия Graph API": "Version de l'API Graph",
@@ -2251,7 +2250,6 @@
  "Каналы перевода": "Canaux d'interprétation",
  "Каналы сохранены в справочнике. {0}": "Canaux enregistrés dans l'annuaire. {0}",
  "Каналы TranslateCore должны быть списком": "Les canaux TranslateCore doivent être une liste",
- "Каналы: {0}. Функциональные: {1}. Безопасность: {2}. Линейки: {3}.": "Canaux : {0}. Fonctionnalités : {1}. Sécurité : {2}. Versions : {3}.",
  "Картинка": "Image",
  "Касание на заливке": "Toucher sur le remplissage",
  "Каталог источников": "Catalogue de sources",
@@ -2405,7 +2403,6 @@
  "Лимит микрофонов не может быть меньше числа уже открытых": "La limite de microphones ne peut pas être inférieure au nombre déjà ouvert",
  "Лимиты: {0}.": "Limites : {0}.",
  "ЛИН": "LIGNE",
- "Линейки версий": "Branches de versions",
  "Линейные": "Ligne",
  "Линейные источники": "Sources ligne",
  "Линейный вход": "Entrée ligne",
@@ -6221,7 +6218,7 @@
  "Шины «Внешняя ВКС» и «Запись» предусмотрены, но их выходы ещё не реализованы. Они помечены «не запущена» и не выдаются за работающие.": "Les bus « Visioconférence externe » et « Enregistrement » sont prévus, mais leurs sorties ne sont pas encore implémentées. Ils sont marqués « non démarré » et ne sont pas présentés comme fonctionnels.",
  "Шире": "Plus large",
  "Ширина": "Largeur",
- "Ширина · шаг 10 px": "Largeur · pas de 10 px",
+ "Ширина от рабочей области · шаг 2%": "Largeur de la zone disponible · pas de 2 %",
  "Ширина общего плана, мм": "Largeur du plan large, mm",
  "Ширина, %": "Largeur, %",
  "Ширина, мм": "Largeur, mm",
@@ -6937,5 +6934,8 @@
  "Уведомление об отзыве лицензии проверено и принято. Конференции и изменения настроек остановлены до установки новой лицензии.": "L'avis de révocation a été vérifié et accepté. Les conférences et les modifications des réglages sont arrêtées jusqu'à l'installation d'une nouvelle licence.",
  "Файл лицензии не принят.": "Le fichier de licence n'a pas été accepté.",
  "Лицензия разработчика VOXORDIA": "Licence développeur VOXORDIA",
- "Лицензия разработчика выдаётся VOXORDIA на срок до 90 дней. Для продолжения запросите новую лицензию.": "Une licence développeur est délivrée par VOXORDIA pour 90 jours au plus. Pour continuer, demandez une nouvelle licence."
+ "Лицензия разработчика выдаётся VOXORDIA на срок до 90 дней. Для продолжения запросите новую лицензию.": "Une licence développeur est délivrée par VOXORDIA pour 90 jours au plus. Pour continuer, demandez une nouvelle licence.",
+ "Каналы: {0}. Функциональные: {1}. Безопасность: {2}.": "Canaux : {0}. Fonctionnalités : {1}. Sécurité : {2}.",
+ "Выпущена для версии": "Émise pour la version",
+ "Справочно: на обновления не влияет": "À titre indicatif : n'affecte pas les mises à jour"
 }

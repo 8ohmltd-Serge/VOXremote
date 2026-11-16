@@ -186,6 +186,8 @@ body:not([data-role="admin"]):not([data-role="technician"]):not([data-role="oper
 
 /* ---------- Conference workspace (constructor) for participant and technical roles ---------- */
 .workspace-grid { grid-auto-rows: 10px; row-gap: 0 !important; column-gap: 10px; grid-auto-flow: row dense; align-items: start; }
+.workspace-grid.is-percent-grid{grid-template-columns:repeat(50,minmax(0,1fr));column-gap:0!important}
+.workspace-grid.is-percent-grid>.secretary-layout-panel{box-sizing:border-box;padding-right:var(--layout-gutter,0px)}
 .workspace-grid.is-pixel-grid{grid-template-columns:repeat(auto-fill,10px);column-gap:0!important}
 .workspace-grid.is-pixel-grid>.secretary-layout-panel{width:var(--layout-width);max-width:100%}
 .conference-program-panel .program-fullscreen-button{position:absolute;z-index:8;right:8px;top:8px;display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:5px 9px;border:1px solid #ffffff70;border-radius:7px;background:#111d;color:#fff;font:inherit;font-size:11px;cursor:pointer}
@@ -224,7 +226,7 @@ body:not([data-role="admin"]):not([data-role="technician"]):not([data-role="oper
 .workspace-grid .workspace-stack > .panel { margin: 0; }
 .workspace-metrics .grid-3 { gap: 8px; }
 .workspace-metrics .metric { padding: 8px 10px; border-radius: 8px; background: var(--paper); }
-@media (max-width: 900px) { .workspace-grid > .secretary-layout-panel { grid-column: span 12 !important; }.workspace-grid.is-pixel-grid>.secretary-layout-panel{grid-column:1/-1!important;width:100%} }
+@media (max-width: 900px) { .workspace-grid:not(.is-percent-grid) > .secretary-layout-panel { grid-column: span 12 !important; }.workspace-grid.is-pixel-grid>.secretary-layout-panel{grid-column:1/-1!important;width:100%} }
 @media (max-width: 760px) {
   #appView[data-role="service"] .workspace-grid,
   #appView[data-role="technician"] .workspace-grid{grid-template-columns:minmax(0,1fr)!important;grid-auto-rows:auto!important;row-gap:10px!important}

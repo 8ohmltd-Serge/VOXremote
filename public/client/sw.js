@@ -1,4 +1,4 @@
-const CACHE = "vox-s-client-v0.8.29";
+const CACHE = "vox-s-client-v0.8.32";
 const SHELL = [
   "/client/",
   "/client/styles.css",

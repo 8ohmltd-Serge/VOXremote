@@ -41,7 +41,7 @@ import {
   serviceRequestCategoryOptions, eventRetryDelay, PARTICIPANT_LANGUAGES, participantLanguageOptions, participantLanguage,
   setParticipantLanguage, participantText, participantFormatTime, openDocumentViewer, closeDocumentViewer, updateDocumentViewerRights,
   documentSceneEvent
-} from "./app.js?v=0.8.29";
+} from "./app.js?v=0.8.32";
 
 function sizeConferenceProgram() {
   const panel = document.querySelector("#pageContent .conference-program-panel");
@@ -562,10 +562,10 @@ function translationHtml() {
     const fits = Array.isArray(current?.order) && current.order.includes("translation") && current.order.every((id) => allowed.includes(id));
     if (!fits) state.secretaryLayout = structuredClone(fallback);
     const layout = fits ? current : state.secretaryLayout;
-    const pixelGrid = layout.order.some((id) => Number.isInteger(layout.panels[id]?.widthPx));
+    const gridMode = workspaceGridMode(layout);
     interpreter = `<section class="translation-workplace"><div class="status-row"><h3 class="panel-title">Рабочее место переводчика</h3><span class="chip ${assignment?.status === "on-air" && !assignment.cough && !assignment.talkback ? "translation-live" : ""}" role="status">${assignment?.talkback ? "Служебная связь" : assignment?.cough ? "Микрофон заглушен" : assignment?.status === "on-air" ? "● В эфире" : assignment ? "Готов" : "Ожидание назначения"}</span></div>
       ${agendaTitle ? `<p class="translation-agenda"><span>Текущая тема</span><strong>${escapeHtml(agendaTitle)}</strong></p>` : ""}
-      <div class="workspace-area"><div class="secretary-layout-grid workspace-grid translation-workplace-grid${pixelGrid ? " is-pixel-grid" : ""}${state.secretaryLayoutDraft ? " is-editing" : ""}" style="grid-auto-rows:${WORKSPACE_ROW}px;column-gap:${pixelGrid ? 0 : WORKSPACE_GAP}px;--workspace-body-font-size:${layout.bodyFontSize ?? 14}px;--workspace-title-font-size:${layout.titleFontSize ?? 18}px">${layout.order.map((id) => secretaryLayoutPanel(id, interpreterPanels[id])).join("")}</div></div></section>`;
+      <div class="workspace-area"><div class="secretary-layout-grid workspace-grid translation-workplace-grid${gridMode === "percent" ? " is-percent-grid" : gridMode === "pixel" ? " is-pixel-grid" : ""}${state.secretaryLayoutDraft ? " is-editing" : ""}" style="grid-auto-rows:${WORKSPACE_ROW}px;column-gap:${gridMode === "span" ? WORKSPACE_GAP : 0}px;--workspace-body-font-size:${layout.bodyFontSize ?? 14}px;--workspace-title-font-size:${layout.titleFontSize ?? 18}px">${layout.order.map((id) => secretaryLayoutPanel(id, interpreterPanels[id])).join("")}</div></div></section>`;
   }
   const operator = !interpreterRole && can("conference.participants") ? `<article class="panel panel-pad"><div class="status-row"><h4 class="panel-title">Назначения переводчиков</h4><button class="button button-secondary" data-action="translate-configure">Языки конференции</button></div>${Object.values(state.meeting.participants ?? {}).filter((item) => item.state === "joined" && ["interpreter", "translator"].includes(item.role)).map((item) => {
     const current = translation.assignments?.[item.id];
@@ -1129,6 +1129,18 @@ const LOCK_ICONS = {
 function roleLock(id, axis) {
   return state.profile?.role !== "secretary" && Boolean(state.workspaceRoleLayout?.panels?.[id]?.[axis === "width" ? "lockWidth" : "lockHeight"]);
 }
+function workspaceGridMode(layout) {
+  if (layout.order.some((id) => Number.isInteger(layout.panels[id]?.widthPercent) ||
+    (roleLock(id, "width") && Number.isInteger(state.workspaceRoleLayout?.panels?.[id]?.widthPercent)))) return "percent";
+  return layout.order.some((id) => Number.isInteger(layout.panels[id]?.widthPx)) ? "pixel" : "span";
+}
+function workspacePercent(size) {
+  if (Number.isInteger(size.widthPercent)) return size.widthPercent;
+  const available = document.querySelector(".workspace-area")?.clientWidth ??
+    document.querySelector("#pageContent")?.clientWidth ?? window.innerWidth;
+  return Math.max(2, Math.min(100, Math.round((size.widthPx === undefined ? size.width / 12 * 100
+    : (size.widthPx + WORKSPACE_GAP) / available * 100) / 2) * 2));
+}
 function panelLocked(size, id, axis) {
   return roleLock(id, axis) || Boolean(size?.[axis === "width" ? "lockWidth" : "lockHeight"]);
 }
@@ -1191,19 +1203,23 @@ function secretaryLayoutPanel(id, content) {
   // Sizes the administrator fixed for the role always win over a participant's own copy.
   const roleSize = state.workspaceRoleLayout?.panels?.[id];
   const size = { ...WORKSPACE_PANEL_SIZES[id], ...own,
-    ...(roleLock(id, "width") ? { width: roleSize.width, ...(roleSize.widthPx ? { widthPx: roleSize.widthPx } : {}) } : {}),
+    ...(roleLock(id, "width") ? { width: roleSize.width,
+      ...(roleSize.widthPercent ? { widthPercent: roleSize.widthPercent } : {}),
+      ...(roleSize.widthPx ? { widthPx: roleSize.widthPx } : {}) } : {}),
     ...(roleLock(id, "height") ? { height: roleSize.height } : {}) };
   const order = layout.order.indexOf(id);
   const editing = Boolean(state.secretaryLayoutDraft);
   const masonry = state.profile.role !== "secretary";
-  const pixelGrid = masonry && layout.order.some((panelId) => Number.isInteger(layout.panels[panelId]?.widthPx));
+  const gridMode = workspaceGridMode(layout);
+  const percent = gridMode === "percent" ? workspacePercent(size) : null;
+  const pixelGrid = gridMode === "pixel";
   const widthPx = pixelGrid ? size.widthPx ?? Math.max(100, Math.floor(((document.querySelector("#pageContent")?.clientWidth ?? 1280) - 110) * size.width / 12 / 10) * 10) : null;
   // Workspace grids pack blocks on 10 px rows; the Program tile follows its measured width (16:9).
   const height = masonry && id === "program" ? widthPx ? Math.round((widthPx * 9 / 16 + 42) / 10) * 10 : programTileHeight(size.width) : size.height;
   const rows = `;grid-row:span ${Math.ceil((height + WORKSPACE_VERTICAL_GAP) / WORKSPACE_ROW)}`;
-  const columnSpan = widthPx ? Math.ceil((widthPx + 10) / 10) : size.width;
-  return `<div class="secretary-layout-panel${editing ? " is-editing" : ""}" data-layout-panel="${id}" style="--layout-span:${columnSpan};${widthPx ? `--layout-width:${widthPx}px;` : ""}--layout-height:${height}px;order:${order}${rows}">
-      ${editing ? `<div class="secretary-panel-tools"><button type="button" class="secretary-drag-handle" data-layout-drag="${id}" aria-label="Переместить блок" title="Перетащите блок">⠿ Переместить</button><button type="button" class="secretary-order-button" data-action="secretary-panel-before" data-panel-id="${id}" aria-label="Передвинуть блок раньше">←</button><button type="button" class="secretary-order-button" data-action="secretary-panel-after" data-panel-id="${id}" aria-label="Передвинуть блок позже">→</button>${lockButton(id, "width", size)}${masonry && id === "program" ? "" : lockButton(id, "height", size)}<span>${widthPx ? `${widthPx} px` : `${size.width}/12`} · ${masonry && id === "program" ? "16:9" : `${size.height} px`}</span>${masonry && layout.order.length > 1 && !(id === "translation" && ["interpreter", "translator"].includes(state.profile.role)) ? `<button type="button" class="secretary-order-button layout-remove" data-action="layout-remove" data-panel-id="${id}" aria-label="Убрать блок «${WORKSPACE_PANEL_LABELS[id] ?? id}»" title="Убрать блок">×</button>` : ""}</div>` : ""}
+  const columnSpan = percent ? percent / 2 : widthPx ? Math.ceil((widthPx + 10) / 10) : size.width;
+  return `<div class="secretary-layout-panel${editing ? " is-editing" : ""}" data-layout-panel="${id}" style="--layout-span:${columnSpan};${percent ? `--layout-gutter:${percent === 100 ? 0 : WORKSPACE_GAP}px;` : ""}${widthPx ? `--layout-width:${widthPx}px;` : ""}--layout-height:${height}px;order:${order}${rows}">
+      ${editing ? `<div class="secretary-panel-tools"><button type="button" class="secretary-drag-handle" data-layout-drag="${id}" aria-label="Переместить блок" title="Перетащите блок">⠿ Переместить</button><button type="button" class="secretary-order-button" data-action="secretary-panel-before" data-panel-id="${id}" aria-label="Передвинуть блок раньше">←</button><button type="button" class="secretary-order-button" data-action="secretary-panel-after" data-panel-id="${id}" aria-label="Передвинуть блок позже">→</button>${lockButton(id, "width", size)}${masonry && id === "program" ? "" : lockButton(id, "height", size)}<span>${percent ? `${percent}%` : widthPx ? `${widthPx} px` : `${size.width}/12`} · ${masonry && id === "program" ? "16:9" : `${size.height} px`}</span>${masonry && layout.order.length > 1 && !(id === "translation" && ["interpreter", "translator"].includes(state.profile.role)) ? `<button type="button" class="secretary-order-button layout-remove" data-action="layout-remove" data-panel-id="${id}" aria-label="Убрать блок «${WORKSPACE_PANEL_LABELS[id] ?? id}»" title="Убрать блок">×</button>` : ""}</div>` : ""}
     ${content}
     ${editing && !(panelLocked(size, id, "width") && (panelLocked(size, id, "height") || (masonry && id === "program"))) ? `<button type="button" class="secretary-resize-handle" data-layout-resize="${id}" aria-label="Изменить размер блока" title="Потяните, чтобы изменить размер">⤡</button>` : ""}
   </div>`;
@@ -1265,6 +1281,7 @@ function startSecretaryLayoutGesture(event) {
   const size = state.secretaryLayoutDraft.panels[id];
   secretaryLayoutGesture = { id, panel, pointerId: event.pointerId, mode: drag ? "drag" : "resize",
     startX: event.clientX, startY: event.clientY, width: size.width, widthPx: size.widthPx ?? null,
+    widthPercent: workspacePercent(size),
     height: size.height, target: null };
   if (drag) panel.classList.add("is-dragging");
 }
@@ -1280,7 +1297,10 @@ function moveSecretaryLayoutGesture(event) {
     const column = (grid.getBoundingClientRect().width - 11 * gap) / 12 + gap;
     const current = state.secretaryLayoutDraft.panels[gesture.id];
     const pixelGrid = grid.classList.contains("is-pixel-grid");
+    const percentGrid = grid.classList.contains("is-percent-grid");
     const width = panelLocked(current, gesture.id, "width") ? gesture.width : Math.max(3, Math.min(12, gesture.width + Math.round(dx / column)));
+    const widthPercent = percentGrid ? panelLocked(current, gesture.id, "width") ? gesture.widthPercent
+      : Math.max(2, Math.min(100, gesture.widthPercent + Math.round(dx / (grid.clientWidth * .02)) * 2)) : null;
     const widthPx = pixelGrid ? panelLocked(current, gesture.id, "width") ? gesture.widthPx
       : Math.max(100, Math.min(Math.floor((grid.clientWidth - 10) / 10) * 10,
         (gesture.widthPx ?? gesture.panel.clientWidth) + Math.round(dx / 10) * 10)) : null;
@@ -1288,10 +1308,11 @@ function moveSecretaryLayoutGesture(event) {
     const height = panelLocked(current, gesture.id, "height") ? gesture.height
       : Math.max(state.profile?.role === "secretary" ? 160 : 80,
         Math.min(900, gesture.height + Math.round(dy / verticalStep) * verticalStep));
-    gesture.panel.style.setProperty("--layout-span", pixelGrid ? Math.ceil((widthPx + 10) / 10) : width);
+    gesture.panel.style.setProperty("--layout-span", percentGrid ? widthPercent / 2 : pixelGrid ? Math.ceil((widthPx + 10) / 10) : width);
+    if (percentGrid) gesture.panel.style.setProperty("--layout-gutter", `${widthPercent === 100 ? 0 : WORKSPACE_GAP}px`);
     if (pixelGrid) gesture.panel.style.setProperty("--layout-width", `${widthPx}px`);
     gesture.panel.style.setProperty("--layout-height", `${height}px`);
-    gesture.nextSize = { width, ...(pixelGrid ? { widthPx } : {}), height };
+    gesture.nextSize = { width, ...(percentGrid ? { widthPercent } : {}), ...(pixelGrid ? { widthPx } : {}), height };
   } else {
     gesture.panel.style.transform = `translate(${dx}px, ${dy}px)`;
     gesture.panel.style.pointerEvents = "none";
@@ -1309,6 +1330,7 @@ function finishSecretaryLayoutGesture(event) {
   secretaryLayoutGesture = null;
   if (gesture.mode === "resize" && gesture.nextSize) {
     state.secretaryLayoutDraft.panels[gesture.id] = { ...state.secretaryLayoutDraft.panels[gesture.id], ...gesture.nextSize };
+    if (gesture.nextSize.widthPercent !== undefined) delete state.secretaryLayoutDraft.panels[gesture.id].widthPx;
   } else if (gesture.mode === "drag" && gesture.target) {
     const order = state.secretaryLayoutDraft.order;
     order.splice(order.indexOf(gesture.id), 1);
@@ -1493,8 +1515,8 @@ function conferenceHtml() {
     if (!fits(state.secretaryLayout)) state.secretaryLayout = structuredClone(workspaceLayoutDefault());
     if (state.secretaryLayoutDraft && !fits(state.secretaryLayoutDraft)) state.secretaryLayoutDraft = structuredClone(state.secretaryLayout);
     const layout = state.secretaryLayoutDraft ?? state.secretaryLayout;
-    const pixelGrid = layout.order.some((id) => Number.isInteger(layout.panels[id]?.widthPx));
-    workspaceDashboard = `<div class="workspace-area"><div class="secretary-layout-grid workspace-grid${pixelGrid ? " is-pixel-grid" : ""}${state.secretaryLayoutDraft ? " is-editing" : ""}" style="grid-auto-rows:${WORKSPACE_ROW}px;column-gap:${pixelGrid ? 0 : WORKSPACE_GAP}px;--workspace-body-font-size:${layout.bodyFontSize ?? state.workspaceRoleLayout?.bodyFontSize ?? 14}px;--workspace-title-font-size:${layout.titleFontSize ?? state.workspaceRoleLayout?.titleFontSize ?? 18}px">${layout.order.filter((id) => panels[id]).map((id) => secretaryLayoutPanel(id, panels[id])).join("")}</div></div>`;
+    const gridMode = workspaceGridMode(layout);
+    workspaceDashboard = `<div class="workspace-area"><div class="secretary-layout-grid workspace-grid${gridMode === "percent" ? " is-percent-grid" : gridMode === "pixel" ? " is-pixel-grid" : ""}${state.secretaryLayoutDraft ? " is-editing" : ""}" style="grid-auto-rows:${WORKSPACE_ROW}px;column-gap:${gridMode === "span" ? WORKSPACE_GAP : 0}px;--workspace-body-font-size:${layout.bodyFontSize ?? state.workspaceRoleLayout?.bodyFontSize ?? 14}px;--workspace-title-font-size:${layout.titleFontSize ?? state.workspaceRoleLayout?.titleFontSize ?? 18}px">${layout.order.filter((id) => panels[id]).map((id) => secretaryLayoutPanel(id, panels[id])).join("")}</div></div>`;
     watchProgramTiles();
   }
   const standardDashboard = workspaceDashboard || `<div class="conference-dashboard ${focusVote ? "has-focus" : ""}"><div class="conference-main-column">${voteFocus}${programPanel}${belowProgram}</div><div class="conference-side-stack">${speakersPanel}${queuePanel}</div></div>`;
