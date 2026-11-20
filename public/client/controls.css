@@ -16,6 +16,8 @@
 .surface-media-graph :is(.sidebar-actions, .palette, .inspector) button:not(.react-flow__node button),
 .surface-room-planner button:not(.dialog-close),
 .surface-audio button:not(.dialog-close), .surface-voting button, .surface-signage button,
+.surface-control-graph button:not(#panelCanvas *), .surface-control-panel :is(#pairing, #technical, #notReady) button,
+.surface-equipment button:not(.dialog-close),
 .surface-entry button:not(.dialog-close, .link-button, [data-entry-mode])) {
   min-height: var(--vx-control-md) !important;
   height: auto;
@@ -33,6 +35,8 @@
 .surface-service .action-strip button, .surface-service .technical-account-actions button,
 .surface-service .admin-slate-actions button, .surface-service .vote-rule-template button,
 .workspace-add-bar .button,
+.surface-control-graph :is(.page-item, .page-element-item, .page-actions button, .inspector .column-head button, .tablet-row button,
+  .state-icon-actions button, .designer-context-menu button, .page-kind-menu button),
 .secretary-panel-tools button {
   min-height: var(--vx-control-sm) !important;
   height: var(--vx-control-sm) !important;
@@ -58,8 +62,18 @@
 .surface-room-planner .actions button { white-space: nowrap; }
 
 /* ---------- Fields: the same height as a regular button ---------- */
-:is(.surface-service, .surface-room-planner, .surface-audio, .surface-media-graph, #appView, #connectView, .surface-entry)
+:is(.surface-service, .surface-room-planner, .surface-audio, .surface-media-graph, .surface-equipment, #appView, #connectView, .surface-entry)
   :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]), select) {
+  min-height: var(--vx-control-md) !important;
+  height: var(--vx-control-md);
+  padding-block: 0 !important;
+  border-radius: var(--vx-control-radius) !important;
+  font-size: 14px !important;
+}
+/* ControlCore designer and the room control panel: the same field size, but the designer canvas, its compact tablet rows
+   and the published panel tiles keep their own geometry. :where() leaves the page layout rules in charge. */
+:where(.surface-control-graph, .surface-control-panel :is(#pairing, #technical, #notReady))
+  :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"]), select):not(:where(#panelCanvas *, .tile *, .tablet-row select)) {
   min-height: var(--vx-control-md) !important;
   height: var(--vx-control-md);
   padding-block: 0 !important;
@@ -69,6 +83,8 @@
 /* iPad and phone browsers zoom into fields with text below 16 px: the participant and entry pages keep 16 px. */
 :is(#appView, #connectView, .surface-entry)
   :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]), select) { font-size: 16px !important; }
+:where(.surface-control-panel :is(#pairing, #technical, #notReady))
+  :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"]), select) { font-size: 16px !important; }
 
 /* A form row aligns on its fields. In grid forms every label takes three subgrid rows (caption, field, hint),
    so fields of one row share a line however long their captions or hints are. Flex rows align on the bottom. */

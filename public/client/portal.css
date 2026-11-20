@@ -1,0 +1,85 @@
+/* Public portal pages in the connect.voxordia.com look: the Gateway (/, guides, status) and room
+   booking /booking/. Paper and ink, one red accent, Geologica, light and dark theme. Each page links
+   this file first and keeps only its own layout in its page stylesheet. Sizes follow
+   _agent_context/UI-TYPOGRAPHY.md: buttons 32/40/48 px, radius 8 px, text 12/14/16, panel titles 20,
+   page title 34–52 px (owner exception for public pages, 2026-11-17) with one red O (/client/redO.js, 0.8.41).
+   The top and bottom bar are shared with /conference/ and the /service/ sign-in: /client/portalChrome.css. */
+@font-face{font-family:Geologica;src:url("/client/assets/fonts/geologica-cyrillic-ext.woff2") format("woff2");font-weight:300 800;font-display:swap;unicode-range:U+0460-052F,U+1C80-1C88,U+20B4,U+2DE0-2DFF,U+A640-A69F,U+FE2E-FE2F}
+@font-face{font-family:Geologica;src:url("/client/assets/fonts/geologica-cyrillic.woff2") format("woff2");font-weight:300 800;font-display:swap;unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116}
+@font-face{font-family:Geologica;src:url("/client/assets/fonts/geologica-latin-ext.woff2") format("woff2");font-weight:300 800;font-display:swap;unicode-range:U+0100-02AF,U+0304,U+0308,U+0329,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:Geologica;src:url("/client/assets/fonts/geologica-latin.woff2") format("woff2");font-weight:300 800;font-display:swap;unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+
+/* Shared tokens. A page adds its own tokens with the same three theme selectors. */
+:root{
+  --paper:#f4f2ef;--surface:#fbfaf8;--ink:#111111;--muted:#69645f;--line:#ded9d3;--line-strong:#bfb9b2;--soft:#ebe7e2;
+  --red:#e5322d;--err:#b3261e;--primary:#111111;--on-primary:#f4f2ef;--focus:#e5322d;--ok:#24563c;--ok-soft:#e4ede6;
+  color-scheme:light
+}
+:root[data-theme="dark"]{
+  --paper:#111111;--surface:#181716;--ink:#f1eee9;--muted:#a39d95;--line:#2f2c29;--line-strong:#4a4540;--soft:#211f1d;
+  --red:#f0544f;--err:#ff8a84;--primary:#ece8e2;--on-primary:#111111;--focus:#f0544f;--ok:#93d0a9;--ok-soft:#1c2a21;
+  color-scheme:dark
+}
+@media(prefers-color-scheme:dark){:root:not([data-theme]){
+  --paper:#111111;--surface:#181716;--ink:#f1eee9;--muted:#a39d95;--line:#2f2c29;--line-strong:#4a4540;--soft:#211f1d;
+  --red:#f0544f;--err:#ff8a84;--primary:#ece8e2;--on-primary:#111111;--focus:#f0544f;--ok:#93d0a9;--ok-soft:#1c2a21;
+  color-scheme:dark
+}}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{-webkit-text-size-adjust:100%}
+body{
+  position:relative;isolation:isolate;margin:0;min-height:100vh;min-height:100svh;display:grid;grid-template-rows:auto 1fr auto;
+  overflow-x:hidden;background:var(--paper);color:var(--ink);font:400 14px/1.42 Geologica,Calibri,"Segoe UI",sans-serif;
+  padding:0
+}
+::selection{background:color-mix(in srgb,var(--red) 28%,transparent);color:var(--ink)}
+a{color:inherit;text-underline-offset:4px}
+a:focus-visible{outline:2px solid var(--focus);outline-offset:3px;border-radius:4px}
+h1,h2,h3,h4,p{margin:0}
+
+/* Rings: the connect background, quiet and behind everything. */
+.rings{position:fixed;left:50%;top:44%;z-index:-1;width:min(130vw,1000px);aspect-ratio:1;transform:translate(-50%,-50%);pointer-events:none}
+.rings i{position:absolute;inset:0;margin:auto;border:1px solid var(--line);border-radius:50%;opacity:0;animation:ring 9s linear infinite}
+.rings i:nth-child(2){animation-delay:-3s}.rings i:nth-child(3){animation-delay:-6s}
+@keyframes ring{0%{transform:scale(.08);opacity:0}12%{opacity:1}100%{transform:scale(1);opacity:0}}
+
+/* The top and bottom bar (.site-header, .site-footer) live in /client/portalChrome.css. */
+main{width:100%;max-width:calc(1600px + 2 * clamp(16px,4vw,56px));margin:0 auto;padding:clamp(28px,6vh,72px) clamp(16px,4vw,56px) 48px}
+
+/* Headings: large title with one red O (redO.js; the colour is in portalChrome.css), panel titles 20 px (UI-TYPOGRAPHY §2). */
+h1{font-size:clamp(34px,5vw,52px);font-weight:700;letter-spacing:-.035em;line-height:1.06;text-wrap:balance;hyphens:manual;overflow-wrap:break-word}
+h2{font-size:20px;font-weight:700;letter-spacing:-.015em;line-height:1.2}
+.lead{max-width:62ch;margin-top:14px;color:var(--muted);font-size:16px;line-height:1.5}
+
+/* Buttons and button-like links (UI-TYPOGRAPHY §8): regular 40/14, large 48/16, compact 32/13, radius 8.
+   The main action is black (beige in the dark theme); one per screen. */
+.button,button{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:0 16px;border:1px solid transparent;border-radius:8px;
+  background:var(--primary);color:var(--on-primary);font:inherit;font-size:14px;font-weight:600;line-height:1.2;white-space:nowrap;cursor:pointer;
+  text-decoration:none;transition:transform .12s ease,opacity .15s ease,background-color .15s ease,border-color .15s ease,color .15s ease
+}
+.button:hover,button:hover:not(:disabled){opacity:.88}
+.button:active,button:active:not(:disabled){transform:scale(.98)}
+button:focus-visible{outline:2px solid var(--focus);outline-offset:3px}
+button:disabled{opacity:.42;cursor:not-allowed;transform:none}
+.button.large,button.large{min-height:48px;padding:0 22px;font-size:16px}
+.button.compact,button.compact{min-height:32px;padding:0 12px;font-size:13px}
+.button.secondary,button.secondary{border-color:var(--line-strong);background:transparent;color:var(--ink)}
+.button.secondary:hover:not(:disabled),button.secondary:hover:not(:disabled){opacity:1;border-color:var(--ink)}
+.button.quiet,button.quiet{background:transparent;color:var(--muted)}
+.button.quiet:hover:not(:disabled),button.quiet:hover:not(:disabled){opacity:1;color:var(--ink)}
+.button.danger,button.danger{border-color:var(--err);background:transparent;color:var(--err)}
+.button.danger:hover:not(:disabled),button.danger:hover:not(:disabled){opacity:1;background:color-mix(in srgb,var(--err) 10%,transparent)}
+
+.panel{padding:24px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+
+@media(max-width:580px){
+  .panel{padding:18px}
+}
+@media(prefers-reduced-motion:reduce){
+  .rings i{animation:none;opacity:.5}.rings i:nth-child(1){transform:scale(.35)}.rings i:nth-child(2){transform:scale(.6)}.rings i:nth-child(3){transform:scale(.85)}
+  *,*::before,*::after{transition:none!important}
+  .button:active,button:active:not(:disabled){transform:none}
+}

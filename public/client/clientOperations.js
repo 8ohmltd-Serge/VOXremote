@@ -31,9 +31,9 @@ import {
   serviceRequestCategoryLabel, serviceRequestStatusLabel, serviceRequestCategoryOptions, eventRetryDelay,
   PARTICIPANT_LANGUAGES, participantLanguage, setParticipantLanguage, participantText, participantFormatTime, openDocumentViewer,
   closeDocumentViewer, expandPresentationViewer, updateDocumentViewerRights, documentSceneEvent
-} from "./app.js?v=0.8.35";
+} from "./app.js?v=0.8.42";
 import { roomSeatDialog } from "./roomSeatScheme.js";
-import { startFaceFraming } from "./faceFraming.js?v=0.8.35";
+import { startFaceFraming } from "./faceFraming.js?v=0.8.42";
 
 // Dialog builders and roster flows live here, not in the participant bootstrap (app.js budget).
 const VoxNoticeLocale = globalThis.VoxNoticeLocale;
@@ -585,7 +585,7 @@ async function runAction(action, success = null) {
 
 async function toggleUcMute(sessionId) {
   const session = state.ucSessions.find((item) => item.id === sessionId);
-  if (!session) throw Error("Подключение UCCore уже завершено");
+  if (!session) throw Error("Подключение к внешней встрече уже завершено");
   return state.api.patch(`/meetings/${encodeURIComponent(state.profile.meetingId)}/uc-sessions/${encodeURIComponent(session.id)}/mute`,
     { muted: !session.muted });
 }
@@ -598,8 +598,8 @@ async function decideUcShare(sessionId, allow = null) {
   const url = `/meetings/${encodeURIComponent(state.profile.meetingId)}/uc-sessions/${encodeURIComponent(sessionId)}/share`;
   if (allow === false) return state.api.patch(url, { allow: false });
   const name = session.displayName?.trim() || "Участник внешней встречи";
-  const values = await httpForm("Показ экрана", [{ name: "program", label: "Сразу в PGM", type: "checkbox", value: false, required: false }],
-    "Разрешить", { description: `${name} хочет показать свой экран. Если не отправлять сразу в PGM, экран появится в камерах и потоках.` });
+  const values = await httpForm("Показ экрана", [{ name: "program", label: "Сразу в эфир", type: "checkbox", value: false, required: false }],
+    "Разрешить", { description: `${name} хочет показать свой экран. Если не отправлять сразу в эфир, экран появится в камерах и потоках.` });
   if (!values) return false;
   return state.api.patch(url, { allow: true, program: values.program === "on" });
 }
@@ -675,7 +675,7 @@ async function connectPlannedUc(button) {
 async function connectLiveUc(button) {
   if (!canConnectUc() || state.meeting.status !== "active") return;
   const adapters = (state.ucControl?.adapters ?? []).filter((item) => item.capabilities?.join);
-  if (!adapters.length) return notify("Лицензированный UC-адаптер для подключения не настроен");
+  if (!adapters.length) return notify("Лицензированный адаптер видеовстреч не настроен");
   button.disabled = true;
   try {
     const form = await httpForm("Подключиться к идущей внешней встрече", [
@@ -1260,7 +1260,7 @@ async function configureNdiOutput(outputId) {
   const values = await httpForm(`Настройка ${output.name}`, [
     { name: "name", label: "Имя NDI-потока", value: output.name },
     { name: "sourceKind", label: "Выходной сигнал", type: "select", value: output.source?.kind ?? "program", options: [
-      { value: "program", label: "PGM" },
+      { value: "program", label: "Трансляция" },
       { value: "mosaic-all", label: "Мозаика всех участников" },
       { value: "mosaic-speakers", label: "Мозаика говорящих участников" },
       { value: "stream", label: "Конкретный видеопоток" }
@@ -1368,14 +1368,14 @@ async function ensureStreamPreview(stream) {
   if (stream.sourceType === "system_multiview") return;
   if (stream.protocol === "synthetic" && stream.syntheticKind === "document") return;
   if (["webrtc", "external_uc", "mjpeg", "hls"].includes(stream.protocol) || stream.previewUrl) return;
-  if (!canOperateMedia()) throw new Error("Источник ещё не преобразован в HLS. Оператор должен запустить Media Worker.");
+  if (!canOperateMedia()) throw new Error("Источник ещё не преобразован в HLS. Оператор должен запустить службу обработки видео.");
   if (stream.protocol === "rtsp") {
     const job = await state.api.post("/media/workers", {
       streamId: stream.id,
       profile: "transcode-h264",
       transport: "auto"
     });
-    if (job.status === "failed") throw new Error(job.error || job.logTail?.at(-1) || "RTSP Media Worker не запустился");
+    if (job.status === "failed") throw new Error(job.error || job.logTail?.at(-1) || "Служба обработки видео RTSP не запустилась");
     stream.previewUrl = job.playlistUrl;
     if (!state.mediaWorkers.some((item) => item.id === job.id)) state.mediaWorkers.push(job);
     return;
@@ -2387,7 +2387,7 @@ async function publishRoom(status) {
   await state.api.post(`/signage/scenes?meetingId=${encodeURIComponent(state.profile.meetingId)}`, {
     type: "room-status",
     title: status === "free" ? "Зал свободен" : state.meeting.title,
-    body: status === "free" ? "Следующее мероприятие — по расписанию" : "Идёт конференция · просьба не входить",
+    body: status === "free" ? "Следующее мероприятие — по расписанию" : "Идёт конференция · просьба не входить",
     roomStatus: status,
     target: playerId ? { playerIds: [playerId] } : { roomId }
   });
@@ -2815,7 +2815,7 @@ async function startScreenShare() {
   const media = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15, max: 30 } }, audio: true });
   const stream = await state.api.post(`/meetings/${state.profile.meetingId}/streams`, {
     sourceType: "content_source", ownerParticipantId: state.participantId,
-    label: `${state.profile.displayName} — демонстрация экрана`, protocol: "webrtc",
+    label: `${state.profile.displayName} — демонстрация экрана`, protocol: "webrtc",
     capabilities: { video: true, audio: media.getAudioTracks().length > 0, content: true }
   });
   state.contentMedia = media;

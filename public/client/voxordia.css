@@ -22,7 +22,15 @@ body.voxordia-surface a:hover{color:var(--vx-red)}
 
 .vx-brand{display:flex;align-items:center;gap:14px;min-width:0;text-decoration:none!important}
 .vx-brand img{display:block;width:154px;height:auto;flex:0 0 auto}
-.vx-brand span{padding-left:14px;border-left:1px solid var(--vx-line);color:var(--vx-muted)!important;font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+.vx-brand span{padding-left:14px;border-left:1px solid var(--vx-line);color:var(--vx-muted)!important;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;white-space:nowrap}
+/* Room tools («Звук», «Схема сигналов», «План зала», «Управление залом», «Сторонние пульты») share one header:
+   64 px, the logo with the task tag, and the way back as a regular 40 px secondary button. */
+body.voxordia-surface .vx-tool-header{min-height:64px}
+body.voxordia-surface a.vx-back{display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:none;height:40px;min-height:40px;padding:0 14px;border:1px solid var(--vx-line);border-radius:8px;background:var(--vx-secondary);color:var(--vx-ink)!important;font-size:14px;font-weight:650;line-height:1.2;text-decoration:none;white-space:nowrap}
+body.voxordia-surface a.vx-back span{color:inherit;font-size:inherit;font-weight:inherit}
+body.voxordia-surface a.vx-back:hover{background:var(--vx-secondary-hover);color:var(--vx-ink)!important}
+body.voxordia-surface a.vx-back:focus-visible{outline:2px solid var(--vx-red);outline-offset:2px}
+@media(max-width:650px){body.voxordia-surface a.vx-back{width:40px;padding:0}body.voxordia-surface a.vx-back .vx-back-text{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}}
 
 body.voxordia-surface>header,
 body.voxordia-surface .topbar{
@@ -36,13 +44,13 @@ body.voxordia-surface p{color:var(--vx-muted)}
 body.voxordia-surface button,
 body.voxordia-surface .button-link,
 body.voxordia-surface .button-file{
-  min-height:39px;padding:8px 13px;border:1px solid transparent;border-radius:7px;
-  background:var(--vx-action);color:#fff;font-weight:680;box-shadow:none;cursor:pointer;
+  min-height:40px;padding:8px 13px;border:1px solid transparent;border-radius:8px;
+  background:var(--vx-action);color:#fff;font-weight:650;line-height:1.2;box-shadow:none;cursor:pointer;
   transition:background-color .15s ease,color .15s ease,border-color .15s ease,transform .15s ease
 }
 body.voxordia-surface button:hover:not(:disabled){background:var(--vx-action-hover);color:var(--vx-action-hover-ink)}
 body.voxordia-surface button:active:not(:disabled){background:var(--vx-action-active);color:var(--vx-action-hover-ink);transform:translateY(1px)}
-body.voxordia-surface button:focus-visible{outline:3px solid rgb(229 50 45 / 24%);outline-offset:2px}
+body.voxordia-surface button:focus-visible{outline:2px solid var(--vx-red,#e5322d);outline-offset:2px}
 body.voxordia-surface button.secondary,
 body.voxordia-surface button.button-quiet,
 body.voxordia-surface .secondary{background:var(--vx-secondary);color:var(--vx-ink);border-color:var(--vx-line)}
@@ -58,13 +66,13 @@ body.voxordia-surface button:disabled{opacity:.42;cursor:not-allowed}
 body.voxordia-surface input,
 body.voxordia-surface select,
 body.voxordia-surface textarea{
-  min-height:39px;padding:8px 10px;border:1px solid #cbc5be;border-radius:7px;
+  min-height:40px;padding:8px 10px;border:1px solid #cbc5be;border-radius:8px;
   background:#fff;color:var(--vx-ink);box-shadow:none
 }
 body.voxordia-surface input:focus,
 body.voxordia-surface select:focus,
 body.voxordia-surface textarea:focus{outline:0;border-color:var(--vx-red);box-shadow:0 0 0 3px rgb(229 50 45 / 12%)}
-body.voxordia-surface label{color:#56514c;font-size:11px;font-weight:620}
+body.voxordia-surface label{color:#56514c;font-size:12px;font-weight:600}
 body.voxordia-surface input[type=checkbox],body.voxordia-surface input[type=radio]{accent-color:var(--vx-red)}
 
 body.voxordia-surface section,
@@ -76,7 +84,7 @@ body.voxordia-surface .status>div{
   color:var(--vx-ink);box-shadow:0 3px 14px rgb(17 17 17 / 4%)
 }
 body.voxordia-surface table{background:#fff;color:var(--vx-ink)}
-body.voxordia-surface th{background:#f1eeea;color:#77716b;font-size:9px;font-weight:760;letter-spacing:.075em;text-transform:uppercase}
+body.voxordia-surface th{background:#f1eeea;color:#716c66;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
 body.voxordia-surface th,body.voxordia-surface td{border-color:var(--vx-line)}
 body.voxordia-surface tbody tr:hover{background:#faf8f6}
 body.voxordia-surface .table-wrap{border-color:var(--vx-line);border-radius:8px;background:#fff}
@@ -141,23 +149,25 @@ body.surface-service .default-source label{color:#56514c}
 body.surface-service .vote-fine-settings{border-color:var(--vx-line)}
 
 /* AudioCore engineering surface. */
-body.surface-audio header{min-height:68px;padding:10px 20px}
+body.surface-audio header{min-height:64px;padding:8px 20px}
 body.surface-audio main{max-width:1800px;padding:18px 20px}
 body.surface-audio .intro{padding:20px 2px 12px}
 body.surface-audio .intro h1{font-size:34px}
-body.surface-audio .eyebrow{color:var(--vx-red)!important}
+body.surface-audio .eyebrow{color:var(--vx-muted)!important}
 body.surface-audio .output,body.surface-audio .sources article,body.surface-audio .dsp li,body.surface-audio .bus,body.surface-audio .matrix>div{border-color:var(--vx-line);background:#faf9f7;color:var(--vx-ink)}
 body.surface-audio .sources i{background:var(--vx-ink);color:#fff}
-body.surface-audio .output span,body.surface-audio .bus output,body.surface-audio .live-master output,body.surface-audio .live-gain output{color:var(--vx-red)}
-body.surface-audio .route{background:#e8e4df;color:#77716b}
+/* Running/stopped and on/off are a dark chip and a muted outline: green and red belong to the microphone (§5). */
+body.surface-audio .output span{color:#fff}
+body.surface-audio .output.off span{color:var(--vx-muted)}
+body.surface-audio .state.on{background:var(--vx-ink);color:#fff}
+body.surface-audio .bus output,body.surface-audio .live-master output,body.surface-audio .live-gain output{color:var(--vx-ink)}
+body.surface-audio .route{background:#f4f2ef;color:#5f5a55}
 body.surface-audio .route.on{background:var(--vx-ink);color:#fff;box-shadow:inset 3px 0 0 var(--vx-red)}
 
 /* MediaGraph keeps media-type colours while adopting the common product shell. */
 body.surface-media-graph{--bg:#e9e6e1;--panel:#fff;--panel2:#f5f2ee;--line:#d5d0ca;--muted:#77716b;--audio:#16816d;--video:#7253ad;--control:#b97812;--danger:#c23a35;--accent:var(--vx-red);background:#e9e6e1;color:var(--vx-ink)}
-body.surface-media-graph .topbar{min-height:68px}
+body.surface-media-graph .topbar{min-height:64px}
 body.surface-media-graph .brand img{display:block;width:142px;height:auto}
-body.surface-media-graph .brand>span{padding-left:12px;border-left:1px solid var(--vx-line);color:var(--vx-muted);font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
-body.surface-media-graph .brand .back{border-color:var(--vx-line);color:var(--vx-ink);background:#f4f2ef}
 body.surface-media-graph .sidebar,body.surface-media-graph .inspector{background:#fff;border-color:var(--vx-line);color:var(--vx-ink)}
 body.surface-media-graph .canvas .react-flow{background:#e9e6e1}
 body.surface-media-graph .palette button,body.surface-media-graph .media-filters label{border-color:var(--vx-line);background:#f4f2ef;color:var(--vx-ink)}
@@ -178,30 +188,15 @@ body.surface-media-graph .react-flow__minimap-node{stroke:#77716b!important;stro
 body.surface-media-graph .status-dot{border-color:#c9ded2;background:#eaf6ef;color:#245f3e}
 body.surface-media-graph .react-flow__controls button svg,
 body.surface-media-graph .react-flow__controls button svg path{fill:currentColor!important}
-body.surface-media-graph.media-graph-dark{background:#07171d;color:#edf6f6}
-body.surface-media-graph.media-graph-dark .topbar,
-body.surface-media-graph.media-graph-dark .sidebar,
-body.surface-media-graph.media-graph-dark .inspector{border-color:#284049;background:#091b22;color:#edf6f6}
-body.surface-media-graph.media-graph-dark .canvas .react-flow{background:#07171d}
-body.surface-media-graph.media-graph-dark .media-node{border-color:#34525b;background:#0e252d;color:#edf6f6;box-shadow:0 10px 30px #0005}
-body.surface-media-graph.media-graph-dark .dsp-group,
-body.surface-media-graph.media-graph-dark .signal-inspector,
-body.surface-media-graph.media-graph-dark .edge-details,
-body.surface-media-graph.media-graph-dark .meter-list,
-body.surface-media-graph.media-graph-dark .telemetry-grid,
-body.surface-media-graph.media-graph-dark .runtime-gain{border-color:#284049;background:#0d262e;color:#edf6f6}
-body.surface-media-graph.media-graph-dark .react-flow__controls,
-body.surface-media-graph.media-graph-dark .react-flow__minimap{border-color:#34525b!important;background:#102730!important}
-body.surface-media-graph.media-graph-dark .react-flow__controls button{border-color:#34525b!important;background:#102730!important;color:#edf6f6!important}
-body.surface-media-graph.media-graph-dark .status-dot{border-color:#31515b;background:#102a33;color:#d7e5e7}
+/* The dark theme of «Схема сигналов» lives in /media-graph/styles.css as one warm token set. */
 body.surface-media-graph .toolbar button,
 body.surface-room-planner .room-toolbar button{
-  min-height:34px;height:34px;padding:6px 10px;font-size:11px;font-weight:680;line-height:1.2;white-space:nowrap
+  min-height:32px;height:32px;padding:0 10px;font-size:13px;font-weight:650;line-height:1.2;white-space:nowrap
 }
 
 /* Room Planner remains geometry-first and uses the same navigation language. */
 body.surface-room-planner{--ink:var(--vx-ink);--teal:#315f86;--orange:var(--vx-red);--danger:#b4312c;background:#e8e5e0;color:var(--vx-ink)}
-body.surface-room-planner .topbar{min-height:68px;color:var(--vx-ink)}
+body.surface-room-planner .topbar{min-height:64px;color:var(--vx-ink)}
 body.surface-room-planner .topbar .vx-brand{margin-right:auto}
 body.surface-room-planner .topbar label{color:#5f5a55}
 body.surface-room-planner .topbar .check{color:var(--vx-ink)}
@@ -210,7 +205,6 @@ body.surface-room-planner .plan-shell{background:#dfdcd7}
 body.surface-room-planner .plan-readiness,body.surface-room-planner .solution,body.surface-room-planner .inspector-group>summary{background:#f2efeb;color:#4f4a45}
 body.surface-room-planner .inspector-group,body.surface-room-planner .inspector section,body.surface-room-planner .plan-library{border-color:var(--vx-line)}
 body.surface-room-planner .toast{background:var(--vx-ink)}
-body.surface-room-planner .commission-wizard,body.surface-room-planner .bulk-dialog{font-family:Geologica,Calibri,"Segoe UI",sans-serif}
 
 /* Conference entry. */
 body.surface-entry{min-height:100vh;background:linear-gradient(135deg,#efede9 0,#fff 58%,#f5dfdc 100%)}

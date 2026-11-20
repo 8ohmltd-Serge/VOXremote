@@ -11,8 +11,8 @@
     <title>VOXORDIA · Конференция</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-<link rel="stylesheet" href="./styles.css?v=0.8.35" />
-<link rel="stylesheet" href="./refresh.css?v=0.8.35" />
+<link rel="stylesheet" href="./styles.css?v=0.8.42" />
+<link rel="stylesheet" href="./refresh.css?v=0.8.42" />
   <link rel="stylesheet" href="/client/legibility.css?v=0.7.0.42"><link rel="stylesheet" href="/client/controls.css?v=0.7.0.43"><script src="/client/uiLocale.js"></script></head>
   <body>
     <div id="secureWarning" class="secure-warning" hidden>
@@ -46,7 +46,7 @@
       <aside class="side-rail">
         <div class="side-brand"><img src="./assets/voxordia-logo.svg" alt="VOXORDIA" /></div>
         <nav id="desktopNav" class="side-nav" aria-label="Разделы">
-          <button class="nav-item active" data-tab="conference" title="Конференция" aria-label="Конференция"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg></span><span>Конференция</span></button>
+          <button class="nav-item active" data-tab="conference" aria-current="page" title="Конференция" aria-label="Конференция"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg></span><span>Конференция</span></button>
           <button class="nav-item" data-tab="voting" title="Голосование" aria-label="Голосование"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12.5 2.6 2.6L16 9.5"/></svg></span><span>Голосование</span></button>
           <button class="nav-item" data-tab="content" title="Материалы" aria-label="Материалы"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4M10 12h5M10 16h5"/></svg></span><span>Материалы</span></button>
           <button class="nav-item" data-tab="translation" title="Синхроперевод" aria-label="Синхроперевод"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h9M8.5 4v2M6 6c.6 3 2.6 5.4 5 6.6M11 6c-.6 3-2.8 5.6-6 7"/><path d="M13 20l3.5-8 3.5 8M14.3 17h4.4"/></svg></span><span>Синхроперевод</span></button>
@@ -63,8 +63,8 @@
           <label class="workspace-font-field">Заголовки блоков <input type="number" data-layout-font="titleFontSize" min="14" max="24" step="1" value="18" aria-label="Заголовки блоков, пиксели"></label>
           <button type="button" data-action="layout-font-reset" title="Сбросить размеры текста" aria-label="Сбросить размеры текста">Сбросить 14/18</button>
           <details id="workspaceAddMenu" class="workspace-add-menu" hidden><summary title="Добавить блок" aria-label="Добавить блок"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 4v16M4 12h16"/></svg><span class="side-layout-action-label">Добавить блок</span></summary><div class="workspace-add-options"></div></details>
-          <button type="button" data-action="secretary-layout-reset" title="По умолчанию" aria-label="По умолчанию"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11a8 8 0 1 1 2.2 5.5M4 4v7h7"/></svg><span class="side-layout-action-label">По умолчанию</span></button>
-          <button type="button" data-action="secretary-layout-cancel" title="Отмена" aria-label="Отмена"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 5l14 14M19 5 5 19"/></svg><span class="side-layout-action-label">Отмена</span></button>
+          <button type="button" data-action="secretary-layout-reset" title="Сбросить раскладку" aria-label="Сбросить раскладку"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11a8 8 0 1 1 2.2 5.5M4 4v7h7"/></svg><span class="side-layout-action-label">Сбросить</span></button>
+          <button type="button" data-action="secretary-layout-cancel" title="Отменить" aria-label="Отменить"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 5l14 14M19 5 5 19"/></svg><span class="side-layout-action-label">Отменить</span></button>
           <button type="button" data-action="secretary-layout-save" title="Сохранить" aria-label="Сохранить"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 12 5 5L20 6"/></svg><span class="side-layout-action-label">Сохранить</span></button>
         </div>
         <div id="appBuildLabel" class="side-foot">VOX-S</div>
@@ -73,7 +73,7 @@
       <section class="workspace">
         <header class="topbar">
           <div class="meeting-heading">
-            <h2 id="meetingTitle">VOX-S</h2>
+            <h1 id="meetingTitle">VOX-S</h1>
             <p id="currentPageTitle" class="current-page-title">Конференция</p>
           </div>
           <div class="top-actions">
@@ -81,14 +81,14 @@
             <button id="cameraToggleBtn" class="icon-button camera-toggle camera-off" type="button" data-action="toggle-camera-publish" aria-label="Включить и опубликовать свою камеру" title="Включить свою камеру"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3z"/></svg></button>
             <button id="chatNoticeBtn" class="icon-button chat-notice" type="button" title="Открыть личный чат" aria-label="Открыть личный чат">✉<b id="chatNoticeBadge" hidden>0</b></button>
             <div class="connection-pill"><i></i><span class="participant-identity"><small id="participantRole">Участник</small><b id="participantName">Участник</b></span></div>
-            <span id="eventConnectionStatus" class="event-connection-status" role="status" aria-live="polite" hidden>Обновления недоступны — переподключаемся</span>
+            <span id="eventConnectionStatus" class="event-connection-status" role="status" aria-live="polite" hidden>Обновления недоступны&nbsp;— переподключаемся</span>
             <button id="refreshBtn" class="icon-button topbar-action icon-label-button" type="button" title="Обновить данные конференции" aria-label="Обновить данные конференции"><svg class="btn-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span class="btn-label">Обновить</span></button>
             <button id="disconnectBtn" class="icon-button topbar-action topbar-exit icon-label-button" type="button" title="Выйти из конференции" aria-label="Выйти из конференции"><svg class="btn-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4"/><path d="M15 8l4 4-4 4M19 12H9"/></svg><span class="btn-label">Выйти</span></button>
           </div>
         </header>
 
         <div id="notice" class="notice-stack" hidden></div>
-        <section id="pageContent" class="page-content" aria-live="polite"></section>
+        <section id="pageContent" class="page-content"></section>
       </section>
 
       <div id="bottomControls" class="bottom-controls">
@@ -96,24 +96,24 @@
         <div class="fixed-utility-controls">
           <div id="meetingState" class="fixed-meeting-state">Подключение</div>
         </div>
-        <button id="enableAudioBtn" type="button" hidden>🔊 Включить звук конференции</button>
+        <button id="enableAudioBtn" class="button enable-audio" type="button" hidden>Включить звук конференции</button>
         <nav id="mobileNav" class="mobile-nav" aria-label="Разделы">
-        <button class="nav-item active" data-tab="conference"><span>Зал</span></button>
-        <button class="nav-item" data-tab="voting"><span>Голос</span></button>
-        <button class="nav-item" data-tab="content"><span>Файлы</span></button>
+        <button class="nav-item active" data-tab="conference" aria-current="page"><span>Зал</span></button>
+        <button class="nav-item" data-tab="voting"><span>Голосование</span></button>
+        <button class="nav-item" data-tab="content"><span>Материалы</span></button>
         <button class="nav-item" data-tab="translation"><span>Перевод</span></button>
         <button class="nav-item" data-tab="chat"><span>Чат</span></button>
         <button class="nav-item" data-tab="operations"><span>Сервис</span></button>
         <button class="nav-item" data-tab="roomcontrol" hidden><span>Пульт</span></button>
         <button class="nav-item" data-tab="streams"><span>Камеры</span></button>
-        <button class="nav-item" data-tab="settings"><span>Ещё</span></button>
+        <button class="nav-item" data-tab="settings"><span>Настройки</span></button>
         </nav>
       </div>
     </div>
 
     <script src="./vendor/hls.min.js"></script>
     <script src="./vendor/mediasoup-client.js"></script>
-    <script src="./notificationLocale.js?v=0.8.35"></script>
-    <script type="module" src="./app.js?v=0.8.35"></script>
+    <script src="./notificationLocale.js?v=0.8.42"></script>
+    <script type="module" src="./app.js?v=0.8.42"></script>
   </body>
 </html>

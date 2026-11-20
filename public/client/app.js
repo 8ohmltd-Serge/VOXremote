@@ -11,6 +11,7 @@ import { PARTICIPANT_LANGUAGES, participantLanguageOptions, configureParticipant
 import { openDocumentViewer, closeDocumentViewer, minimizeDocumentViewer, expandPresentationViewer, closePresentationViewer,
   updateDocumentViewerRights, documentSceneEvent, isPresentationViewerOpen } from "./documentViewer.js";
 import { createWaitingRoom } from "./waitingRoom.js";
+import { suspendProgramFullscreen, restoreProgramFullscreen, syncProgramFullscreenButton } from "./programFullscreen.js?v=0.8.42";
 
 const VoxNoticeLocale = globalThis.VoxNoticeLocale;
 let canEditWorkspaceLayout, handleWorkspaceUiAction, applyWorkspaceLayout, renderPage, updateNavigationVisibility, translationHtml, unreadChatCount, updateChatNotice, markChatRead, pageHead, VOTE_OUTCOME_LABELS, updateVoteCountdowns,
@@ -52,7 +53,7 @@ function meetingControlPanelId(meetingId) {
 }
 async function loadFeatureModules() {
   if (!featureModulesPromise) featureModulesPromise = Promise.all([
-    import("./clientViews.js?v=0.8.35"), import("./clientOperations.js?v=0.8.35"), import("./roomControlEvents.js?v=0.8.35")
+    import("./clientViews.js?v=0.8.42"), import("./clientOperations.js?v=0.8.42"), import("./roomControlEvents.js?v=0.8.42")
   ]).then(([views, operations, controls]) => {
     roomControlEvents = controls.createRoomControlEvents($("#pageContent"), () => state, notify, (pageId, action = "navigate") => {
       const project = state.roomControl;
@@ -1965,7 +1966,12 @@ async function selectTab(tab) {
   if (changed) forgetFormDrafts();
   state.activeTab = tab;
   if (tab === "chat" && state.activeChatId) markChatRead(state.activeChatId);
-  $$(".nav-item[data-tab]").forEach((button) => button.classList.toggle("active", button.dataset.tab === tab));
+  $$(".nav-item[data-tab]").forEach((button) => {
+    const current = button.dataset.tab === tab;
+    button.classList.toggle("active", current);
+    button.toggleAttribute("aria-current", current);
+    if (current) button.setAttribute("aria-current", "page");
+  });
   renderPage();
   if (changed) void refreshAll(true);
   if (tab === "streams") await activateStreamsPreview();
@@ -2272,8 +2278,12 @@ function handlePresentationControlAction(target) {
   if (target.dataset.action === "open-presentation-document") {
     if (!id || !target.dataset.documentId) return true;
     target.disabled = true;
+    const returnToProgram = suspendProgramFullscreen(syncProgramFullscreenButton);
     void openDocument(target.dataset.documentId, id)
-      .catch((error) => notify(error))
+      .then(() => {
+        if (returnToProgram) document.querySelector(".document-viewer-backdrop:not([hidden]) .document-viewer")?.classList.add("is-document-expanded");
+      })
+      .catch((error) => { if (returnToProgram) restoreProgramFullscreen(syncProgramFullscreenButton); notify(error); })
       .finally(() => { if (target.isConnected) target.disabled = false; });
     return true;
   }
@@ -2412,7 +2422,7 @@ function handlePageAction(event, target) {
   if (action === "register-system-camera") runAction(registerSystemCamera, "Системная камера добавлена");
   if (action === "edit-stream") runAction(() => editStream(target.dataset.streamId), "Источник обновлён");
   if (action === "toggle-pgm-tile") runAction(() => state.api.patch(`/streams/${encodeURIComponent(target.dataset.streamId)}`,
-    { pgmTileEnabled: target.dataset.enabled !== "true" }), target.dataset.enabled === "true" ? "Источник исключён из плиток PGM" : "Источник возвращён в плитки PGM");
+    { pgmTileEnabled: target.dataset.enabled !== "true" }), target.dataset.enabled === "true" ? "Источник исключён из плиток трансляции" : "Источник возвращён в плитки трансляции");
   if (action === "delete-stream") runAction(() => deleteStream(target.dataset.streamId), "Источник удалён");
   if (action === "select-stream") runAction(() => selectStream(target.dataset.streamId));
   if (action === "preview-stream") runAction(() => openStreamPreviewModal(target.dataset.streamId));
@@ -2589,15 +2599,26 @@ function handlePageAction(event, target) {
     } else if (!expanded && document.fullscreenElement === document.documentElement) {
       void document.exitFullscreen?.().catch(() => {});
     }
-    target.setAttribute("aria-label", expanded ? "Свернуть трансляцию" : "Развернуть трансляцию на весь экран");
+    syncProgramFullscreenButton();
   }
 }
 
+// The visible label, tooltip and accessible name of the program full-screen button follow the mode.
+document.addEventListener("vox:document-viewer-closed", () => restoreProgramFullscreen(syncProgramFullscreenButton));
+
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !document.fullscreenElement) document.documentElement.classList.remove("program-fullscreen-mode");
+  if (event.key === "Escape" && !document.fullscreenElement) {
+    document.documentElement.classList.remove("program-fullscreen-mode");
+    syncProgramFullscreenButton();
+  }
 });
 document.addEventListener("fullscreenchange", () => {
-  if (!document.fullscreenElement) document.documentElement.classList.remove("program-fullscreen-mode");
+  if (!document.fullscreenElement) {
+    if (!matchMedia("(pointer: coarse)").matches) {
+      document.documentElement.classList.remove("program-fullscreen-mode");
+      syncProgramFullscreenButton();
+    }
+  }
 });
 
 const startPublishingWithAccessHint = () => startPublishing().catch((error) => { throw mediaAccessError(error, "camera"); });

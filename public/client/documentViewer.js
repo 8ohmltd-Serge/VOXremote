@@ -133,7 +133,7 @@ let documentFullscreenOwned = false;
 document.addEventListener("fullscreenchange", () => {
   if (!current?.ready || current.minimized) return;
   const panel = current.root.querySelector(".document-viewer");
-  if (!document.fullscreenElement && documentFullscreenOwned) {
+  if (!document.fullscreenElement && documentFullscreenOwned && !matchMedia("(pointer: coarse)").matches) {
     panel?.classList.remove("is-document-expanded");
     documentFullscreenOwned = false;
   }
@@ -240,6 +240,7 @@ export function minimizeDocumentViewer() {
   documentFullscreenOwned = false;
   current.minimized = true;
   current.root.hidden = true;
+  document.dispatchEvent(new Event("vox:document-viewer-closed"));
   focusTarget(current.opener)?.focus({ preventScroll: true });
 }
 
@@ -596,7 +597,7 @@ function applyPointerState(viewer, state) {
   if (button) {
     button.hidden = state.policy?.enabled === false;
     button.disabled = !pointerAllowed(viewer);
-    const label = you.holder ? "Указка · водите по документу, двойное нажатие — маячок" : you.canTake ? "Указка" :
+    const label = you.holder ? "Указка · водите по документу, двойное нажатие — маячок" : you.canTake ? "Указка" :
       "Указка · попросите её у оператора";
     button.title = label;
     button.setAttribute("aria-label", label);
@@ -952,12 +953,12 @@ export async function openDocumentViewer({ api, document: item, presentation = n
   root.querySelector('[data-viewer="close"]').addEventListener("click", () => {
     if (current !== viewer) return;
     if (viewer.presentation && !archiveScene && viewer.canControl) minimizeDocumentViewer();
-    else closeDocumentViewer();
+    else { closeDocumentViewer(); document.dispatchEvent(new Event("vox:document-viewer-closed")); }
   });
   // For the show's controller "×" only folds the window: the show goes on.
   if (viewer.presentation && !archiveScene && viewer.canControl) {
     closeButton.setAttribute("aria-label", "Свернуть окно (показ продолжается)");
-    closeButton.title = "Свернуть окно — показ продолжается, вернуться можно кнопкой «В показе»";
+    closeButton.title = "Свернуть окно — показ продолжается, вернуться можно кнопкой «В показе»";
   } else closeButton.title = "Закрыть";
   closeButton.focus({ preventScroll: true });
   updateDocumentViewerRights({ canView: true, canAnnotate });
@@ -1293,7 +1294,7 @@ export async function openDocumentViewer({ api, document: item, presentation = n
       try {
         if (!viewer.pointerState?.you?.holder) {
           if (!viewer.pointerState?.you?.canTake) {
-            viewerError(viewer, "Указку выдаёт оператор — нажмите «Попросить указку»");
+            viewerError(viewer, "Указку выдаёт оператор — нажмите «Попросить указку»");
             return;
           }
           await pointerAction(viewer, "take");
