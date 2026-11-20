@@ -7,7 +7,7 @@ const guid = "11111111-2222-4333-8444-555555555555";
 const person = "22222222-3333-4444-8555-666666666666";
 const accessToken = "opaque-graph-access";
 
-function fixture() {
+function fixture(publicOrigin) {
   const sent = [];
   const calls = [];
   let nonce = "";
@@ -21,8 +21,15 @@ function fixture() {
         id_token: `x.${Buffer.from(JSON.stringify({ tid: guid, aud: guid, nonce })).toString("base64url")}.x` } };
   };
   return { sent, calls, socket, setNonce: (value) => { nonce = value; },
-    oauth: createTeamsOAuth({ clientId: guid, clientSecret: "test-secret", fetcher }) };
+    oauth: createTeamsOAuth({ clientId: guid, clientSecret: "test-secret", publicOrigin, fetcher }) };
 }
+
+test("Teams authorization uses the selected Connect domain", () => {
+  const { oauth, socket, sent } = fixture("https://connect.example.test");
+  oauth.start(socket, "installation", guid);
+  assert.equal(new URL(sent[0].url).searchParams.get("redirect_uri"),
+    "https://connect.example.test/oauth/teams/callback");
+});
 
 test("Teams OAuth accepts an organization account only through the live installation socket", async () => {
   const { sent, calls, socket, oauth, setNonce } = fixture();

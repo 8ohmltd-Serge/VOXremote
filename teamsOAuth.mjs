@@ -1,6 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
 
-const REDIRECT = "https://connect.voxordia.com/oauth/teams/callback";
 const AUTHORITY = "https://login.microsoftonline.com/organizations/oauth2/v2.0";
 // Calendar events create Teams meetings in the organizer's Outlook calendar.
 // OnlineMeetings.ReadWrite is unnecessary for this delegated path.
@@ -15,7 +14,9 @@ const claim = (token, name) => {
 };
 
 /** One VOXORDIA multitenant Entra app; no tenant app secret enters VOX-S. */
-export function createTeamsOAuth({ clientId, clientSecret, fetcher = fetch, now = Date.now } = {}) {
+export function createTeamsOAuth({ clientId, clientSecret, publicOrigin = "https://connect.voxordia.com",
+  fetcher = fetch, now = Date.now } = {}) {
+  const redirect = new URL("/oauth/teams/callback", publicOrigin).href;
   const configured = Boolean(GUID.test(clientId ?? "") && clientSecret);
   const pending = new Map();
   const awaitingAck = new Map();
@@ -45,7 +46,7 @@ export function createTeamsOAuth({ clientId, clientSecret, fetcher = fetch, now 
     pending.set(state, { socket, installationId, id, verifier, nonce, expiresAt: now() + TTL });
     const url = new URL(`${AUTHORITY}/authorize`);
     for (const [key, value] of Object.entries({ client_id: clientId, response_type: "code",
-      redirect_uri: REDIRECT, response_mode: "query", scope: SCOPES, state, nonce,
+      redirect_uri: redirect, response_mode: "query", scope: SCOPES, state, nonce,
       code_challenge: challenge, code_challenge_method: "S256" })) url.searchParams.set(key, value);
     send(socket, { type: "teams-oauth-result", id, ok: true, url: url.href });
   }
@@ -56,7 +57,7 @@ export function createTeamsOAuth({ clientId, clientSecret, fetcher = fetch, now 
     if (!item || item.expiresAt < now() || !code ||
         socketForInstallation(item.installationId) !== item.socket || item.socket.readyState !== 1) return false;
     const credentials = await token({ grant_type: "authorization_code", code,
-      redirect_uri: REDIRECT, code_verifier: item.verifier });
+      redirect_uri: redirect, code_verifier: item.verifier });
     // Graph access tokens belong to Graph and must be treated as opaque here.
     // The ID token is returned to our confidential client by this code exchange.
     const tenantId = claim(credentials.id_token ?? "", "tid");

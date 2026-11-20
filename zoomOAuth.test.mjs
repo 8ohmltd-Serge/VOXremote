@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createZoomOAuth } from "./zoomOAuth.mjs";
 
-function fixture() {
+function fixture(publicOrigin) {
   const sent = [];
   const socket = { readyState: 1, voxEntitlements: { zoom: true },
     send: (raw) => sent.push(JSON.parse(raw)) };
@@ -12,8 +12,22 @@ function fixture() {
     return { ok: true, json: async () => ({
       access_token: "access", refresh_token: "refresh-next", expires_in: 3600 }) };
   };
-  return { socket, sent, calls, oauth: createZoomOAuth({ clientId: "client", clientSecret: "secret", fetcher }) };
+  return { socket, sent, calls, oauth: createZoomOAuth({ clientId: "client", clientSecret: "secret",
+    publicOrigin, fetcher }) };
 }
+
+test("Zoom authorization and token exchange use the selected Connect domain", async () => {
+  const { oauth, socket, sent, calls } = fixture("https://connect.example.test");
+  oauth.start(socket, "customer-one", "a".repeat(36));
+  const link = new URL(sent[0].url);
+  assert.equal(link.searchParams.get("redirect_uri"), "https://connect.example.test/oauth/zoom/callback");
+  const state = link.searchParams.get("state");
+  const completion = oauth.callback(state, "code", () => socket);
+  await new Promise((resolve) => setImmediate(resolve));
+  oauth.ack(socket, sent.at(-1).id, true);
+  await completion;
+  assert.equal(calls[0].options.body.get("redirect_uri"), "https://connect.example.test/oauth/zoom/callback");
+});
 
 test("Zoom callback binds to authenticated installation and transfers tokens only through its socket", async () => {
   const { oauth, socket, sent, calls } = fixture();

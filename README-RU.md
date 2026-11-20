@@ -56,6 +56,11 @@ VOX-S передал ссылку вида `https://connect.voxordia.com/invitat
 - `VENDOR_PUBLIC_KEY_BASE64` — альтернатива пути: публичный PEM в Base64 для
   платформ без файловых секретов, включая Railway;
 - `PORT` — внутренний HTTP-порт, обычно `8080`;
+- `CONNECT_PUBLIC_ORIGIN` — публичный HTTPS-домен этого Connect без пути,
+  например `https://connect.example.ru`; по умолчанию `https://connect.voxordia.com`.
+  Тот же домен должен быть указан в ЕСИ каждой подключаемой установки VOX-S.
+  Для Zoom и Teams зарегистрируйте точные URI возврата
+  `/oauth/zoom/callback` и `/oauth/teams/callback` на этом домене;
 - `TRUST_PROXY=1` — включить только за доверенным reverse proxy;
 - `PGSSL=require|disable` — режим TLS к PostgreSQL при необходимости.
 

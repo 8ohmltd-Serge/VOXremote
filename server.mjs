@@ -18,6 +18,13 @@ import { createZoomWebhook, zoomUserHash } from "./zoomWebhook.mjs";
 
 const base = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT ?? 8080);
+const publicOriginInput = process.env.CONNECT_PUBLIC_ORIGIN ?? "https://connect.voxordia.com";
+const publicUrl = new URL(publicOriginInput);
+if (publicUrl.protocol !== "https:" || publicUrl.pathname !== "/" || publicUrl.search ||
+    publicUrl.hash || publicUrl.username || publicUrl.password) {
+  throw new Error("CONNECT_PUBLIC_ORIGIN must be an HTTPS origin without a path or credentials");
+}
+const publicOrigin = publicUrl.origin;
 const databaseUrl = process.env.DATABASE_URL;
 const vendorKeyPath = process.env.VENDOR_PUBLIC_KEY_PATH;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -58,11 +65,11 @@ setInterval(refreshAllTrust, Math.max(5 * 60_000, Number(process.env.TRUST_REFRE
 const live = new Map();
 const mediaAuthAttempts = new Map();
 const zoomOAuth = createZoomOAuth({ clientId: process.env.ZOOM_OAUTH_CLIENT_ID,
-  clientSecret: process.env.ZOOM_OAUTH_CLIENT_SECRET,
+  clientSecret: process.env.ZOOM_OAUTH_CLIENT_SECRET, publicOrigin,
   onLinked: (userId, installationId) => pool.query(`INSERT INTO zoom_links(user_hash,installation_id) VALUES($1,$2)
     ON CONFLICT(user_hash,installation_id) DO UPDATE SET linked_at=now()`, [zoomUserHash(userId), installationId]) });
 const teamsOAuth = createTeamsOAuth({ clientId: process.env.TEAMS_OAUTH_CLIENT_ID,
-  clientSecret: process.env.TEAMS_OAUTH_CLIENT_SECRET });
+  clientSecret: process.env.TEAMS_OAUTH_CLIENT_SECRET, publicOrigin });
 // Development and production apps each have a webhook secret token; comma-separated.
 const zoomWebhook = createZoomWebhook({ secretTokens: String(process.env.ZOOM_WEBHOOK_SECRET_TOKENS ?? "")
   .split(",").map((value) => value.trim()) });
@@ -291,7 +298,7 @@ function handleConnectorFrame(socket, installationId, message) {
 
 const handleHttp = async (request, response) => {
   securityHeaders(response);
-  const url = new URL(request.url, "https://connect.voxordia.com");
+  const url = new URL(request.url, publicOrigin);
   if (url.pathname.startsWith("/teams-media/") || url.pathname.startsWith("/api/teams-media/")) {
     response.setHeader("x-frame-options", "DENY");
     response.setHeader("cache-control", "no-store");
@@ -526,7 +533,7 @@ const wss = new WebSocketServer({ noServer: true, maxPayload: 3 * 1024 * 1024 })
 server.on("upgrade", (request, socket, head) => {
   socket.on("error", () => {});
   let pathname;
-  try { pathname = new URL(request.url, "https://connect.voxordia.com").pathname; } catch { return socket.destroy(); }
+  try { pathname = new URL(request.url, publicOrigin).pathname; } catch { return socket.destroy(); }
   if (pathname !== "/gateway/connect") return socket.destroy();
   wss.handleUpgrade(request, socket, head, (ws) => wss.emit("connection", ws));
 });

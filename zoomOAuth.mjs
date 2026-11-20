@@ -1,17 +1,18 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { zoomUserIdFromAccessToken } from "./zoomWebhook.mjs";
 
-const REDIRECT = "https://connect.voxordia.com/oauth/zoom/callback";
 const TOKEN = "https://zoom.us/oauth/token";
 const TTL = 5 * 60_000;
 
-export function createZoomOAuth({ clientId, clientSecret, fetcher = fetch, now = Date.now, onLinked = async () => {} } = {}) {
+export function createZoomOAuth({ clientId, clientSecret, publicOrigin = "https://connect.voxordia.com",
+  fetcher = fetch, now = Date.now, onLinked = async () => {} } = {}) {
+  const redirect = new URL("/oauth/zoom/callback", publicOrigin).href;
   const pending = new Map();
   const awaitingAck = new Map();
   const configured = Boolean(clientId && clientSecret);
   const send = (socket, data) => socket.readyState === 1 && socket.send(JSON.stringify(data));
   async function token(grant) {
-    const body = new URLSearchParams({ ...grant, redirect_uri: REDIRECT });
+    const body = new URLSearchParams({ ...grant, redirect_uri: redirect });
     const response = await fetcher(TOKEN, { method: "POST", redirect: "error",
       headers: { Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
         "Content-Type": "application/x-www-form-urlencoded" },
@@ -32,7 +33,7 @@ export function createZoomOAuth({ clientId, clientSecret, fetcher = fetch, now =
     const url = new URL("https://zoom.us/oauth/authorize");
     url.searchParams.set("response_type", "code");
     url.searchParams.set("client_id", clientId);
-    url.searchParams.set("redirect_uri", REDIRECT);
+    url.searchParams.set("redirect_uri", redirect);
     url.searchParams.set("state", state);
     send(socket, { type: "zoom-oauth-result", id, ok: true, url: url.href });
   }
