@@ -1275,7 +1275,7 @@ export async function openDocumentViewer({ api, document: item, presentation = n
       const panel = root.querySelector(".document-viewer");
       const expanded = panel.classList.toggle("is-document-expanded");
       if (expanded && !document.fullscreenElement) {
-        try { await document.documentElement.requestFullscreen?.(); documentFullscreenOwned = document.fullscreenElement === document.documentElement; }
+        try { await document.documentElement.requestFullscreen?.({ navigationUI: "hide" }); documentFullscreenOwned = document.fullscreenElement === document.documentElement; }
         catch { documentFullscreenOwned = false; }
       } else if (!expanded && documentFullscreenOwned && document.fullscreenElement === document.documentElement) {
         await document.exitFullscreen?.().catch(() => {});

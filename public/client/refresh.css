@@ -433,8 +433,9 @@ body:not([data-role="admin"]):not([data-role="technician"]):not([data-role="oper
 @media (pointer:coarse){.conference-side-stack{min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y}.conference-queue-panel{max-height:min(55dvh,680px)}}
 .microphone-dock:has(.chair-mic-button)>.on-air-tag{position:static!important;transform:none!important;order:4;align-self:center}
 .program-fullscreen-mode .bottom-controls,body:has(.document-viewer.is-document-expanded) .bottom-controls{min-height:6.7dvh!important;max-height:34dvh}
-.program-fullscreen-mode .mobile-nav,body:has(.document-viewer.is-document-expanded) .mobile-nav{grid-auto-columns:minmax(42px,1fr)!important;min-height:32px!important;padding-block:2px!important}
-.program-fullscreen-mode .mobile-nav .nav-item,body:has(.document-viewer.is-document-expanded) .mobile-nav .nav-item{min-height:30px!important;padding:3px!important}
+.program-fullscreen-mode .mobile-nav,body:has(.document-viewer.is-document-expanded) .mobile-nav{grid-auto-columns:44px!important;justify-content:start;min-height:44px!important;padding-block:2px!important}
+.program-fullscreen-mode .mobile-nav .nav-item,body:has(.document-viewer.is-document-expanded) .mobile-nav .nav-item{min-height:44px!important;padding:3px!important}
+.program-fullscreen-mode .microphone-dock>.on-air-tag,body:has(.document-viewer.is-document-expanded) .microphone-dock>.on-air-tag{display:none!important}
 .program-fullscreen-mode .mobile-nav .nav-item span,body:has(.document-viewer.is-document-expanded) .mobile-nav .nav-item span{display:none!important}
 .program-fullscreen-mode .mobile-nav .nav-item .nav-icon,body:has(.document-viewer.is-document-expanded) .mobile-nav .nav-item .nav-icon{display:block!important;width:19px;height:19px;margin:auto}
 @media (pointer:coarse){.program-fullscreen-mode .conference-program-panel{overscroll-behavior:none;touch-action:none}.program-fullscreen-mode .conference-program-panel button{touch-action:manipulation}}

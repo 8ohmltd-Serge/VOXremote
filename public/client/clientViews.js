@@ -41,7 +41,7 @@ import {
   serviceRequestCategoryOptions, eventRetryDelay, PARTICIPANT_LANGUAGES, participantLanguageOptions, participantLanguage,
   setParticipantLanguage, participantText, participantFormatTime, openDocumentViewer, closeDocumentViewer, updateDocumentViewerRights,
   documentSceneEvent
-} from "./app.js?v=0.8.42";
+} from "./app.js?v=0.8.43";
 
 function sizeConferenceProgram() {
   const panel = document.querySelector("#pageContent .conference-program-panel");
@@ -628,10 +628,10 @@ function advancedBallot(vote) {
   if (!vote.ballotType || vote.ballotType === "single") return "";
   const name = `ballot-${vote.id}`;
   const fields = vote.options.map((option, index) => {
-    if (vote.ballotType === "cumulative") return `<label class="option-row"><span>${escapeHtml(option.label)}</span><input type="number" min="0" max="${vote.ballotConfig?.points ?? 10}" value="0" data-ballot-allocation="${escapeHtml(option.id)}" aria-label="Баллы: ${escapeHtml(option.label)}"></label>`;
-    if (vote.ballotType === "ranked") return `<label class="option-row"><span>${escapeHtml(option.label)}</span><input type="number" min="0" max="${vote.options.length}" value="${index + 1}" data-ballot-rank="${escapeHtml(option.id)}" aria-label="Место в рейтинге: ${escapeHtml(option.label)}"></label>`;
+    if (vote.ballotType === "cumulative") return `<label class="option-row"><span>${voteOptionSwatch(option)}${escapeHtml(option.label)}</span><input type="number" min="0" max="${vote.ballotConfig?.points ?? 10}" value="0" data-ballot-allocation="${escapeHtml(option.id)}" aria-label="Баллы: ${escapeHtml(option.label)}"></label>`;
+    if (vote.ballotType === "ranked") return `<label class="option-row"><span>${voteOptionSwatch(option)}${escapeHtml(option.label)}</span><input type="number" min="0" max="${vote.options.length}" value="${index + 1}" data-ballot-rank="${escapeHtml(option.id)}" aria-label="Место в рейтинге: ${escapeHtml(option.label)}"></label>`;
     const attribute = vote.ballotType === "veto" ? "data-ballot-veto" : "data-ballot-approval";
-    return `<label class="option-row"><span>${escapeHtml(option.label)}</span><input type="checkbox" ${attribute}="${escapeHtml(option.id)}"></label>`;
+    return `<label class="option-row"><span>${voteOptionSwatch(option)}${escapeHtml(option.label)}</span><input type="checkbox" ${attribute}="${escapeHtml(option.id)}"></label>`;
   }).join("");
   return `<div class="advanced-ballot" data-ballot-vote="${escapeHtml(vote.id)}" role="group" aria-label="Бюллетень"><p class="advanced-ballot-hint">${vote.ballotType === "ranked" ? "Укажите порядок предпочтения" : vote.ballotType === "cumulative" ? "Распределите баллы между вариантами" : "Отметьте подходящие варианты"}</p>${fields}<button class="button button-primary" data-action="cast-advanced-vote" data-vote-id="${escapeHtml(vote.id)}">Отправить бюллетень</button></div>`;
 }
@@ -668,6 +668,11 @@ function voteOutcomeLabel(vote) {
   return VOTE_OUTCOME_LABELS[outcome] ?? (vote?.status === "closed" ? "Голосование завершено" : "Идёт голосование");
 }
 
+function voteOptionSwatch(option) {
+  return /^#[0-9a-fA-F]{6}$/.test(option.color ?? "")
+    ? `<i class="vote-option-swatch" style="background-color:${option.color}" aria-hidden="true"></i>` : "";
+}
+
 function conferenceVoteCard(vote, heading) {
   if (!vote) return "";
   const selectedOptionId = state.voteSelections.get(vote.id) ?? vote.namedBallots?.find((ballot) => ballot.participantId === state.participantId)?.optionId;
@@ -678,7 +683,7 @@ function conferenceVoteCard(vote, heading) {
     const canChoose = (!vote.ballotType || vote.ballotType === "single") && vote.status === "open" && isEligibleForVote(vote) && !selectedOptionId && !vote.hasVoted;
     const selected = selectedOptionId === option.id;
     const semantic = { "за": "vote-for", "против": "vote-against", "воздержался": "vote-abstain" }[String(option.label).trim().toLocaleLowerCase("ru-RU")] ?? "vote-other";
-    return `<div class="option-row ${semantic} ${selected ? "selected" : ""}"><span>${escapeHtml(option.label)}${selected ? '<small class="selected-vote-label">✓ Ваш выбор принят</small>' : ""}${voters ? `<small class="voter-names">${escapeHtml(voters)}</small>` : ""}</span><strong>${vote.results?.[option.id] ?? 0}</strong>${canChoose && (!pendingOptionId || pendingOptionId === option.id) ? `<button class="button vote-choice ${semantic}" aria-pressed="${selected}" data-action="cast-vote" data-vote-id="${vote.id}" data-option-id="${option.id}" ${pendingOptionId ? "disabled" : ""}>${pendingOptionId ? "Отправляем…" : "Выбрать"}</button>` : ""}</div>`;
+    return `<div class="option-row ${semantic} ${selected ? "selected" : ""}"><span>${voteOptionSwatch(option)}${escapeHtml(option.label)}${selected ? '<small class="selected-vote-label">✓ Ваш выбор принят</small>' : ""}${voters ? `<small class="voter-names">${escapeHtml(voters)}</small>` : ""}</span><strong>${vote.results?.[option.id] ?? 0}</strong>${canChoose && (!pendingOptionId || pendingOptionId === option.id) ? `<button class="button vote-choice ${semantic}" aria-pressed="${selected}" data-action="cast-vote" data-vote-id="${vote.id}" data-option-id="${option.id}" ${pendingOptionId ? "disabled" : ""}>${pendingOptionId ? "Отправляем…" : "Выбрать"}</button>` : ""}</div>`;
   }).join("");
   const summary = vote.electorateSummary ?? {};
   const ballot = vote.status === "open" && isEligibleForVote(vote) && !vote.hasVoted ? advancedBallot(vote) : "";
@@ -2248,7 +2253,7 @@ function votingHtml() {
         ? vote.namedBallots.filter((ballot) => ballot.optionId === option.id).map((ballot) => ballot.displayName).join(", ")
         : "";
       const semantic = { "за": "vote-for", "против": "vote-against", "воздержался": "vote-abstain" }[String(option.label).trim().toLocaleLowerCase("ru-RU")] ?? "vote-other";
-      return `<div class="option-row ${semantic} ${selected ? "selected" : ""}"><span>${escapeHtml(option.label)}${selected ? `<small class="selected-vote-label">✓ Ваш выбор принят</small>` : ""}${namedVoters ? `<small class="voter-names">${escapeHtml(namedVoters)}</small>` : ""}</span>${
+      return `<div class="option-row ${semantic} ${selected ? "selected" : ""}"><span>${voteOptionSwatch(option)}${escapeHtml(option.label)}${selected ? `<small class="selected-vote-label">✓ Ваш выбор принят</small>` : ""}${namedVoters ? `<small class="voter-names">${escapeHtml(namedVoters)}</small>` : ""}</span>${
       vote.status === "open" && isEligibleForVote(vote) && (!vote.ballotType || vote.ballotType === "single")
         ? `<button class="button vote-choice ${semantic} ${selected ? "button-selected" : ""}" aria-pressed="${selected}" data-action="cast-vote" data-vote-id="${vote.id}" data-option-id="${option.id}" ${selectedOptionId || vote.hasVoted || pendingOptionId ? "disabled" : ""}>${selected ? "✓ Выбрано" : vote.hasVoted ? "Голос принят" : pendingOptionId === option.id ? "Отправляем…" : "Выбрать"}</button>`
         : vote.results ? `<strong>${vote.results[option.id] || 0}</strong>` : ""

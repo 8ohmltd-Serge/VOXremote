@@ -11,7 +11,7 @@ import { PARTICIPANT_LANGUAGES, participantLanguageOptions, configureParticipant
 import { openDocumentViewer, closeDocumentViewer, minimizeDocumentViewer, expandPresentationViewer, closePresentationViewer,
   updateDocumentViewerRights, documentSceneEvent, isPresentationViewerOpen } from "./documentViewer.js";
 import { createWaitingRoom } from "./waitingRoom.js";
-import { suspendProgramFullscreen, restoreProgramFullscreen, syncProgramFullscreenButton } from "./programFullscreen.js?v=0.8.42";
+import { suspendProgramFullscreen, restoreProgramFullscreen, syncProgramFullscreenButton } from "./programFullscreen.js?v=0.8.43";
 
 const VoxNoticeLocale = globalThis.VoxNoticeLocale;
 let canEditWorkspaceLayout, handleWorkspaceUiAction, applyWorkspaceLayout, renderPage, updateNavigationVisibility, translationHtml, unreadChatCount, updateChatNotice, markChatRead, pageHead, VOTE_OUTCOME_LABELS, updateVoteCountdowns,
@@ -53,7 +53,7 @@ function meetingControlPanelId(meetingId) {
 }
 async function loadFeatureModules() {
   if (!featureModulesPromise) featureModulesPromise = Promise.all([
-    import("./clientViews.js?v=0.8.42"), import("./clientOperations.js?v=0.8.42"), import("./roomControlEvents.js?v=0.8.42")
+    import("./clientViews.js?v=0.8.43"), import("./clientOperations.js?v=0.8.43"), import("./roomControlEvents.js?v=0.8.43")
   ]).then(([views, operations, controls]) => {
     roomControlEvents = controls.createRoomControlEvents($("#pageContent"), () => state, notify, (pageId, action = "navigate") => {
       const project = state.roomControl;
@@ -2595,7 +2595,7 @@ function handlePageAction(event, target) {
     if (!target.closest(".conference-program-panel")) return;
     const expanded = document.documentElement.classList.toggle("program-fullscreen-mode");
     if (expanded && !document.fullscreenElement) {
-      void document.documentElement.requestFullscreen?.().catch(() => {});
+      void document.documentElement.requestFullscreen?.({ navigationUI: "hide" }).catch(() => {});
     } else if (!expanded && document.fullscreenElement === document.documentElement) {
       void document.exitFullscreen?.().catch(() => {});
     }

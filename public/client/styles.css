@@ -355,6 +355,12 @@ body[data-prestart="true"] #enableAudioBtn, body[data-prestart="true"] #headphon
 .list-item h4 { margin: 0 0 3px; }
 .list-item p { margin: 0; color: var(--muted); font-size: 12px; }
 .option-row { display: flex; gap: 10px; justify-content: space-between; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.vote-option-swatch{display:inline-block;width:14px;height:14px;margin-right:8px;border:1px solid #666;border-radius:4px;vertical-align:-2px}
+.vote-option-colors{margin:8px 0 18px;padding:12px;border:1px solid var(--line);border-radius:10px}
+.vote-option-color-list{display:grid;gap:8px;margin-top:8px}
+.vote-option-color-row{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:40px}
+.vote-option-color-row span{overflow-wrap:anywhere}
+.vote-option-color-row input[type=color]{width:48px;height:36px;padding:2px;flex:none;cursor:pointer}
 .option-row.selected { margin-inline: -10px; padding-inline: 10px; border-radius: 10px; border-color: #2b8c78; background: var(--teal-soft); box-shadow: inset 4px 0 0 var(--teal); }
 .selected-vote-label { margin-top: 4px; color: var(--teal); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
 .button-selected { background: var(--teal); color: white; opacity: 1; }

@@ -31,9 +31,9 @@ import {
   serviceRequestCategoryLabel, serviceRequestStatusLabel, serviceRequestCategoryOptions, eventRetryDelay,
   PARTICIPANT_LANGUAGES, participantLanguage, setParticipantLanguage, participantText, participantFormatTime, openDocumentViewer,
   closeDocumentViewer, expandPresentationViewer, updateDocumentViewerRights, documentSceneEvent
-} from "./app.js?v=0.8.42";
+} from "./app.js?v=0.8.43";
 import { roomSeatDialog } from "./roomSeatScheme.js";
-import { startFaceFraming } from "./faceFraming.js?v=0.8.42";
+import { startFaceFraming } from "./faceFraming.js?v=0.8.43";
 
 // Dialog builders and roster flows live here, not in the participant bootstrap (app.js budget).
 const VoxNoticeLocale = globalThis.VoxNoticeLocale;
@@ -183,6 +183,22 @@ function voteCreationForm(title, fields, candidates, pro, governance = {}, submi
       <label><span>Группа</span><select data-voter-group ${pro ? "" : "disabled"}>${groups.map((group) => `<option value="${escapeHtml(group.value)}" ${group.value === item.group ? "selected" : ""}>${escapeHtml(group.label)}</option>`).join("")}</select></label>
     </div>`).join("");
     form.innerHTML = `<button type="button" class="dialog-icon-close" data-dialog-close data-cancel aria-label="Закрыть">×</button><h3>${escapeHtml(title)}</h3><p class="form-error" data-form-error role="alert" hidden></p>${controls}<fieldset class="vote-electorate"><legend>Избиратели</legend><div class="vote-elector-toolbar"><span>${state.meeting.quick ? "Текущие участники быстрой конференции" : "Все запланированные участники"}</span><div class="action-strip compact"><button type="button" class="button button-quiet" data-select-voters>Выбрать всех</button><button type="button" class="button button-quiet" data-clear-voters>Снять все</button></div></div>${pro ? "" : '<p class="form-hint">Вес и группы доступны в расширенной лицензии голосования.</p>'}<div class="vote-elector-list">${rows || '<div class="empty">Участников с правом голосования нет.</div>'}</div></fieldset><div class="actions"><button type="button" class="button button-quiet" data-cancel>Отмена</button><button type="submit" class="button button-primary">${escapeHtml(submitLabel)}</button></div>`;
+    if (pro) {
+      const rawInput = form.elements.raw;
+      const colors = document.createElement("fieldset");
+      colors.className = "vote-option-colors";
+      colors.innerHTML = '<legend>Цвета вариантов ответа</legend><p class="form-hint">Цвет будет виден участникам и в результатах голосования.</p><div class="vote-option-color-list"></div>';
+      rawInput.closest("label").after(colors);
+      const palette = ["#2e8b57", "#c83d38", "#d5a51f", "#3674bd", "#8958b0", "#168b9a"];
+      const renderColors = () => {
+        const previous = new Map([...colors.querySelectorAll("[data-option-label]")].map((input) => [input.dataset.optionLabel, input.value]));
+        const labels = rawInput.value.split(";").map((item) => item.trim()).filter(Boolean);
+        colors.querySelector(".vote-option-color-list").innerHTML = labels.map((label, index) =>
+          `<label class="vote-option-color-row"><span>${escapeHtml(label)}</span><input type="color" data-option-label="${escapeHtml(label)}" value="${escapeHtml(previous.get(label) ?? palette[index % palette.length])}" aria-label="Цвет варианта ${escapeHtml(label)}"></label>`).join("");
+      };
+      rawInput.addEventListener("input", renderColors);
+      renderColors();
+    }
     backdrop.append(form); document.body.append(backdrop);
     const updateVisibility = () => {
       form.querySelectorAll("[data-visible-source]").forEach((label) => {
@@ -223,6 +239,7 @@ function voteCreationForm(title, fields, candidates, pro, governance = {}, submi
       }));
       if (!electorate.length) { showError("Выберите хотя бы одного избирателя"); return; }
       const values = { ...Object.fromEntries(new FormData(form)), electorate };
+      if (pro) values.optionColors = [...form.querySelectorAll("[data-option-label]")].map((input) => ({ label: input.dataset.optionLabel, color: input.value }));
       if (!onSubmit) { done(values); return; }
       busy = true; submit.disabled = true; submit.setAttribute("aria-busy", "true");
       try { await onSubmit(values); done(values); }
@@ -2619,7 +2636,9 @@ async function createVote() {
 
 async function submitNewVote(values, pro) {
   const {topic,question,raw,mode,ruleSetId}=values;
-  const options = raw?.split(";").map((item) => item.trim()).filter(Boolean) || [];
+  const labels = raw?.split(";").map((item) => item.trim()).filter(Boolean) || [];
+  const colors = new Map((values.optionColors ?? []).map((item) => [item.label, item.color]));
+  const options = pro ? labels.map((label) => ({ label, color: colors.get(label) })) : labels;
   if (options.length < 2) throw new Error("Нужно не менее двух вариантов.");
   const body = { topic, question, options, mode, weightMode: pro ? values.weightMode : "one-person",
     ruleSetId, durationSeconds:Number(values.durationSeconds),
